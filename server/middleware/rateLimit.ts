@@ -9,6 +9,10 @@
  * X-Forwarded-For はクライアントが自由に付けられるため、**左端は信用しない**。
  * 各プロキシが受信元を右端に追加するので、右端から `trustProxyHops` 番目の値
  * （既定 1 = 直近のプロキシが付けたアドレス）を採用する。
+ *
+ * 転送ヘッダは X-Forwarded-For だけを読む。`X-Real-IP` は「プロキシが上書きする」
+ * 保証が無く、無ければソケットの IP（= プロキシ自身）にフォールバックする方が安全。
+ * そのため前段プロキシで X-Forwarded-For を設定/上書きする必要がある。
  */
 
 import type { MiddlewareHandler } from 'hono';
@@ -109,8 +113,6 @@ function forwardedIp(c: ContextLike, hops: number): string | null {
     const candidate = parts[Math.max(0, parts.length - hops)];
     if (candidate !== undefined && candidate !== '') return candidate;
   }
-  const realIp = c.req.header('x-real-ip');
-  if (realIp !== undefined && realIp.trim() !== '') return realIp.trim();
   return null;
 }
 

@@ -38,9 +38,11 @@ describe('レート制限のクライアント IP', () => {
     const c = context({ forwardedFor: '198.51.100.1, 10.0.0.1', remoteAddress: '127.0.0.1' });
     // 左端はクライアントが自由に付けられるため採用しない。
     expect(getClientIp(c, true)).toBe('10.0.0.1');
-    expect(getClientIp(context({ realIp: '198.51.100.2', remoteAddress: '127.0.0.1' }), true)).toBe(
-      '198.51.100.2',
-    );
+  });
+
+  it('X-Real-IP だけではキーにしない（偽装で回避できないようソケットへ戻す）', () => {
+    const c = context({ realIp: '198.51.100.2', remoteAddress: '127.0.0.1' });
+    expect(getClientIp(c, true)).toBe('127.0.0.1');
   });
 
   it('偽装された XFF を足しても、プロキシが付けた右端は変わらない', () => {
