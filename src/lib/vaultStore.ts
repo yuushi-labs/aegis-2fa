@@ -346,36 +346,43 @@ export const useVaultStore = create<VaultStore>((set, get) => {
     },
 
     async unlock(password) {
-      const { envelope, cooldownUntil } = get();
-      if (envelope === null) return { ok: false };
-      const now = Date.now();
-      if (cooldownUntil > now) {
-        return { ok: false, cooldownSeconds: Math.ceil((cooldownUntil - now) / 1000) };
-      }
-      try {
-        const unlocked = await unlockVaultEnvelope(envelope, password);
-        const data = parseVaultData(unlocked.plaintext);
-        unlockSession += 1;
-        set({
-          status: 'unlocked',
-          dek: unlocked.dek,
-          accounts: sortAccounts(data.accounts),
-          tombstones: data.tombstones ?? [],
-          failedAttempts: 0,
-          cooldownUntil: 0,
-        });
-        void refreshRemote();
-        return { ok: true };
-      } catch (error) {
-        if (!(error instanceof WrongPasswordError)) throw error;
-        const attempts = get().failedAttempts + 1;
-        if (attempts >= 5) {
-          set({ failedAttempts: 0, cooldownUntil: now + 30_000 });
-          return { ok: false, cooldownSeconds: 30 };
+      // 進行中の保存が確定してから復号する（古い封筒から accounts を復元しない）。
+      return runExclusive(async () => {
+        const { envelope, cooldownUntil } = get();
+        if (envelope === null) return { ok: false };
+        const now = Date.now();
+        if (cooldownUntil > now) {
+          return { ok: false, cooldownSeconds: Math.ceil((cooldownUntil - now) / 1000) };
         }
-        set({ failedAttempts: attempts });
-        return { ok: false };
-      }
+        try {
+          // 直前に確定した保存（IndexedDB の最新）を読み直してから復号する。
+          const stored = await readVault();
+          const target = stored?.envelope ?? envelope;
+          if (target !== envelope) set({ envelope: target });
+          const unlocked = await unlockVaultEnvelope(target, password);
+          const data = parseVaultData(unlocked.plaintext);
+          unlockSession += 1;
+          set({
+            status: 'unlocked',
+            dek: unlocked.dek,
+            accounts: sortAccounts(data.accounts),
+            tombstones: data.tombstones ?? [],
+            failedAttempts: 0,
+            cooldownUntil: 0,
+          });
+          void refreshRemote();
+          return { ok: true };
+        } catch (error) {
+          if (!(error instanceof WrongPasswordError)) throw error;
+          const attempts = get().failedAttempts + 1;
+          if (attempts >= 5) {
+            set({ failedAttempts: 0, cooldownUntil: now + 30_000 });
+            return { ok: false, cooldownSeconds: 30 };
+          }
+          set({ failedAttempts: attempts });
+          return { ok: false };
+        }
+      });
     },
 
     lock() {
@@ -693,7 +700,8 @@ export const useVaultStore = create<VaultStore>((set, get) => {
             syncState: 'pending',
           });
         }
-        return { added, updated, resolved: true, shouldSync: session === unlockSession };
+        // 暗号文の送信は平文を必要としない（ロック後でも送る）。
+        return { added, updated, resolved: true, shouldSync: true };
       });
 
       if (result.shouldSync) await get().syncNow();

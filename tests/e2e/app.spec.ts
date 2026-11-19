@@ -105,6 +105,8 @@ test.describe('キーボードショートカット', () => {
     await addManualAccount(page, { issuer: 'Shortcut', label: 'kbd@example.com', secret: RFC_SECRET });
     await expect(page.getByTestId('otp-code').first()).toBeVisible();
 
+    // 直前の操作でフォーカスが外れていても安定するよう、ページ本文をクリックしてから押す。
+    await page.getByRole('heading', { name: 'アカウント' }).click();
     await page.keyboard.press('/');
     await expect(page.getByRole('searchbox')).toBeFocused();
     await page.keyboard.press('Escape');
