@@ -8,6 +8,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { timingSafeEqualString } from '../../shared/encoding';
+import { MAX_KDF_ITERATIONS, MIN_KDF_ITERATIONS } from '../../shared/types';
 import { deriveTokenHash, isValidVaultId } from '../../shared/sync';
 import { vaults } from '../db/schema';
 import type { AegisDatabase } from '../db/client';
@@ -24,7 +25,8 @@ export const envelopeSchema = z
     version: z.literal(1),
     kdf: z.object({
       name: z.literal('PBKDF2-SHA256'),
-      iterations: z.number().int().min(100_000).max(10_000_000),
+      // 上限はクライアント側（shared/types.ts の MAX_KDF_ITERATIONS）と揃える。
+      iterations: z.number().int().min(MIN_KDF_ITERATIONS).max(MAX_KDF_ITERATIONS),
       salt: z.string().min(1).max(64),
     }),
     wrappedKey: cipherSchema,

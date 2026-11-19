@@ -212,6 +212,53 @@ describe('入力バリデーション', () => {
     expect(((await put.json()) as { error: string }).error).toBe('revision_must_advance');
   });
 
+  it('Content-Length の無い chunked body でも上限超過は 413', async () => {
+    const token = generateSyncToken();
+    const id = await deriveVaultId(token);
+    // ストリームで送る → Content-Length は付かない。
+    const chunk = new Uint8Array(64 * 1024);
+    let sent = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent >= 320 * 1024) {
+          controller.close();
+          return;
+        }
+        sent += chunk.byteLength;
+        controller.enqueue(chunk);
+      },
+    });
+    const request = new Request(`http://localhost/api/vault/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: stream,
+      duplex: 'half',
+    } as RequestInit);
+    const response = await app.request(request);
+    expect(response.status).toBe(413);
+    expect(((await response.json()) as { error: string }).error).toBe('payload_too_large');
+  });
+
+  it('Content-Length の無い小さな body はそのまま処理される', async () => {
+    const token = generateSyncToken();
+    const id = await deriveVaultId(token);
+    const payload = new TextEncoder().encode(JSON.stringify({ envelope: await buildEnvelope(1), revision: 0 }));
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(payload);
+        controller.close();
+      },
+    });
+    const request = new Request(`http://localhost/api/vault/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: stream,
+      duplex: 'half',
+    } as RequestInit);
+    const response = await app.request(request);
+    expect(response.status).toBe(200);
+  });
+
   it('body が 256 KiB を超えると 413', async () => {
     const token = generateSyncToken();
     const id = await deriveVaultId(token);
@@ -284,6 +331,37 @@ describe('レート制限', () => {
       headers: { Authorization: `Bearer ${generateSyncToken()}` },
     });
     expect(recovered.status).toBe(404);
+  });
+
+  it('既定（TRUST_PROXY なし）では転送ヘッダを変えても制限を回避できない', async () => {
+    const limitedApp = createApp({ database, log: () => {} });
+    const id = 'c'.repeat(32);
+    let response: Response | null = null;
+    for (let i = 0; i < 61; i += 1) {
+      response = await limitedApp.request(`/api/vault/${id}/meta`, {
+        headers: { Authorization: `Bearer ${generateSyncToken()}`, 'X-Forwarded-For': `10.0.0.${i}` },
+      });
+    }
+    expect(response?.status).toBe(429);
+  });
+
+  it('TRUST_PROXY=true なら転送ヘッダ単位で数える', async () => {
+    const limitedApp = createApp({ database, log: () => {}, trustProxy: true });
+    const id = 'd'.repeat(32);
+    for (let i = 0; i < 61; i += 1) {
+      const response = await limitedApp.request(`/api/vault/${id}/meta`, {
+        headers: { Authorization: `Bearer ${generateSyncToken()}`, 'X-Forwarded-For': `10.0.1.${i}` },
+      });
+      expect(response.status).toBe(404);
+    }
+    // 同じ IP を繰り返せば制限される。
+    let last: Response | null = null;
+    for (let i = 0; i < 61; i += 1) {
+      last = await limitedApp.request(`/api/vault/${id}/meta`, {
+        headers: { Authorization: `Bearer ${generateSyncToken()}`, 'X-Forwarded-For': '10.0.2.1' },
+      });
+    }
+    expect(last?.status).toBe(429);
   });
 
   it('PUT は 20 req/min で制限される', async () => {
@@ -412,6 +490,11 @@ describe('SPA フォールバック', () => {
     const asset = await spaApp.request('/assets/app.js');
     expect(asset.status).toBe(200);
     expect(asset.headers.get('cache-control')).toContain('immutable');
+
+    // index.html を直接取得しても no-store（古いハッシュ付き資産を参照しない）。
+    const direct = await spaApp.request('/index.html');
+    expect(direct.status).toBe(200);
+    expect(direct.headers.get('cache-control')).toBe('no-store');
 
     const api = await spaApp.request('/api/does-not-exist');
     expect(api.status).toBe(404);

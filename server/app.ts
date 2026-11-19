@@ -68,8 +68,15 @@ function readStaticFile(root: string, relativePath: string): { body: Buffer; typ
   return {
     body: readFileSync(candidate),
     type: mimeFor(candidate),
-    cache: relativePath.startsWith('assets/') ? ASSET_CACHE : FILE_CACHE,
+    cache: cacheControlFor(relativePath),
   };
+}
+
+/** HTML は no-store（デプロイ直後に古い index を参照しない）、assets/ は immutable。 */
+function cacheControlFor(relativePath: string): string {
+  if (relativePath.startsWith('assets/')) return ASSET_CACHE;
+  if (/\.html?$/i.test(relativePath)) return HTML_CACHE;
+  return FILE_CACHE;
 }
 
 export function createApp(options: AppOptions): Hono<{ Variables: BodyLimitVariables }> {
@@ -93,10 +100,12 @@ export function createApp(options: AppOptions): Hono<{ Variables: BodyLimitVaria
   }
 
   // レート制限: /api/vault/* 60/min、PUT は 20/min。
+  // キーはソケットの接続元 IP。転送ヘッダは TRUST_PROXY=true のときだけ信用する。
   if (options.disableRateLimit !== true) {
     const clock = options.now === undefined ? {} : { now: options.now };
-    const vaultLimiter = createRateLimiter({ name: 'vault', windowMs: 60_000, max: 60, ...clock });
-    const putLimiter = createRateLimiter({ name: 'vault-put', windowMs: 60_000, max: 20, ...clock });
+    const trustProxy = options.trustProxy === true;
+    const vaultLimiter = createRateLimiter({ name: 'vault', windowMs: 60_000, max: 60, trustProxy, ...clock });
+    const putLimiter = createRateLimiter({ name: 'vault-put', windowMs: 60_000, max: 20, trustProxy, ...clock });
     app.use('/api/vault/*', vaultLimiter);
     app.use('/api/vault/:id', async (c, next) => {
       if (c.req.method !== 'PUT') {
