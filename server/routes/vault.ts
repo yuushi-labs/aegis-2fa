@@ -6,10 +6,10 @@
 
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { timingSafeEqualString } from '../../shared/encoding';
 import { MAX_KDF_ITERATIONS, MIN_KDF_ITERATIONS } from '../../shared/types';
-import { deriveTokenHash, isValidVaultId } from '../../shared/sync';
+import { deriveTokenHash, deriveVaultId, isValidVaultId } from '../../shared/sync';
 import { vaults } from '../db/schema';
 import type { AegisDatabase } from '../db/client';
 import type { BodyLimitVariables } from '../middleware/bodyLimit';
@@ -44,8 +44,13 @@ export const putBodySchema = z
   })
   .strict();
 
+/** 保存できる暗号文の総量の既定値（256 MiB）。 */
+export const DEFAULT_MAX_VAULT_BYTES = 256 * 1024 * 1024;
+
 export type VaultRoutesOptions = {
   db: AegisDatabase;
+  /** 保存できる暗号文の総量（バイト）。超過する書き込みは 507 を返す。 */
+  maxVaultBytes?: number;
 };
 
 function bearerToken(header: string | undefined): string | null {
@@ -57,11 +62,26 @@ function bearerToken(header: string | undefined): string | null {
 export function createVaultRoutes(options: VaultRoutesOptions): Hono<{ Variables: BodyLimitVariables }> {
   const app = new Hono<{ Variables: BodyLimitVariables }>();
 
-  /** 認可: vaultId と tokenHash の両方が一致したときのみ。不一致は 404。 */
+  const maxVaultBytes = options.maxVaultBytes ?? DEFAULT_MAX_VAULT_BYTES;
+
+  /** 保存済み暗号文の総量（文字数）を数える。 */
+  async function storedBytes(): Promise<number> {
+    const rows = await options.db
+      .select({ total: sql<number>`coalesce(sum(length(${vaults.envelope})), 0)` })
+      .from(vaults);
+    return Number(rows[0]?.total ?? 0);
+  }
+
+  /**
+   * 認可: vaultId がトークンから導出でき、かつ tokenHash が一致したときのみ。
+   * 不一致は 404（ボルトの存在を漏らさない）。
+   */
   async function authorize(id: string, authorization: string | undefined) {
     if (!isValidVaultId(id)) return null;
     const token = bearerToken(authorization);
     if (token === null || token.length < 32) return null;
+    // 仕様: vaultId = hex(SHA-256(token))[0:32]。ID を任意に選べないようにする。
+    if ((await deriveVaultId(token)) !== id) return null;
     const rows = await options.db.select().from(vaults).where(eq(vaults.id, id)).limit(1);
     const row = rows[0];
     if (row === undefined) return null;
@@ -73,10 +93,14 @@ export function createVaultRoutes(options: VaultRoutesOptions): Hono<{ Variables
   app.get('/:id', async (c) => {
     const row = await authorize(c.req.param('id'), c.req.header('authorization'));
     if (row === null) return c.json({ error: 'not_found' }, 404);
-    return c.json({
-      envelope: JSON.parse(row.envelope) as unknown,
-      revision: row.revision,
-    });
+    let envelope: unknown;
+    try {
+      envelope = JSON.parse(row.envelope) as unknown;
+    } catch {
+      // 破損した行は 500 ではなく明示的なエラーにする（クライアントが復旧判断できる）。
+      return c.json({ error: 'corrupt_vault' }, 409);
+    }
+    return c.json({ envelope, revision: row.revision });
   });
 
   app.get('/:id/meta', async (c) => {
@@ -116,12 +140,21 @@ export function createVaultRoutes(options: VaultRoutesOptions): Hono<{ Variables
     if (token === null || token.length < 32) {
       return c.json({ error: 'not_found' }, 404);
     }
+    // 仕様: vaultId = hex(SHA-256(token))[0:32]。導出できない ID は受け付けない
+    // （未認証の第三者が任意の ID で行を作る／名前空間を占有するのを防ぐ）。
+    if ((await deriveVaultId(token)) !== id) {
+      return c.json({ error: 'not_found' }, 404);
+    }
     const tokenHash = await deriveTokenHash(token);
 
     const existing = (await options.db.select().from(vaults).where(eq(vaults.id, id)).limit(1))[0];
     const now = new Date().toISOString();
 
+    const incomingBytes = JSON.stringify(envelope).length;
     if (existing === undefined) {
+      if ((await storedBytes()) + incomingBytes > maxVaultBytes) {
+        return c.json({ error: 'storage_limit' }, 507);
+      }
       await options.db.insert(vaults).values({
         id,
         tokenHash,
@@ -139,6 +172,9 @@ export function createVaultRoutes(options: VaultRoutesOptions): Hono<{ Variables
     }
     if (existing.revision !== revision) {
       return c.json({ error: 'conflict', currentRevision: existing.revision }, 409);
+    }
+    if ((await storedBytes()) - existing.envelope.length + incomingBytes > maxVaultBytes) {
+      return c.json({ error: 'storage_limit' }, 507);
     }
 
     await options.db

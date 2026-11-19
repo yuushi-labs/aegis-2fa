@@ -505,3 +505,65 @@ describe('SPA フォールバック', () => {
     expect(await traversal.text()).toContain('SPA');
   });
 });
+
+describe('保存の境界と整合性', () => {
+  it('id がトークンから導出できない場合は 404（任意 ID の行を作らせない）', async () => {
+    const token = generateSyncToken();
+    const unrelatedId = 'deadbeefdeadbeefdeadbeefdeadbeef';
+    const envelope = await buildEnvelope(1);
+    const response = await app.request(`/api/vault/${unrelatedId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ envelope, revision: 0 }),
+    });
+    expect(response.status).toBe(404);
+    const read = await app.request(`/api/vault/${unrelatedId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(read.status).toBe(404);
+  });
+
+  it('保存量が上限を超える新規作成は 507 で、行を作らない', async () => {
+    const limitApp = createApp({
+      database,
+      disableRateLimit: true,
+      log: () => {},
+      maxVaultBytes: 10,
+    });
+    const token = generateSyncToken();
+    const id = await deriveVaultId(token);
+    const envelope = await buildEnvelope(1);
+    const response = await limitApp.request(`/api/vault/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ envelope, revision: 0 }),
+    });
+    expect(response.status).toBe(507);
+    expect(((await response.json()) as { error: string }).error).toBe('storage_limit');
+    const read = await limitApp.request(`/api/vault/${id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(read.status).toBe(404);
+  });
+
+  it('壊れた封筒は 500 ではなく 409 corrupt_vault を返す', async () => {
+    const token = generateSyncToken();
+    const id = await deriveVaultId(token);
+    const tokenHash = await deriveTokenHash(token);
+    const now = new Date().toISOString();
+    const { vaults } = await import('../../server/db/schema');
+    await database.db.insert(vaults).values({
+      id,
+      tokenHash,
+      envelope: '{not json',
+      revision: 2,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const response = await app.request(`/api/vault/${id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(response.status).toBe(409);
+    expect(((await response.json()) as { error: string }).error).toBe('corrupt_vault');
+  });
+});

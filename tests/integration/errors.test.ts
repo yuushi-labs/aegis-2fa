@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createApp } from '../../server/app';
 import type { DatabaseHandle } from '../../server/db/client';
 import { CSP_DIRECTIVES } from '../../server/middleware/security';
+import { deriveVaultId } from '../../shared/sync';
 
 /** どのクエリでも例外を投げる DB（500 応答の経路を作るため）。 */
 function failingDatabase(): DatabaseHandle {
@@ -17,12 +18,12 @@ function failingDatabase(): DatabaseHandle {
 }
 
 const TOKEN = 'abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG';
-const VAULT_ID = '0123456789abcdef0123456789abcdef';
 
 describe('例外時の応答', () => {
   it('500 でもセキュリティヘッダと no-store を付ける', async () => {
     const app = createApp({ database: failingDatabase(), disableRateLimit: true, log: () => {} });
-    const response = await app.request(`/api/vault/${VAULT_ID}`, {
+    const vaultId = await deriveVaultId(TOKEN);
+    const response = await app.request(`/api/vault/${vaultId}`, {
       headers: { Authorization: `Bearer ${TOKEN}` },
     });
     expect(response.status).toBe(500);
@@ -40,7 +41,8 @@ describe('例外時の応答', () => {
     process.env.NODE_ENV = 'production';
     try {
       const app = createApp({ database: failingDatabase(), disableRateLimit: true, log: () => {} });
-      const response = await app.request(`/api/vault/${VAULT_ID}`, {
+      const vaultId = await deriveVaultId(TOKEN);
+      const response = await app.request(`/api/vault/${vaultId}`, {
         headers: { Authorization: `Bearer ${TOKEN}` },
       });
       const body = (await response.json()) as { error: string; message: string };
