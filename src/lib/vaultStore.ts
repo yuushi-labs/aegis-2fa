@@ -778,19 +778,17 @@ export const useVaultStore = create<VaultStore>((set, get) => {
 
     async wipe() {
       // 進行中の保存が削除後に書き戻さないよう、先に世代を進める。
-      lifecycleGeneration += 1;
-      unlockSession += 1;
-      // サーバー側の暗号文も消す（残すとユーザーが後から削除する手段を失う）。
-      // オフラインでもローカルの削除は続ける。
       const { vaultId, token } = get();
-      if (vaultId !== null && token !== null) {
-        try {
-          await syncClient.remove(vaultId, token);
-        } catch {
-          // 失敗してもローカルは消す（次回接続時に使うトークンも消える）。
-        }
-      }
+      const generation = lifecycleGeneration + 1;
+      lifecycleGeneration = generation;
+      unlockSession += 1;
+      // 先にローカルを消す。サーバー側の削除を待つ間に別のボルト（attachSync）へ
+      // 置き換わっても、その新しいボルトを消さないため。
       await deleteVault();
+      if (generation !== lifecycleGeneration) {
+        // 待機中に別のボルトが作られた／接続された → 状態は触らない。
+        return;
+      }
       set({
         status: 'uninitialized',
         accounts: [],
@@ -807,6 +805,15 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         failedAttempts: 0,
         cooldownUntil: 0,
       });
+      // サーバー側の暗号文も消す（残すとユーザーが後から削除する手段を失う）。
+      // 失敗してもローカルは消えているので、そのまま終える。
+      if (vaultId !== null && token !== null) {
+        try {
+          await syncClient.remove(vaultId, token);
+        } catch {
+          // オフライン等でもローカル削除は完了させる。
+        }
+      }
     },
   };
 });

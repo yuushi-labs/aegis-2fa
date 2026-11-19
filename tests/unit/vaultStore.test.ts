@@ -147,6 +147,7 @@ vi.mock('../../shared/crypto', async (importOriginal) => {
 const PASSWORD = 'correct horse battery staple';
 const OTHER_PASSWORD = 'another very long password 42';
 const TOKEN = 'abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG';
+const SECOND_TOKEN = 'ZYXWVUTSRQPONMLKJIHGFEDCBA9876543210zyxwvut';
 /** テストでは PBKDF2 の下限（100,000 回）を使う。 */
 const TEST_ITERATIONS = 100_000;
 
@@ -667,6 +668,44 @@ describe('ボルトストア: 保存の直列化と世代管理', () => {
     await store.getState().wipe();
     expect(H.vault).toBeNull();
     expect(store.getState().status).toBe('uninitialized');
+  });
+
+  it('wipe のサーバー削除を待つ間に接続された別のボルトは消さない', async () => {
+    const { store, crypto } = await unlockedStore({
+      accounts: [account('a')],
+      token: TOKEN,
+      syncedRevision: 1,
+    });
+    const remote = await crypto.createVaultEnvelope({
+      password: PASSWORD,
+      plaintext: JSON.stringify({ accounts: [account('b')], tombstones: [] }),
+      revision: 3,
+      iterations: TEST_ITERATIONS,
+    });
+    let releaseRemove: () => void = () => undefined;
+    const removeGate = new Promise<void>((resolve) => {
+      releaseRemove = resolve;
+    });
+    let removeStarted: () => void = () => undefined;
+    const started = new Promise<void>((resolve) => {
+      removeStarted = resolve;
+    });
+    H.server.remove = async () => {
+      removeStarted();
+      await removeGate;
+    };
+    H.server.get = async () => ({ envelope: remote, revision: 3 });
+    const wiping = store.getState().wipe();
+    await started;
+    // サーバー削除の待機中に、別のボルトへ接続する。
+    await store.getState().attachSync(SECOND_TOKEN);
+    releaseRemove();
+    await wiping;
+    // 新しいボルトは置き換え後に消されていない。
+    expect(store.getState().status).toBe('locked');
+    expect(store.getState().envelope?.revision).toBe(3);
+    expect(H.vault?.envelope.revision).toBe(3);
+    expect(H.token).toBe(SECOND_TOKEN);
   });
 
   it('wipe 後の古いセッションからの操作では、消したボルトを復活させない', async () => {
