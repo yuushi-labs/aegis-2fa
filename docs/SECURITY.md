@@ -74,6 +74,16 @@ DEK ──AES-256-GCM (IV 12B, AAD "aegis-data-v1:<revision>")──► data (ci
 - **マスターパスワードの忘却**: 復旧手段はありません。これがゼロ知識の代償です。
 - **タイミング攻撃の完全な排除**: 比較は定数時間実装ですが、ブラウザの JIT 最適化までは制御できません。
 - **マルチテナント分離**: 単一ユーザー / 小規模チーム向けの設計です。監査ログや RBAC はありません。
+- **復号失敗の原因を区別しない**: AES-GCM の認証タグ不一致（改ざん・ビット化け）も
+  「パスワードが違います」として扱います。壊れたデータは 5 回でクールダウンに入り、
+  整合性違反であることが画面に出ません（バックアップからの復元が有効です）。
+- **解錠の試行制限はメモリのみ**: 5 回失敗で 30 秒のクールダウンはページ再読み込みで
+  リセットされます。ローカル封筒に対する総当たりの主防御は PBKDF2 600,000 回です。
+- **同期データの項目検証は最小限**: 同期マージやバックアップから取り込んだ `accounts` は
+  形だけを検査します。細工された `period` や `digits` は表示・コード生成の失敗として
+  現れますが、XSS には至りません（`innerHTML` 系の DOM シンクは使用していません）。
+- **CI のアクションは可変タグ参照**: `actions/*@v4` 等を使用しています。サプライチェーン
+  対策として SHA 固定が望ましく、未対応です。
 
 ## 5. サーバー側の防御
 
@@ -82,6 +92,12 @@ DEK ──AES-256-GCM (IV 12B, AAD "aegis-data-v1:<revision>")──► data (ci
   `Cross-Origin-Resource-Policy: same-origin`、`Permissions-Policy`（カメラのみ self）。
 - HTTPS 運用時は HSTS（`AEGIS_HTTPS=true`）。
 - レート制限: 読み取り 60 req/min、書き込み 20 req/min（IP 単位、`429` + `Retry-After`）。
+  `TRUST_PROXY=true` のときは `X-Forwarded-For` を**右端から** `TRUST_PROXY_HOPS` 番目の
+  値で識別する（左端はクライアントが偽装できるため採用しない）。
+- 保存の同一性: `vaultId = hex(SHA-256(token))[0:32]` を書き込み時に検証し、トークンから
+  導出できない ID は `404`（任意 ID の作成・名前空間の占有を防ぐ）。
+- 保存量の上限: 暗号文の総量が `MAX_VAULT_BYTES`（既定 256 MiB）を超える書き込みは `507`。
+- 破損した行: 復号できない封筒は `500` ではなく `409 corrupt_vault` を返す。
 - 入力検証: すべてのボディを zod で検証。256 KiB を超えるボディは `413`。
 - エラーレスポンスは本番で内部情報を出さない（`internal_error`）。
 - `Cache-Control: no-store` を `/api/*` に付与。
@@ -125,6 +141,28 @@ v1.0.0 は**第三者による外部セキュリティ監査を受けていま�
 - v1.0.0 準備時に解消したもの:
   - `vitest` 3.2.7 → 4.1.12（`tinypool` の critical 2 件、`@vitest/mocker` の path traversal を解消）
   - `zod` 3.25.76 → 4.6.7（GHSA-mrhx-c7xc-m3w5: 過大な制約付きコレクションでメモリを枯渇させる問題）
+
+### v1.0.0 準備時の Cloudflare `security-audit` 点検
+
+OpenHands 上で `security-audit` スキル（Cloudflare の `security-audit-skill`）を使い、
+`src/`・`server/`・`shared/`・`Dockerfile`・`ci.yml` をレビューしました（単一パス、独立再検証なし）。
+
+結果: **Critical 0 件 / High 2 件 / Medium 3 件 / Low 6 件 / Info 3 件**。
+暗号設計（PBKDF2 600k、AES-256-GCM、KEK/DEK 分離、AAD への revision バインド、定数時間比較）は
+健全と評価され、指摘はサーバー側のレート制限・リソース境界と同期トークンの扱いに集中しました。
+
+| 指摘 | 対応 |
+| --- | --- |
+| High: `TRUST_PROXY=true` で `X-Forwarded-For` 偽装によりレート制限を回避 | 修正（右端ホップを採用、`TRUST_PROXY_HOPS`） |
+| High: 未認証で任意 ID のボルト行を作成でき、ディスクを消費 | 修正（`vaultId` の導出検証 + `MAX_VAULT_BYTES`） |
+| Medium: 同期トークンが `?code=` で URL に残る | 修正（読み取り直後に `history.replaceState`） |
+| Medium: 「ボルトを削除」がサーバー側の暗号文を消さない | 修正（`wipe` で DELETE を試行） |
+| Medium: サーバーが `vaultId = SHA-256(token)` を検証しない | 修正（上記 High と同じ対応） |
+| Low: 壊れた封筒で GET が 500 | 修正（`409 corrupt_vault`） |
+| Low: `changePassword` がパスワード長を検証しない | 修正（`MIN_PASSWORD_LENGTH` 未満は拒否） |
+| Low: runtime イメージに devDependencies（678 MB） | 修正（301 MB、CI で非同梱を検証） |
+| Low: 復号失敗がすべて「パスワード誤り」／解錠回数がメモリのみ／`accounts` の項目検証が最小限 | 未対応（上記「保証しないこと」に明記） |
+| Info: CI アクションが可変タグ参照 | 未対応（Dependabot で追従） |
 
 ### 外部監査を依頼する場合の前提
 
