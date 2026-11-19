@@ -17,7 +17,12 @@ function run(name, command, args, extraEnv = {}) {
     shell: false,
   });
   child.on('exit', (code, signal) => {
-    if (signal !== null) return;
+    // シグナルで終了した場合も非ゼロとして扱い、相方を止める（片方が落ちたら両方止める契約）。
+    if (signal !== null) {
+      console.log(`[dev] ${name} killed by ${signal}`);
+      shutdown(code ?? 1);
+      return;
+    }
     console.log(`[dev] ${name} exited with code ${code ?? 0}`);
     shutdown(code ?? 0);
   });

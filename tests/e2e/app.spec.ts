@@ -99,6 +99,8 @@ test.describe('Aegis 2FA 基本フロー', () => {
 test.describe('キーボードショートカット', () => {
   test('/ で検索、L でロック、C でコピー', async ({ page, context }) => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    // コピー検証でも時刻を固定する（取得したコードと OTP 更新がずれないように）。
+    await installFixedClock(page, FIXED_TIME);
     await createVault(page, { sync: false });
     await addManualAccount(page, { issuer: 'Shortcut', label: 'kbd@example.com', secret: RFC_SECRET });
     await expect(page.getByTestId('otp-code').first()).toBeVisible();
@@ -139,6 +141,25 @@ test.describe('PWA', () => {
     });
     expect(cached.length).toBeGreaterThan(0);
     expect(cached.filter((path) => path.startsWith('/api/'))).toHaveLength(0);
+
+    // Service Worker の制御下で API を実際に取得し、応答後にもキャッシュされないことを確かめる。
+    const controlled = await page.evaluate(async () => {
+      await navigator.serviceWorker.ready;
+      try {
+        await fetch('/api/health', { cache: 'no-store' });
+      } catch {
+        // 取得自体の成否は問わない（キャッシュされないことが本題）。
+      }
+      const keys = await caches.keys();
+      const names: string[] = [];
+      for (const key of keys) {
+        const cache = await caches.open(key);
+        for (const request of await cache.keys()) names.push(new URL(request.url).pathname);
+      }
+      return { controlled: navigator.serviceWorker.controller !== null, names };
+    });
+    expect(controlled.controlled).toBe(true);
+    expect(controlled.names.filter((path) => path.startsWith('/api/'))).toHaveLength(0);
   });
 
   test('manifest が配信され、192/512 とマスカブルアイコンを持つ', async ({ request }) => {

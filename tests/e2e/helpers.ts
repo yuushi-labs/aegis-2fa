@@ -4,20 +4,13 @@ export const PASSWORD = 'correct-horse-battery-staple-42';
 /** RFC 6238 のテスト鍵（ASCII "12345678901234567890"）の Base32。 */
 export const RFC_SECRET = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';
 
-/** 時刻を固定したままアプリを起動する（TOTP の一致検証用）。 */
+/**
+ * 時刻を固定したままアプリを起動する（TOTP の一致検証用）。
+ * page.clock は Date.now() / new Date() を固定しつつ、タイマーは実時間で進める。
+ * page.goto より前に呼ぶこと。
+ */
 export async function installFixedClock(page: Page, unixSeconds: number): Promise<void> {
-  await page.addInitScript(`{
-    const fixed = ${unixSeconds} * 1000;
-    const RealDate = Date;
-    class FixedDate extends RealDate {
-      constructor(...args) {
-        if (args.length === 0) super(fixed);
-        else super(...args);
-      }
-      static now() { return fixed; }
-    }
-    window.Date = FixedDate;
-  }`);
+  await page.clock.setFixedTime(unixSeconds * 1000);
 }
 
 export async function createVault(page: Page, options: { sync: boolean; password?: string }): Promise<string | null> {
