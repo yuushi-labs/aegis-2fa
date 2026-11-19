@@ -1,10 +1,6 @@
 name: CI
 
-on:
-  push:
-    branches: [main, 'feat/**', 'fix/**']
-  pull_request:
-    branches: [main]
+on: [push, pull_request]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -20,6 +16,7 @@ jobs:
   quality:
     name: lint / typecheck
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -34,6 +31,7 @@ jobs:
   test:
     name: unit + integration
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -50,9 +48,24 @@ jobs:
           path: coverage/
           if-no-files-found: ignore
 
+  audit:
+    name: dependency audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # lockfile だけで監査できるので install はしない。
+      # high 以上で失敗させる（moderate は Dependabot と週次確認で追う）。
+      - run: pnpm audit --audit-level=high
+
   e2e:
     name: playwright
     runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -74,6 +87,7 @@ jobs:
   docker:
     name: docker build
     runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -85,13 +99,39 @@ jobs:
           tags: aegis-2fa:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Report image size
+        run: |
+          size=$(docker image inspect aegis-2fa:ci --format '{{.Size}}')
+          printf 'runtime image: %s bytes (%s MB)\n' "$size" "$((size / 1000 / 1000))" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Verify devDependencies are not shipped
+        run: |
+          if docker run --rm aegis-2fa:ci sh -c 'test -e node_modules/typescript'; then
+            echo "::error::runtime image still contains devDependencies"
+            exit 1
+          fi
+          echo "runtime image has production dependencies only"
       - name: Smoke test container
         run: |
           docker run -d --name aegis-ci -p 3000:3000 -e DATABASE_PATH=/tmp/aegis.db aegis-2fa:ci
+          healthy=0
           for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:3000/api/health > /tmp/health.json; then break; fi
+            if curl -fsS http://127.0.0.1:3000/api/health > /tmp/health.json; then
+              healthy=1
+              break
+            fi
             sleep 1
           done
+          if [ "$healthy" -ne 1 ]; then
+            echo "::error::/api/health did not become ready within 30 seconds"
+            docker logs aegis-ci || true
+            docker rm -f aegis-ci || true
+            exit 1
+          fi
           cat /tmp/health.json
-          curl -fsS http://127.0.0.1:3000/ | grep -q 'Aegis'
+          if ! curl -fsS http://127.0.0.1:3000/ | grep -q 'Aegis'; then
+            echo "::error::SPA index was not served"
+            docker logs aegis-ci || true
+            docker rm -f aegis-ci || true
+            exit 1
+          fi
           docker rm -f aegis-ci
