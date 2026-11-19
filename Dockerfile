@@ -28,6 +28,8 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/dist-server ./dist-server
 COPY --from=build /app/package.json ./package.json
+# ビルド元の umask に依存せず、非 root ユーザーが読める（ディレクトリは辿れる）ようにする。
+RUN chmod -R a+rX dist dist-server package.json
 USER aegis
 EXPOSE 3000
 VOLUME ["/data"]
