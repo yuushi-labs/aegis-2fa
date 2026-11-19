@@ -1,4 +1,4 @@
-import { lstatSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
@@ -10,10 +10,23 @@ const IS_CI = Boolean(process.env.CI);
 /** 実行ごとの一時 DB（前回実行のデータを持ち越さない）。 */
 const STALE_AFTER_MS = 3 * 24 * 60 * 60 * 1000;
 const dataRoot = join(tmpdir(), 'aegis-e2e');
+
+/** 実行ごとの作業ディレクトリ。共有 tmp の細工（シンボリックリンク等）は避ける。 */
+function createRunDir(): string {
+  try {
+    mkdirSync(dataRoot, { recursive: true, mode: 0o700 });
+    const info = lstatSync(dataRoot);
+    if (info.isDirectory() && !info.isSymbolicLink()) {
+      return mkdtempSync(join(dataRoot, 'run-'));
+    }
+  } catch {
+    // 共有ディレクトリが使えない場合は tmpdir 直下に作る。
+  }
+  return mkdtempSync(join(tmpdir(), 'aegis-e2e-run-'));
+}
+
 const dataDir =
-  process.env.TEST_WORKER_INDEX === undefined
-    ? mkdtempSync(join(dataRoot, 'run-'))
-    : join(dataRoot, 'run-worker');
+  process.env.TEST_WORKER_INDEX === undefined ? createRunDir() : join(dataRoot, 'run-worker');
 const databasePath = join(dataDir, 'e2e.db');
 
 // 3 日以上前の残骸だけを消す（他の実行が使用中の DB には触れない）。
