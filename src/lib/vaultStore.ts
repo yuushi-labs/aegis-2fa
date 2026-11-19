@@ -598,12 +598,15 @@ export const useVaultStore = create<VaultStore>((set, get) => {
           try {
             await syncClient.put(vaultId, token, sent, 0);
             await updateSyncedRevision(sent.revision);
-            set({
-              syncedRevision: sent.revision,
-              syncState: 'synced',
-              syncError: null,
-              lastSyncedAt: new Date().toISOString(),
-            });
+            set({ syncedRevision: sent.revision, syncError: null });
+            const latest = get().envelope;
+            if (latest !== null && latest.revision > sent.revision) {
+              // 再作成の送信中にさらに編集された → 続けて送る。
+              set({ syncState: 'pending' });
+              scheduleSync();
+            } else {
+              set({ syncState: 'synced', lastSyncedAt: new Date().toISOString() });
+            }
           } catch {
             set({ syncState: 'error', syncError: 'put_failed' });
           }

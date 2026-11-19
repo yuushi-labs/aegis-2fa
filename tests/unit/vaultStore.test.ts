@@ -775,6 +775,42 @@ describe('ボルトストア: 同期', () => {
     expect(store.getState().syncState).toBe('synced');
   });
 
+  it('再作成の送信中に編集されたら、続けて新しい revision を送る', async () => {
+    const { store } = await unlockedStore({ accounts: [], token: TOKEN, syncedRevision: null });
+    const bases: number[] = [];
+    let releaseSecond: () => void = () => undefined;
+    const secondPut = new Promise<void>((resolve) => {
+      releaseSecond = resolve;
+    });
+    let call = 0;
+    H.server.put = async (_v: string, _t: string, envelope: VaultEnvelope, base: number) => {
+      call += 1;
+      bases.push(base);
+      if (call === 1) throw new H.errors.SyncNotFoundError();
+      if (call === 2) {
+        await secondPut;
+        return { revision: envelope.revision };
+      }
+      return { revision: envelope.revision };
+    };
+    // ローカルに未送信の変更がある状態から始める（封筒 revision 2 / base 0）。
+    await store.getState().upsertAccount(account('a'));
+    const syncing = store.getState().syncNow();
+    await settle(10);
+    // 再作成（base 0）の送信中にもう 1 件追加する。
+    await store.getState().upsertAccount(account('b'));
+    releaseSecond();
+    await syncing;
+    await settle();
+    expect(store.getState().syncedRevision).toBe(2);
+    expect(store.getState().syncState).toBe('pending');
+    await vi.advanceTimersByTimeAsync(2000);
+    await settle();
+    expect(bases).toEqual([0, 0, 2]);
+    expect(store.getState().syncedRevision).toBe(3);
+    expect(store.getState().syncState).toBe('synced');
+  });
+
   it('HTTP エラーはステータス付きで記録する', async () => {
     const { store } = await unlockedStore({ accounts: [], token: TOKEN, syncedRevision: 1 });
     H.server.put = async () => {
