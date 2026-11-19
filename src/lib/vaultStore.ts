@@ -113,6 +113,9 @@ let syncTimer: ReturnType<typeof setTimeout> | null = null;
 /** 保存処理の直列化キュー。後から始まった保存が先の変更を取りこぼさない。 */
 let writeQueue: Promise<unknown> = Promise.resolve();
 
+/** 進行中の同期送信（DELETE より後に書き込みが確定しないよう wipe が待つ）。 */
+let syncInFlight: Promise<void> | null = null;
+
 /**
  * ボルトの世代。作成・置換・接続・削除で進む。
  * 待機中に別のライフサイクル操作が完了したら、古い保存を確定しないために使う。
@@ -255,6 +258,77 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         set({ syncState: 'pending', syncedRevision: null });
         scheduleSync();
       }
+    }
+  }
+
+  /** 実際の送信処理（syncNow は 1 本ずつ直列化して呼ぶ）。 */
+  async function runSync(): Promise<void> {
+    const { token, vaultId, envelope } = get();
+    if (token === null || vaultId === null || envelope === null) return;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      set({ syncState: 'pending', syncError: 'offline' });
+      return;
+    }
+    // 基準は「最後にサーバーと一致した revision」（envelope.revision - 1 ではない）。
+    const sent = envelope;
+    const base = get().syncedRevision ?? 0;
+    try {
+      await syncClient.put(vaultId, token, sent, base);
+      await updateSyncedRevision(sent.revision);
+      set({ syncedRevision: sent.revision });
+      const latest = get().envelope;
+      if (latest !== null && latest.revision > sent.revision) {
+        // 送信中にさらに編集された → 続けて送る。
+        set({ syncState: 'pending', syncError: null });
+        scheduleSync();
+      } else {
+        set({ syncState: 'synced', syncError: null, lastSyncedAt: new Date().toISOString() });
+      }
+    } catch (error) {
+      if (error instanceof SyncConflictError) {
+        try {
+          const remote = await syncClient.get(vaultId, token);
+          // 応答だけ失われた PUT を「競合」と誤認しない（サーバーが同じ封筒を持っている）。
+          const sameEnvelope =
+            remote.revision === sent.revision &&
+            remote.envelope.data.iv === sent.data.iv &&
+            remote.envelope.data.ciphertext === sent.data.ciphertext;
+          if (sameEnvelope) {
+            await updateSyncedRevision(remote.revision);
+            set({ syncedRevision: remote.revision, syncState: 'synced', syncError: null });
+            return;
+          }
+          set({
+            syncState: 'conflict',
+            conflict: { remoteRevision: remote.revision, remoteEnvelope: remote.envelope },
+          });
+        } catch {
+          set({ syncState: 'error', syncError: 'conflict_fetch_failed' });
+        }
+        return;
+      }
+      if (error instanceof SyncNotFoundError) {
+        try {
+          await syncClient.put(vaultId, token, sent, 0);
+          await updateSyncedRevision(sent.revision);
+          set({ syncedRevision: sent.revision, syncError: null });
+          const latest = get().envelope;
+          if (latest !== null && latest.revision > sent.revision) {
+            // 再作成の送信中にさらに編集された → 続けて送る。
+            set({ syncState: 'pending' });
+            scheduleSync();
+          } else {
+            set({ syncState: 'synced', lastSyncedAt: new Date().toISOString() });
+          }
+        } catch {
+          set({ syncState: 'error', syncError: 'put_failed' });
+        }
+        return;
+      }
+      set({
+        syncState: 'error',
+        syncError: error instanceof SyncHttpError ? `http_${error.status}` : 'network',
+      });
     }
   }
 
@@ -550,72 +624,14 @@ export const useVaultStore = create<VaultStore>((set, get) => {
     },
 
     async syncNow() {
-      const { token, vaultId, envelope } = get();
-      if (token === null || vaultId === null || envelope === null) return;
-      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-        set({ syncState: 'pending', syncError: 'offline' });
-        return;
-      }
-      // 基準は「最後にサーバーと一致した revision」（envelope.revision - 1 ではない）。
-      const sent = envelope;
-      const base = get().syncedRevision ?? 0;
+      // 進行中の送信があれば終わるまで待つ（同じ revision を二重送信しない）。
+      if (syncInFlight !== null) await syncInFlight;
+      const started = runSync();
+      syncInFlight = started;
       try {
-        await syncClient.put(vaultId, token, sent, base);
-        await updateSyncedRevision(sent.revision);
-        set({ syncedRevision: sent.revision });
-        const latest = get().envelope;
-        if (latest !== null && latest.revision > sent.revision) {
-          // 送信中にさらに編集された → 続けて送る。
-          set({ syncState: 'pending', syncError: null });
-          scheduleSync();
-        } else {
-          set({ syncState: 'synced', syncError: null, lastSyncedAt: new Date().toISOString() });
-        }
-      } catch (error) {
-        if (error instanceof SyncConflictError) {
-          try {
-            const remote = await syncClient.get(vaultId, token);
-            // 応答だけ失われた PUT を「競合」と誤認しない（サーバーが同じ封筒を持っている）。
-            const sameEnvelope =
-              remote.revision === sent.revision &&
-              remote.envelope.data.iv === sent.data.iv &&
-              remote.envelope.data.ciphertext === sent.data.ciphertext;
-            if (sameEnvelope) {
-              await updateSyncedRevision(remote.revision);
-              set({ syncedRevision: remote.revision, syncState: 'synced', syncError: null });
-              return;
-            }
-            set({
-              syncState: 'conflict',
-              conflict: { remoteRevision: remote.revision, remoteEnvelope: remote.envelope },
-            });
-          } catch {
-            set({ syncState: 'error', syncError: 'conflict_fetch_failed' });
-          }
-          return;
-        }
-        if (error instanceof SyncNotFoundError) {
-          try {
-            await syncClient.put(vaultId, token, sent, 0);
-            await updateSyncedRevision(sent.revision);
-            set({ syncedRevision: sent.revision, syncError: null });
-            const latest = get().envelope;
-            if (latest !== null && latest.revision > sent.revision) {
-              // 再作成の送信中にさらに編集された → 続けて送る。
-              set({ syncState: 'pending' });
-              scheduleSync();
-            } else {
-              set({ syncState: 'synced', lastSyncedAt: new Date().toISOString() });
-            }
-          } catch {
-            set({ syncState: 'error', syncError: 'put_failed' });
-          }
-          return;
-        }
-        set({
-          syncState: 'error',
-          syncError: error instanceof SyncHttpError ? `http_${error.status}` : 'network',
-        });
+        await started;
+      } finally {
+        if (syncInFlight === started) syncInFlight = null;
       }
     },
 
@@ -782,9 +798,20 @@ export const useVaultStore = create<VaultStore>((set, get) => {
       const generation = lifecycleGeneration + 1;
       lifecycleGeneration = generation;
       unlockSession += 1;
-      // 先にローカルを消す。サーバー側の削除を待つ間に別のボルト（attachSync）へ
-      // 置き換わっても、その新しいボルトを消さないため。
-      await deleteVault();
+      // デバウンス中の送信を取り消し、進行中の送信が終わるのを待つ。
+      // これをしないと、DELETE の後に PUT が確定して行が作り直される。
+      if (syncTimer !== null) {
+        clearTimeout(syncTimer);
+        syncTimer = null;
+      }
+      if (syncInFlight !== null) await syncInFlight;
+      if (generation === lifecycleGeneration && syncTimer !== null) {
+        clearTimeout(syncTimer);
+        syncTimer = null;
+      }
+      // 先にローカルを消す（置き換えられた場合に新しいボルトを消さないため）。
+      // 保存キューの中で実行し、進行中の保存が削除後に書き戻さないようにする。
+      await runExclusive(() => deleteVault());
       if (generation !== lifecycleGeneration) {
         // 待機中に別のボルトが作られた／接続された → 状態は触らない。
         return;

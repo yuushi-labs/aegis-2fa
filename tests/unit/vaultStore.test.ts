@@ -595,9 +595,12 @@ describe('ボルトストア: 保存の直列化と世代管理', () => {
     const hold = holdEncryption();
     const saving = store.getState().upsertAccount(account('b'));
     await hold.entered;
-    await store.getState().wipe();
+    // wipe は世代を進めてから保存キューの完了を待つ（暗号化中の保存は確定しない）。
+    const wiping = store.getState().wipe();
+    await settle(5);
     hold.release();
     await saving;
+    await wiping;
     expect(H.writes).toHaveLength(before);
     expect(H.vault).toBeNull();
     expect(H.deletions).toBe(1);
@@ -654,6 +657,46 @@ describe('ボルトストア: 保存の直列化と世代管理', () => {
     expect(H.vault).toBeNull();
     expect(H.token).toBeNull();
     expect(store.getState().status).toBe('uninitialized');
+  });
+
+  it('wipe はデバウンス中の送信を取り消す（削除後に PUT が走らない）', async () => {
+    const { store } = await unlockedStore({ accounts: [], token: TOKEN, syncedRevision: 1 });
+    const put = vi.fn(H.server.put);
+    H.server.put = put;
+    await store.getState().upsertAccount(account('a'));
+    await store.getState().wipe();
+    await vi.advanceTimersByTimeAsync(5000);
+    await settle();
+    expect(put).not.toHaveBeenCalled();
+    expect(H.vault).toBeNull();
+  });
+
+  it('wipe は進行中の送信が終わってからサーバー削除を送る', async () => {
+    const { store } = await unlockedStore({ accounts: [], token: TOKEN, syncedRevision: 1 });
+    const order: string[] = [];
+    let releasePut: () => void = () => undefined;
+    const putGate = new Promise<void>((resolve) => {
+      releasePut = resolve;
+    });
+    H.server.put = async (_v: string, _t: string, envelope: VaultEnvelope) => {
+      order.push('put-start');
+      await putGate;
+      order.push('put-end');
+      return { revision: envelope.revision };
+    };
+    H.server.remove = async () => {
+      order.push('delete');
+    };
+    await store.getState().upsertAccount(account('a'));
+    await vi.advanceTimersByTimeAsync(2000);
+    await settle(5);
+    const wiping = store.getState().wipe();
+    await settle(5);
+    releasePut();
+    await wiping;
+    await settle();
+    expect(order).toEqual(['put-start', 'put-end', 'delete']);
+    expect(H.vault).toBeNull();
   });
 
   it('wipe はサーバー削除が失敗してもローカルを消す', async () => {
