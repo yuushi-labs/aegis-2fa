@@ -89,15 +89,22 @@ function isDeleted(account: Account, tombstones: Map<string, Tombstone>): boolea
 }
 
 export function mergeVaultData(base: VaultData, incoming: VaultData): MergeResult {
+  const tombstones = mergeTombstones(base.tombstones, incoming.tombstones);
+  const tombstoneIndex = new Map(tombstones.map((tombstone) => [tombstone.id, tombstone]));
+
+  // 削除済みは最初から対象外にする（件数にも数えない）。
+  const baseAccounts = base.accounts.filter((account) => !isDeleted(account, tombstoneIndex));
+  const incomingAccounts = incoming.accounts.filter((account) => !isDeleted(account, tombstoneIndex));
+
   const byId = new Map<string, Account>();
-  for (const account of base.accounts) {
+  for (const account of baseAccounts) {
     byId.set(account.id, account);
   }
   let added = 0;
   let updated = 0;
   let overwritten = 0;
 
-  for (const candidate of incoming.accounts) {
+  for (const candidate of incomingAccounts) {
     const current = byId.get(candidate.id);
     if (current === undefined) {
       byId.set(candidate.id, candidate);
@@ -113,15 +120,13 @@ export function mergeVaultData(base: VaultData, incoming: VaultData): MergeResul
     }
   }
 
-  const tombstones = mergeTombstones(base.tombstones, incoming.tombstones);
-  const tombstoneIndex = new Map(tombstones.map((tombstone) => [tombstone.id, tombstone]));
-  let deleted = 0;
-  for (const [id, account] of byId) {
-    if (isDeleted(account, tombstoneIndex)) {
-      byId.delete(id);
-      deleted += 1;
-    }
-  }
+  // 削除記録で取り除かれた件数（base 側と、incoming で新規だったもの）。
+  const baseIds = new Set(base.accounts.map((account) => account.id));
+  const deleted =
+    base.accounts.length -
+    baseAccounts.length +
+    incoming.accounts.filter((account) => isDeleted(account, tombstoneIndex) && !baseIds.has(account.id))
+      .length;
 
   const accounts = [...byId.values()].sort((a, b) => {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;

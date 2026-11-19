@@ -87,6 +87,19 @@ describe('同期マージ', () => {
     }
   });
 
+  it('削除記録で除外したアカウントは追加・更新件数に数えない', () => {
+    const tombstone = { id: 'x', deletedAt: '2024-05-02T00:00:00.000Z' };
+    const stale = makeAccount({ id: 'x', updatedAt: '2024-05-01T00:00:00.000Z' });
+    const result = mergeVaultData(
+      { accounts: [], tombstones: [tombstone] },
+      { accounts: [stale], tombstones: [] },
+    );
+    expect(result.added).toBe(0);
+    expect(result.updated).toBe(0);
+    expect(result.deleted).toBe(1);
+    expect(result.data.accounts).toHaveLength(0);
+  });
+
   it('削除後に再加したアカウント（updatedAt が新しい）は残す', () => {
     const tombstone = { id: 'back', deletedAt: '2024-05-01T00:00:00.000Z' };
     const readded = makeAccount({ id: 'back', label: 're-added', updatedAt: '2024-05-03T00:00:00.000Z' });

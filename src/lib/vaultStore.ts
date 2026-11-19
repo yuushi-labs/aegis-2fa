@@ -113,6 +113,12 @@ let syncTimer: ReturnType<typeof setTimeout> | null = null;
 /** 保存処理の直列化キュー。後から始まった保存が先の変更を取りこぼさない。 */
 let writeQueue: Promise<unknown> = Promise.resolve();
 
+/**
+ * ボルトの世代。作成・置換・接続・削除で進む。
+ * 待機中に別のライフサイクル操作が完了したら、古い保存を確定しないために使う。
+ */
+let lifecycleGeneration = 0;
+
 function runExclusive<T>(task: () => Promise<T>): Promise<T> {
   const result = writeQueue.then(task, task);
   writeQueue = result.then(
@@ -179,6 +185,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
   async function persist(accounts: Account[], tombstones: Tombstone[] = get().tombstones): Promise<void> {
     const { dek, envelope, token } = get();
     if (dek === null || envelope === null) return;
+    const generation = lifecycleGeneration;
     const revision = envelope.revision + 1;
     const next = await updateEnvelopeData(
       envelope,
@@ -187,6 +194,8 @@ export const useVaultStore = create<VaultStore>((set, get) => {
       revision,
       new Date().toISOString(),
     );
+    // 暗号化の待機中に削除・置換されていたら保存しない（削除したボルトを復元しない）。
+    if (generation !== lifecycleGeneration || get().envelope !== envelope) return;
     await writeVault(next, get().syncedRevision);
     set({
       envelope: next,
@@ -211,9 +220,10 @@ export const useVaultStore = create<VaultStore>((set, get) => {
       } else if (remote.revision === envelope.revision) {
         set({ syncState: 'synced', syncedRevision: remote.revision, lastSyncedAt: remote.envelope.updatedAt });
       } else {
-        // サーバーが古い（未送信の変更がある）→ 基準 revision を合わせて送信待ちにする。
-        await updateSyncedRevision(remote.revision);
-        set({ syncState: 'pending', syncedRevision: remote.revision });
+        // サーバーが古い（未送信の変更がある）→ 送信待ちとして扱う。
+        // ここで基準 revision を remote に合わせると、サーバー側の別の編集を
+        // 競合として検出できなくなるため、最後に一致した revision のまま送る。
+        set({ syncState: 'pending' });
         scheduleSync();
       }
     } catch (error) {
@@ -279,6 +289,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
 
     async createVault(password, options) {
       if (password.length < MIN_PASSWORD_LENGTH) throw new Error('password_too_short');
+      lifecycleGeneration += 1;
       const token = options.sync ? generateSyncToken() : null;
       const dek = await generateDek();
       const envelope = await createVaultEnvelope({
@@ -395,6 +406,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
     },
 
     async replaceVault(envelope, token) {
+      lifecycleGeneration += 1;
       await writeVault(envelope, token === null ? null : 0);
       if (token === null) await deleteToken();
       else await writeToken(token);
@@ -416,9 +428,11 @@ export const useVaultStore = create<VaultStore>((set, get) => {
     async attachSync(token) {
       // 取得中に別のボルトが作られた場合は、そのボルトを上書きしない。
       const before = get().envelope;
+      const generation = lifecycleGeneration;
       const vaultId = await deriveVaultId(token);
       const remote = await syncClient.get(vaultId, token);
-      if (get().envelope !== before) throw new VaultChangedError();
+      if (get().envelope !== before || generation !== lifecycleGeneration) throw new VaultChangedError();
+      lifecycleGeneration += 1;
       // 置き換え前に、以前のボルト用の同期タイマーを止める。
       if (syncTimer !== null) {
         clearTimeout(syncTimer);
@@ -469,6 +483,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
       return runExclusive(async () => {
         // PBKDF2 を 2 回待つ間に保存が走らないよう、キューの内側で最新状態を読む。
         const { envelope, dek, token, accounts, tombstones } = get();
+        const generation = lifecycleGeneration;
         if (envelope === null || dek === null) return false;
         try {
           await unlockVaultEnvelope(envelope, current);
@@ -484,6 +499,8 @@ export const useVaultStore = create<VaultStore>((set, get) => {
           envelope.revision + 1,
           new Date().toISOString(),
         );
+        // 待機中に削除・置換されていたら保存しない（削除したボルトを復元しない）。
+        if (generation !== lifecycleGeneration || get().envelope !== envelope) return false;
         await writeVault(updated, get().syncedRevision);
         set({ envelope: updated, syncState: token === null ? 'local-only' : 'pending' });
         if (token !== null) scheduleSync();
@@ -563,80 +580,84 @@ export const useVaultStore = create<VaultStore>((set, get) => {
     },
 
     async resolveConflict(mode) {
-      const { conflict, token, vaultId, envelope, dek } = get();
-      if (conflict === null || token === null || vaultId === null) {
-        return { added: 0, updated: 0, resolved: false };
-      }
-
-      if (mode === 'discard') {
-        // 置き換え前に、古い envelope を送るタイマーを止める。
-        if (syncTimer !== null) {
-          clearTimeout(syncTimer);
-          syncTimer = null;
+      // 読み取りから保存までをキューの内側で行う（同時に走る保存を取りこぼさない）。
+      const result = await runExclusive(async () => {
+        const { conflict, token, vaultId, envelope, dek } = get();
+        if (conflict === null || token === null || vaultId === null) {
+          return { added: 0, updated: 0, resolved: false, shouldSync: false };
         }
-        await writeVault(conflict.remoteEnvelope, conflict.remoteRevision);
-        set({
-          envelope: conflict.remoteEnvelope,
-          conflict: null,
-          syncState: 'synced',
-          syncedRevision: conflict.remoteRevision,
-        });
-        if (dek !== null) {
+
+        if (mode === 'discard') {
+          // 置き換え前に、古い envelope を送るタイマーを止める。
+          if (syncTimer !== null) {
+            clearTimeout(syncTimer);
+            syncTimer = null;
+          }
+          await writeVault(conflict.remoteEnvelope, conflict.remoteRevision);
+          set({
+            envelope: conflict.remoteEnvelope,
+            conflict: null,
+            syncState: 'synced',
+            syncedRevision: conflict.remoteRevision,
+          });
+          if (dek !== null) {
+            try {
+              const data = parseVaultData(await decryptVaultDataWithDek(conflict.remoteEnvelope, dek));
+              set({ accounts: sortAccounts(data.accounts), tombstones: data.tombstones ?? [] });
+            } catch {
+              set({ status: 'locked', dek: null, accounts: [], tombstones: [] });
+            }
+          }
+          return { added: 0, updated: 0, resolved: true, shouldSync: false };
+        }
+
+        if (envelope === null || dek === null) {
+          return { added: 0, updated: 0, resolved: false, shouldSync: false };
+        }
+
+        let accounts = get().accounts;
+        let tombstones = get().tombstones;
+        let added = 0;
+        let updated = 0;
+        if (mode === 'merge') {
           try {
-            const data = parseVaultData(await decryptVaultDataWithDek(conflict.remoteEnvelope, dek));
-            set({ accounts: sortAccounts(data.accounts), tombstones: data.tombstones ?? [] });
-          } catch {
-            set({ status: 'locked', dek: null, accounts: [] });
+            const plaintext = await decryptVaultDataWithDek(conflict.remoteEnvelope, dek);
+            const merged = mergeVaultData({ accounts, tombstones }, parseVaultData(plaintext));
+            accounts = merged.data.accounts;
+            tombstones = merged.data.tombstones ?? [];
+            added = merged.added;
+            updated = merged.updated;
+          } catch (error) {
+            if (error instanceof CryptoError) {
+              set({ conflict: null, status: 'locked', dek: null, accounts: [], tombstones: [] });
+              return { added: 0, updated: 0, resolved: false, shouldSync: false };
+            }
+            throw error;
           }
         }
-        return { added: 0, updated: 0, resolved: true };
-      }
 
-      if (envelope === null || dek === null) return { added: 0, updated: 0, resolved: false };
-
-      let accounts = get().accounts;
-      let tombstones = get().tombstones;
-      let added = 0;
-      let updated = 0;
-      if (mode === 'merge') {
-        try {
-          const plaintext = await decryptVaultDataWithDek(conflict.remoteEnvelope, dek);
-          const merged = mergeVaultData(
-            { accounts, tombstones: get().tombstones },
-            parseVaultData(plaintext),
-          );
-          accounts = merged.data.accounts;
-          tombstones = merged.data.tombstones ?? [];
-          added = merged.added;
-          updated = merged.updated;
-        } catch (error) {
-          if (error instanceof CryptoError) {
-            set({ conflict: null, status: 'locked', dek: null, accounts: [] });
-            return { added: 0, updated: 0, resolved: false };
-          }
-          throw error;
-        }
-      }
-
-      const revision = conflict.remoteRevision + 1;
-      const next = await updateEnvelopeData(
-        envelope,
-        dek,
-        JSON.stringify({ accounts: sortAccounts(accounts), tombstones }),
-        revision,
-        new Date().toISOString(),
-      );
-      await writeVault(next, conflict.remoteRevision);
-      set({
-        envelope: next,
-        accounts: sortAccounts(accounts),
-        tombstones,
-        conflict: null,
-        syncedRevision: conflict.remoteRevision,
-        syncState: 'pending',
+        const revision = conflict.remoteRevision + 1;
+        const next = await updateEnvelopeData(
+          envelope,
+          dek,
+          JSON.stringify({ accounts: sortAccounts(accounts), tombstones }),
+          revision,
+          new Date().toISOString(),
+        );
+        await writeVault(next, conflict.remoteRevision);
+        set({
+          envelope: next,
+          accounts: sortAccounts(accounts),
+          tombstones,
+          conflict: null,
+          syncedRevision: conflict.remoteRevision,
+          syncState: 'pending',
+        });
+        return { added, updated, resolved: true, shouldSync: true };
       });
-      await get().syncNow();
-      return { added, updated, resolved: true };
+
+      if (result.shouldSync) await get().syncNow();
+      return { added: result.added, updated: result.updated, resolved: result.resolved };
     },
 
     /**
@@ -698,6 +719,8 @@ export const useVaultStore = create<VaultStore>((set, get) => {
     },
 
     async wipe() {
+      // 進行中の保存が削除後に書き戻さないよう、先に世代を進める。
+      lifecycleGeneration += 1;
       await deleteVault();
       set({
         status: 'uninitialized',
