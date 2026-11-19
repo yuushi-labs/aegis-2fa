@@ -119,6 +119,12 @@ let writeQueue: Promise<unknown> = Promise.resolve();
  */
 let lifecycleGeneration = 0;
 
+/**
+ * アンロック中のセッション。アンロック・ロック・削除・置換・接続で進む。
+ * 待機中にロックされたら、平文（アカウント）をストアへ戻さないために使う。
+ */
+let unlockSession = 0;
+
 function runExclusive<T>(task: () => Promise<T>): Promise<T> {
   const result = writeQueue.then(task, task);
   writeQueue = result.then(
@@ -186,6 +192,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
     const { dek, envelope, token } = get();
     if (dek === null || envelope === null) return;
     const generation = lifecycleGeneration;
+    const session = unlockSession;
     const revision = envelope.revision + 1;
     const next = await updateEnvelopeData(
       envelope,
@@ -197,12 +204,17 @@ export const useVaultStore = create<VaultStore>((set, get) => {
     // 暗号化の待機中に削除・置換されていたら保存しない（削除したボルトを復元しない）。
     if (generation !== lifecycleGeneration || get().envelope !== envelope) return;
     await writeVault(next, get().syncedRevision);
-    set({
-      envelope: next,
-      accounts: sortAccounts(accounts),
-      tombstones,
-      syncState: token === null ? 'local-only' : 'pending',
-    });
+    // 同じボルトへの保存は有効。ただし待機中にロックされたら平文は戻さない。
+    if (session !== unlockSession || get().dek === null) {
+      set({ envelope: next, syncState: token === null ? 'local-only' : 'pending' });
+    } else {
+      set({
+        envelope: next,
+        accounts: sortAccounts(accounts),
+        tombstones,
+        syncState: token === null ? 'local-only' : 'pending',
+      });
+    }
     if (token !== null) scheduleSync();
   }
 
@@ -218,7 +230,18 @@ export const useVaultStore = create<VaultStore>((set, get) => {
           syncState: 'conflict',
         });
       } else if (remote.revision === envelope.revision) {
-        set({ syncState: 'synced', syncedRevision: remote.revision, lastSyncedAt: remote.envelope.updatedAt });
+        // 同じ revision でも封筒が違えば、別端末が同じ revision から編集している。
+        const sameEnvelope =
+          remote.envelope.data.iv === envelope.data.iv &&
+          remote.envelope.data.ciphertext === envelope.data.ciphertext;
+        if (sameEnvelope) {
+          set({ syncState: 'synced', syncedRevision: remote.revision, lastSyncedAt: remote.envelope.updatedAt });
+        } else {
+          set({
+            conflict: { remoteRevision: remote.revision, remoteEnvelope: remote.envelope },
+            syncState: 'conflict',
+          });
+        }
       } else {
         // サーバーが古い（未送信の変更がある）→ 送信待ちとして扱う。
         // ここで基準 revision を remote に合わせると、サーバー側の別の編集を
@@ -332,6 +355,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
       try {
         const unlocked = await unlockVaultEnvelope(envelope, password);
         const data = parseVaultData(unlocked.plaintext);
+        unlockSession += 1;
         set({
           status: 'unlocked',
           dek: unlocked.dek,
@@ -355,6 +379,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
     },
 
     lock() {
+      unlockSession += 1;
       // 2 秒デバウンス内の変更を取りこぼさない（syncNow は DEK を必要としない）。
       flushSync();
       set({ status: 'locked', dek: null, accounts: [], tombstones: [], conflict: null });
@@ -407,6 +432,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
 
     async replaceVault(envelope, token) {
       lifecycleGeneration += 1;
+      unlockSession += 1;
       await writeVault(envelope, token === null ? null : 0);
       if (token === null) await deleteToken();
       else await writeToken(token);
@@ -433,6 +459,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
       const remote = await syncClient.get(vaultId, token);
       if (get().envelope !== before || generation !== lifecycleGeneration) throw new VaultChangedError();
       lifecycleGeneration += 1;
+      unlockSession += 1;
       // 置き換え前に、以前のボルト用の同期タイマーを止める。
       if (syncTimer !== null) {
         clearTimeout(syncTimer);
@@ -582,6 +609,8 @@ export const useVaultStore = create<VaultStore>((set, get) => {
     async resolveConflict(mode) {
       // 読み取りから保存までをキューの内側で行う（同時に走る保存を取りこぼさない）。
       const result = await runExclusive(async () => {
+        const generation = lifecycleGeneration;
+        const session = unlockSession;
         const { conflict, token, vaultId, envelope, dek } = get();
         if (conflict === null || token === null || vaultId === null) {
           return { added: 0, updated: 0, resolved: false, shouldSync: false };
@@ -603,9 +632,12 @@ export const useVaultStore = create<VaultStore>((set, get) => {
           if (dek !== null) {
             try {
               const data = parseVaultData(await decryptVaultDataWithDek(conflict.remoteEnvelope, dek));
-              set({ accounts: sortAccounts(data.accounts), tombstones: data.tombstones ?? [] });
+              // 復号中にロックされたら平文は戻さない（次回の解錠で読み込む）。
+              if (session === unlockSession && get().dek !== null) {
+                set({ accounts: sortAccounts(data.accounts), tombstones: data.tombstones ?? [] });
+              }
             } catch {
-              set({ status: 'locked', dek: null, accounts: [], tombstones: [] });
+              if (session === unlockSession) set({ status: 'locked', dek: null, accounts: [], tombstones: [] });
             }
           }
           return { added: 0, updated: 0, resolved: true, shouldSync: false };
@@ -644,16 +676,24 @@ export const useVaultStore = create<VaultStore>((set, get) => {
           revision,
           new Date().toISOString(),
         );
+        // 暗号化の待機中に削除・置換されていたら保存しない（削除したボルトを復元しない）。
+        if (generation !== lifecycleGeneration || get().envelope !== envelope) {
+          return { added: 0, updated: 0, resolved: false, shouldSync: false };
+        }
         await writeVault(next, conflict.remoteRevision);
-        set({
-          envelope: next,
-          accounts: sortAccounts(accounts),
-          tombstones,
-          conflict: null,
-          syncedRevision: conflict.remoteRevision,
-          syncState: 'pending',
-        });
-        return { added, updated, resolved: true, shouldSync: true };
+        if (session !== unlockSession || get().dek === null) {
+          set({ envelope: next, conflict: null, syncedRevision: conflict.remoteRevision, syncState: 'pending' });
+        } else {
+          set({
+            envelope: next,
+            accounts: sortAccounts(accounts),
+            tombstones,
+            conflict: null,
+            syncedRevision: conflict.remoteRevision,
+            syncState: 'pending',
+          });
+        }
+        return { added, updated, resolved: true, shouldSync: session === unlockSession };
       });
 
       if (result.shouldSync) await get().syncNow();
@@ -721,6 +761,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
     async wipe() {
       // 進行中の保存が削除後に書き戻さないよう、先に世代を進める。
       lifecycleGeneration += 1;
+      unlockSession += 1;
       await deleteVault();
       set({
         status: 'uninitialized',

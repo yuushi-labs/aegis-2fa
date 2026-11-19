@@ -96,6 +96,8 @@ export function mergeVaultData(base: VaultData, incoming: VaultData): MergeResul
   const baseAccounts = base.accounts.filter((account) => !isDeleted(account, tombstoneIndex));
   const incomingAccounts = incoming.accounts.filter((account) => !isDeleted(account, tombstoneIndex));
 
+  // 削除記録で除外した「元のローカル id」も覚えておく（作り直しは追加ではなく更新として数える）。
+  const baseIds = new Set(base.accounts.map((account) => account.id));
   const byId = new Map<string, Account>();
   for (const account of baseAccounts) {
     byId.set(account.id, account);
@@ -108,7 +110,8 @@ export function mergeVaultData(base: VaultData, incoming: VaultData): MergeResul
     const current = byId.get(candidate.id);
     if (current === undefined) {
       byId.set(candidate.id, candidate);
-      added += 1;
+      if (baseIds.has(candidate.id)) updated += 1;
+      else added += 1;
     } else if (compareAccountContent(candidate, current) === 0) {
       // 完全に同一なら件数に数えない。
       continue;
@@ -121,7 +124,6 @@ export function mergeVaultData(base: VaultData, incoming: VaultData): MergeResul
   }
 
   // 削除記録で取り除かれた件数（base 側と、incoming で新規だったもの）。
-  const baseIds = new Set(base.accounts.map((account) => account.id));
   const deleted =
     base.accounts.length -
     baseAccounts.length +
