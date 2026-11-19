@@ -9,7 +9,7 @@ Aegis 2FA は **静的 SPA + 単一 Node プロセス + SQLite ファイル** �
 | --- | --- | --- |
 | `PORT` | `3000` | 待ち受けポート |
 | `DATABASE_PATH` | `./data/aegis.db` | SQLite ファイル。親ディレクトリは自動作成 |
-| `TRUST_PROXY` | `false` | `true` で `X-Forwarded-For` を信頼（リバースプロキシ配下で必須） |
+| `TRUST_PROXY` | `false` | `true` で `X-Forwarded-For` を信頼（リバースプロキシ配下で必須）。前段が `X-Forwarded-For` を設定／上書きすること（`X-Real-IP` は読みません） |
 | `TRUST_PROXY_HOPS` | `1` | 信頼するプロキシの段数。`X-Forwarded-For` を**右端から**数えた位置をクライアント IP とみなす（CDN + LB のように 2 段なら `2`） |
 | `MAX_VAULT_BYTES` | `268435456`（256 MiB） | 保存できる暗号文の総量。超過する書き込みは `507`（`/data` の枯渇防止） |
 | `AEGIS_HTTPS` | `false` | `true` で HSTS を付与（TLS 終端が前段にある場合に有効化） |

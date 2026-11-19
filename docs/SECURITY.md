@@ -93,11 +93,14 @@ DEK ──AES-256-GCM (IV 12B, AAD "aegis-data-v1:<revision>")──► data (ci
 - HTTPS 運用時は HSTS（`AEGIS_HTTPS=true`）。
 - レート制限: 読み取り 60 req/min、書き込み 20 req/min（IP 単位、`429` + `Retry-After`）。
   `TRUST_PROXY=true` のときは `X-Forwarded-For` を**右端から** `TRUST_PROXY_HOPS` 番目の
-  値で識別する（左端はクライアントが偽装できるため採用しない）。
+  値で識別する（左端はクライアントが偽装できるため採用しない）。`X-Real-IP` は読まない。
+  前段のプロキシが `X-Forwarded-For` を設定または上書きする構成が前提。
 - 保存の同一性: `vaultId = hex(SHA-256(token))[0:32]` を書き込み時に検証し、トークンから
   導出できない ID は `404`（任意 ID の作成・名前空間の占有を防ぐ）。
 - 保存量の上限: 暗号文の総量が `MAX_VAULT_BYTES`（既定 256 MiB）を超える書き込みは `507`。
-- 破損した行: 復号できない封筒は `500` ではなく `409 corrupt_vault` を返す。
+- 破損した行: 保存された封筒が JSON として読めない場合は `500` ではなく `409 corrupt_vault`。
+  JSON としては読めるが暗号文が壊れている場合は `200` を返し、復号はクライアント側で失敗する
+  （`docs/SECURITY.md` の「保証しないこと」にあるとおり、原因は「パスワード誤り」として扱われる）。
 - 入力検証: すべてのボディを zod で検証。256 KiB を超えるボディは `413`。
 - エラーレスポンスは本番で内部情報を出さない（`internal_error`）。
 - `Cache-Control: no-store` を `/api/*` に付与。

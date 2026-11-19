@@ -199,7 +199,8 @@ test.describe('同期コードの露出', () => {
     // トークンはボルトの読み書き・削除権限を持つため、アドレスバーや履歴に残さない。
     await page.goto('/sync?code=AbCdEfGhIjKlMnOpQrStUvWxYz0123456789ABCDEFG');
     await expect(page.getByRole('heading', { name: '同期コードを入力', exact: true })).toBeVisible();
-    expect(new URL(page.url()).searchParams.get('code')).toBeNull();
+    // URL の書き換えは useEffect なので、反映を待ってから確認する。
+    await expect.poll(() => new URL(page.url()).searchParams.get('code')).toBeNull();
     // 読み取った値はフォームに残っている（貼り直しを強制しない）。
     await expect(page.getByLabel('同期コード')).not.toHaveValue('');
   });

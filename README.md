@@ -63,7 +63,7 @@ curl -fsS http://localhost:3000/api/health
 | --- | --- | --- |
 | `PORT` | `3000` | 待ち受けポート |
 | `DATABASE_PATH` | `./data/aegis.db` | SQLite ファイル（親ディレクトリは自動作成） |
-| `TRUST_PROXY` | `false` | リバースプロキシ配下で `true`（レート制限のキーに転送ヘッダを使う） |
+| `TRUST_PROXY` | `false` | リバースプロキシ配下で `true`。前段が `X-Forwarded-For` を設定／上書きする構成が前提 |
 | `TRUST_PROXY_HOPS` | `1` | 信頼するプロキシの段数。`X-Forwarded-For` の**右端**から数える |
 | `MAX_VAULT_BYTES` | `268435456`（256 MiB） | 保存できる暗号文の総量。超過する書き込みは `507` |
 | `AEGIS_HTTPS` | `false` | TLS 終端が前段にある場合 `true`（HSTS 付与） |
