@@ -77,9 +77,13 @@ export async function writeVault(envelope: VaultEnvelope, syncedRevision: number
 
 export async function updateSyncedRevision(revision: number | null): Promise<void> {
   const db = await getDb();
-  const existing = await db.get('vault', 'vault');
-  if (existing === undefined) return;
-  await db.put('vault', { ...existing, syncedRevision: revision });
+  // 読み取りと書き込みを 1 つのトランザクションにまとめる（並行する writeVault を上書きしない）。
+  const tx = db.transaction('vault', 'readwrite');
+  const existing = await tx.store.get('vault');
+  if (existing !== undefined) {
+    await tx.store.put({ ...existing, syncedRevision: revision });
+  }
+  await tx.done;
 }
 
 export async function deleteVault(): Promise<void> {

@@ -38,8 +38,11 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          const copy = response.clone();
-          void caches.open(CACHE).then((cache) => cache.put('/index.html', copy));
+          // エラー応答（5xx 等）で正常なシェルを上書きしない。
+          if (response.ok && response.type === 'basic') {
+            const copy = response.clone();
+            void caches.open(CACHE).then((cache) => cache.put('/index.html', copy));
+          }
           return response;
         })
         .catch(() => caches.match('/index.html').then((cached) => cached ?? Response.error())),

@@ -25,6 +25,8 @@ export function AccountsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  /** HOTP 更新中のアカウント（同じ更新の重複実行を防ぐ） */
+  const [hotpBusyId, setHotpBusyId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const sorted = useMemo(() => sortAccounts(accounts), [accounts]);
@@ -83,7 +85,11 @@ export function AccountsPage() {
           const code = await currentCodeFor(target);
           if (code === null) return;
           const ok = await copyText(code);
-          if (ok) scheduleClipboardClear(code, settings.clearClipboard);
+          if (ok) {
+            void scheduleClipboardClear(code, settings.clearClipboard).then((outcome) => {
+              if (outcome === 'failed') toast(t('common.clipboardClearFailed'), 'warning');
+            });
+          }
           toast(ok ? t('common.copied') : t('common.copyFailed'), ok ? 'success' : 'error');
         })();
         return;
@@ -108,6 +114,10 @@ export function AccountsPage() {
         return;
       }
       if (event.key === 'Enter' && selectedId !== null && !isTyping) {
+        // フォーカス中のボタン・リンクの既定動作（Enter で押す）を取り消さない。
+        if (target !== null && (target.closest('button') !== null || target.closest('a') !== null || target === searchRef.current)) {
+          return;
+        }
         event.preventDefault();
         navigate(`/account/${selectedId}`);
       }
@@ -121,17 +131,25 @@ export function AccountsPage() {
   }
 
   async function incrementHotp(account: Account): Promise<void> {
-    const nextCounter = account.counter + 1;
-    const nextCode = await generateHOTP(decodeBase32(account.secret), nextCounter, {
-      algorithm: account.algorithm,
-      digits: account.digits,
-    });
-    await upsertAccount({
-      ...account,
-      counter: nextCounter,
-      updatedAt: new Date().toISOString(),
-    });
-    toast(`${t('list.hotpIncrement')}: ${nextCode}`, 'info');
+    if (hotpBusyId !== null) return;
+    setHotpBusyId(account.id);
+    try {
+      // 実行時点の最新 counter から進める（連打で同じ値を二重に保存しない）。
+      const latest = useVaultStore.getState().accounts.find((item) => item.id === account.id) ?? account;
+      const nextCounter = latest.counter + 1;
+      const nextCode = await generateHOTP(decodeBase32(latest.secret), nextCounter, {
+        algorithm: latest.algorithm,
+        digits: latest.digits,
+      });
+      await upsertAccount({
+        ...latest,
+        counter: nextCounter,
+        updatedAt: new Date().toISOString(),
+      });
+      toast(`${t('list.hotpIncrement')}: ${nextCode}`, 'info');
+    } finally {
+      setHotpBusyId(null);
+    }
   }
 
   function handleDrop(targetId: string): void {
@@ -211,6 +229,7 @@ export function AccountsPage() {
               onSelect={() => setSelectedId(account.id)}
               onOpen={() => navigate(`/account/${account.id}`)}
               onCopyResult={(ok) => void handleCopyResult(ok)}
+              onClipboardClearFailed={() => toast(t('common.clipboardClearFailed'), 'warning')}
               onIncrementHotp={() => void incrementHotp(account)}
               draggable
               dragging={dragId === account.id}

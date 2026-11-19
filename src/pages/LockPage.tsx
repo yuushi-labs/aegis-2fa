@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useI18n } from '../lib/hooks';
 import { useVaultStore } from '../lib/vaultStore';
 import { Modal } from '../components/Modal';
@@ -89,9 +90,9 @@ export function LockPage() {
 
       <div className="mt-8 flex flex-col items-center gap-2">
         {token === null && (
-          <a href="#/sync" className="link text-[0.8rem]">
+          <Link to="/sync" className="link text-[0.8rem]">
             {t('sync.title')}
-          </a>
+          </Link>
         )}
         <button
           type="button"

@@ -175,7 +175,10 @@ function QrScannerPanel({ onScan }: { onScan: (value: string) => boolean }) {
   const toast = useToast();
   const videoRef = useRef<HTMLVideoElement>(null);
   const handleRef = useRef<ScannerHandle | null>(null);
+  const startingRef = useRef(false);
+  const cancelledRef = useRef(false);
   const [active, setActive] = useState(false);
+  const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const supported = typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia !== undefined;
 
@@ -185,14 +188,23 @@ function QrScannerPanel({ onScan }: { onScan: (value: string) => boolean }) {
     setActive(false);
   }, []);
 
-  useEffect(() => () => stop(), [stop]);
+  useEffect(
+    () => () => {
+      // 画面を離れたら、開始待ちで後から返ってくる handle も即座に止める。
+      cancelledRef.current = true;
+      stop();
+    },
+    [stop],
+  );
 
   async function start(): Promise<void> {
     const video = videoRef.current;
-    if (video === null) return;
+    if (video === null || startingRef.current || active) return;
+    startingRef.current = true;
+    setStarting(true);
     setError(null);
     try {
-      handleRef.current = await startCameraScanner(
+      const handle = await startCameraScanner(
         video,
         (value) => {
           stop();
@@ -206,10 +218,20 @@ function QrScannerPanel({ onScan }: { onScan: (value: string) => boolean }) {
           stop();
         },
       );
+      if (cancelledRef.current) {
+        // 開始待ちの間にタブを離れた等。返ってきた handle は即停止する。
+        handle.stop();
+        return;
+      }
+      handleRef.current?.stop();
+      handleRef.current = handle;
       setActive(true);
     } catch (scannerError) {
       const name = scannerError instanceof Error ? scannerError.message : 'camera_error';
       setError(name === 'camera_unsupported' ? t('qr.unsupported') : t('qr.denied'));
+    } finally {
+      startingRef.current = false;
+      setStarting(false);
     }
   }
 
@@ -240,8 +262,8 @@ function QrScannerPanel({ onScan }: { onScan: (value: string) => boolean }) {
                 {t('qr.stop')}
               </button>
             ) : (
-              <button type="button" className="btn btn-primary" onClick={() => void start()}>
-                {t('qr.start')}
+              <button type="button" className="btn btn-primary" onClick={() => void start()} disabled={starting}>
+                {starting ? t('common.loading') : t('qr.start')}
               </button>
             )}
             <span className="text-[0.72rem]" style={{ color: 'var(--text-faint)' }}>
@@ -259,21 +281,35 @@ function QrImagePanel({ onScan }: { onScan: (value: string) => boolean }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const requestRef = useRef(0);
+  const mountedRef = useRef(true);
+
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    [],
+  );
 
   async function handleFile(file: File): Promise<void> {
+    const requestId = (requestRef.current += 1);
+    const isLatest = (): boolean => requestRef.current === requestId && mountedRef.current;
     setBusy(true);
     setError(null);
     try {
       const value = await decodeImageFile(file);
+      // 画像 A の解析中に画像 B が選ばれた場合、古い結果は適用しない。
+      if (!isLatest()) return;
       if (value === null) {
         setError(t('migration.invalid'));
         return;
       }
       if (!onScan(value)) setError(t('add.invalidUri'));
     } catch {
+      if (!isLatest()) return;
       setError(t('migration.invalid'));
     } finally {
-      setBusy(false);
+      if (isLatest()) setBusy(false);
     }
   }
 

@@ -16,6 +16,8 @@ export type AccountRowProps = {
   onSelect: () => void;
   onOpen: () => void;
   onCopyResult: (ok: boolean) => void;
+  /** 自動クリアに失敗した（クリップボードにコードが残っている）ときの通知 */
+  onClipboardClearFailed: () => void;
   onIncrementHotp: () => void;
   draggable?: boolean;
   onDragStart?: () => void;
@@ -32,6 +34,7 @@ export function AccountRow({
   onSelect,
   onOpen,
   onCopyResult,
+  onClipboardClearFailed,
   onIncrementHotp,
   draggable = false,
   onDragStart,
@@ -98,7 +101,9 @@ export function AccountRow({
     const ok = await copyText(code);
     onCopyResult(ok);
     if (ok) {
-      scheduleClipboardClear(code, settings.clearClipboard);
+      void scheduleClipboardClear(code, settings.clearClipboard).then((outcome) => {
+        if (outcome === 'failed') onClipboardClearFailed();
+      });
       setCopied(true);
       if (copyTimer.current !== null) clearTimeout(copyTimer.current);
       copyTimer.current = setTimeout(() => setCopied(false), 1600);
@@ -133,6 +138,8 @@ export function AccountRow({
         onClick={onSelect}
         onDoubleClick={onOpen}
         onKeyDown={(event) => {
+          // 子ボタン上での Space/Enter はボタンの既定動作を保つ（行の操作は行自体だけ）。
+          if (event.target !== event.currentTarget) return;
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
             onSelect();

@@ -32,14 +32,14 @@ export async function renderQrToCanvas(canvas: HTMLCanvasElement, text: string, 
 }
 
 export async function renderQrPng(text: string, size = 512): Promise<Blob> {
-  const buffer = await QRCode.toBuffer(text, {
-    type: 'png',
-    errorCorrectionLevel: 'M',
-    margin: 2,
-    width: size,
-    color: { dark: '#16181a', light: '#faf7f0' },
+  // qrcode の browser エントリは toBuffer を持たないため、canvas に描いて PNG 化する。
+  const canvas = document.createElement('canvas');
+  await renderQrToCanvas(canvas, text, size);
+  const blob = await new Promise<Blob | null>((resolve) => {
+    canvas.toBlob((value) => resolve(value), 'image/png');
   });
-  return new Blob([new Uint8Array(buffer)], { type: 'image/png' });
+  if (blob === null) throw new Error('qr_png_failed');
+  return blob;
 }
 
 type DetectedBarcode = { rawValue: string };
@@ -118,10 +118,17 @@ export async function startCameraScanner(
     video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
     audio: false,
   });
-  video.srcObject = stream;
-  video.setAttribute('playsinline', 'true');
-  video.muted = true;
-  await video.play();
+  try {
+    video.srcObject = stream;
+    video.setAttribute('playsinline', 'true');
+    video.muted = true;
+    await video.play();
+  } catch (error) {
+    // 再生開始に失敗した場合、取得済みのトラックを残さない。
+    for (const track of stream.getTracks()) track.stop();
+    video.srcObject = null;
+    throw error;
+  }
 
   const canvas = document.createElement('canvas');
   let running = true;

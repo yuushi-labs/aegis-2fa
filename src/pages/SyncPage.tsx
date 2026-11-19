@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { deriveVaultId, formatSyncCode, normalizeSyncCode } from '../../shared/sync';
 import { useI18n, useToast } from '../lib/hooks';
@@ -17,25 +17,49 @@ export function SyncPage() {
   const [code, setCode] = useState(() => params.get('code') ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorKind, setErrorKind] = useState<'code' | 'network' | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  /** 画面を離れたら接続を完了させない（戻って別のボルトを作った場合の上書き防止）。 */
+  const unmountedRef = useRef(false);
+  const busyRef = useRef(false);
+
+  useEffect(
+    () => () => {
+      unmountedRef.current = true;
+    },
+    [],
+  );
 
   async function connect(): Promise<void> {
     const token = normalizeSyncCode(code);
-    if (token === '') return;
+    if (token === '' || busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
     setError(null);
+    setErrorKind(null);
     try {
       // 先に存在確認してからボルトを置き換える（失敗時に壊さない）。
       const client = createSyncClient();
       const vaultId = await deriveVaultId(token);
       await client.getMeta(vaultId, token);
+      if (unmountedRef.current) return;
+      // attachSync 側でも、取得中にボルトが変わっていないことを確認してから保存する。
       await attachSync(token);
+      if (unmountedRef.current) return;
       toast(t('sync.connected'), 'success');
       navigate('/');
     } catch (connectError) {
-      setError(connectError instanceof SyncNotFoundError ? t('sync.notFound') : t('toast.syncFailed'));
+      if (unmountedRef.current) return;
+      if (connectError instanceof SyncNotFoundError) {
+        setError(t('sync.notFound'));
+        setErrorKind('code');
+      } else {
+        setError(t('toast.syncFailed'));
+        setErrorKind('network');
+      }
     } finally {
-      setBusy(false);
+      busyRef.current = false;
+      if (!unmountedRef.current) setBusy(false);
     }
   }
 
@@ -67,13 +91,15 @@ export function SyncPage() {
           spellCheck={false}
           autoComplete="off"
           autoFocus
+          aria-invalid={errorKind === 'code' || undefined}
+          aria-describedby={errorKind === 'code' ? 'sync-error' : undefined}
           data-testid="sync-code-input"
         />
         {code.trim() !== '' && (
           <p className="field-hint code-text break-all">{formatSyncCode(normalizeSyncCode(code))}</p>
         )}
         {error !== null && (
-          <p className="field-error mt-2" role="alert">
+          <p id="sync-error" className="field-error mt-2" role="alert">
             {error}
           </p>
         )}

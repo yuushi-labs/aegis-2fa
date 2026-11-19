@@ -60,6 +60,11 @@ export function useToast(): (message: string, tone?: ToastTone) => void {
   return useToastStore((state) => state.push);
 }
 
+/** すべてのトーストを即座に消す（ロック時に OTP を含む通知を残さない）。 */
+export function clearToasts(): void {
+  useToastStore.setState({ toasts: [] });
+}
+
 /** 現在時刻（1 秒ごと）。時計を差し替えられるよう関数で渡す。 */
 export function useNow(intervalMs = 1000): number {
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));

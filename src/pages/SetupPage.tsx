@@ -104,8 +104,13 @@ export function SetupPage() {
             value={confirm}
             onChange={(event) => setConfirm(event.target.value)}
             aria-invalid={mismatch || undefined}
+            aria-describedby={mismatch ? 'setup-confirm-error' : undefined}
           />
-          {mismatch && <p className="field-error">{t('setup.mismatch')}</p>}
+          {mismatch && (
+            <p id="setup-confirm-error" className="field-error" role="alert">
+              {t('setup.mismatch')}
+            </p>
+          )}
         </div>
 
         <fieldset className="mt-5">

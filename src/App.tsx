@@ -3,7 +3,7 @@ import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-
 import { AppFooter, AppHeader } from './components/AppHeader';
 import { Modal } from './components/Modal';
 import { Toaster } from './components/Toaster';
-import { useI18n, useTheme, useToast } from './lib/hooks';
+import { useI18n, useTheme, useToast, clearToasts } from './lib/hooks';
 import { useVaultStore } from './lib/vaultStore';
 import { formatSyncCode } from '../shared/sync';
 import { AccountsPage } from './pages/AccountsPage';
@@ -38,6 +38,11 @@ export function App() {
     void initialize();
   }, [initialize]);
 
+  // ロックしたら、OTP を含みうる通知も残さない。
+  useEffect(() => {
+    if (status === 'locked' || status === 'uninitialized') clearToasts();
+  }, [status]);
+
   // 自動ロック: 無操作 + タブ非表示の両方を見る。
   useEffect(() => {
     if (status !== 'unlocked') return;
@@ -65,6 +70,22 @@ export function App() {
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [status, settings.autoLockMinutes, settings.lockOnHide, lock]);
+
+  /** 競合解決ボタンの共通ハンドラ（失敗を握りつぶさず、失敗時は成功トーストを出さない）。 */
+  async function handleResolve(mode: 'overwrite' | 'discard' | 'merge'): Promise<void> {
+    try {
+      const result = await resolveConflict(mode);
+      if (mode === 'merge') {
+        if (result.resolved === false) {
+          toast(t('conflict.mergeFailed'), 'error');
+          return;
+        }
+        toast(t('conflict.merged', { added: result.added, updated: result.updated }), 'success');
+      }
+    } catch {
+      toast(t('conflict.failed'), 'error');
+    }
+  }
 
   // 同期状態の変化を通知する。
   const previousSync = useRef(syncState);
@@ -171,7 +192,7 @@ export function App() {
               type="button"
               className="btn btn-secondary"
               onClick={() => {
-                void resolveConflict('discard');
+                void handleResolve('discard');
               }}
             >
               {t('conflict.discard')}
@@ -180,7 +201,7 @@ export function App() {
               type="button"
               className="btn btn-secondary"
               onClick={() => {
-                void resolveConflict('overwrite');
+                void handleResolve('overwrite');
               }}
             >
               {t('conflict.overwrite')}
@@ -189,9 +210,7 @@ export function App() {
               type="button"
               className="btn btn-primary"
               onClick={() => {
-                void resolveConflict('merge').then((result) => {
-                  toast(t('conflict.merged', { added: result.added, updated: result.updated }), 'success');
-                });
+                void handleResolve('merge');
               }}
             >
               {t('conflict.merge')}

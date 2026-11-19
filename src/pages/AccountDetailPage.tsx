@@ -91,7 +91,12 @@ export function AccountDetailPage() {
   async function handleSave(): Promise<void> {
     if (account === null || draft === null) return;
     const updated = draftToAccount(draft, account, account.id, new Date().toISOString());
-    await upsertAccount(updated);
+    try {
+      await upsertAccount(updated);
+    } catch {
+      toast(t('common.error'), 'error');
+      return;
+    }
     toast(t('detail.updated'), 'success');
     navigate('/');
   }
@@ -99,22 +104,36 @@ export function AccountDetailPage() {
   async function handleDelete(): Promise<void> {
     if (account === null) return;
     setDeleteOpen(false);
-    await removeAccount(account.id);
+    try {
+      await removeAccount(account.id);
+    } catch {
+      toast(t('common.error'), 'error');
+      return;
+    }
     toast(t('detail.deleted'), 'success');
     navigate('/');
   }
 
   async function handleCopyUri(): Promise<void> {
     if (account === null) return;
-    const ok = await copyText(buildOtpauthUri(account));
-    if (ok) scheduleClipboardClear(buildOtpauthUri(account), settings.clearClipboard);
+    const uri = buildOtpauthUri(account);
+    const ok = await copyText(uri);
+    if (ok) {
+      void scheduleClipboardClear(uri, settings.clearClipboard).then((outcome) => {
+        if (outcome === 'failed') toast(t('common.clipboardClearFailed'), 'warning');
+      });
+    }
     toast(ok ? t('common.copied') : t('common.copyFailed'), ok ? 'success' : 'error');
   }
 
   async function handleDownloadQr(): Promise<void> {
     if (account === null) return;
-    const blob = await renderQrPng(buildOtpauthUri(account), 640);
-    downloadBlob(blob, `aegis-${(account.issuer || account.label || 'account').replace(/[^\w-]+/g, '-')}-${timestampForFilename()}.png`);
+    try {
+      const blob = await renderQrPng(buildOtpauthUri(account), 640);
+      downloadBlob(blob, `aegis-${(account.issuer || account.label || 'account').replace(/[^\w-]+/g, '-')}-${timestampForFilename()}.png`);
+    } catch {
+      toast(t('common.error'), 'error');
+    }
   }
 
   return (
@@ -188,9 +207,13 @@ export function AccountDetailPage() {
         <p className="mb-3 text-[0.8rem]" style={{ color: 'var(--clay)' }}>
           {t('detail.qr.warning')}
         </p>
-        {qrDataUrl !== null ? (
+        {qrDataUrl.error ? (
+          <p className="field-error" role="alert">
+            {t('common.qrTooLarge')}
+          </p>
+        ) : qrDataUrl.dataUrl !== null ? (
           <img
-            src={qrDataUrl}
+            src={qrDataUrl.dataUrl}
             alt={t('detail.qr.title')}
             className="mx-auto block w-full max-w-[260px] rounded-md"
             data-testid="account-qr"

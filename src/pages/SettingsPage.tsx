@@ -1,13 +1,13 @@
 import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MIN_PASSWORD_LENGTH } from '../../shared/types';
-import type { Account, VaultEnvelope } from '../../shared/types';
-import { encodeMigrationPayload } from '../../shared/migration';
-import { CryptoError, WrongPasswordError, unlockVaultEnvelope } from '../../shared/crypto';
+import type { VaultEnvelope } from '../../shared/types';
+import { encodeMigrationPayload, partitionMigratableAccounts } from '../../shared/migration';
+import { CryptoError, WrongPasswordError } from '../../shared/crypto';
 import { formatSyncCode } from '../../shared/sync';
 import { AUTO_LOCK_OPTIONS, type AutoLockMinutes, type ThemeMode } from '../lib/settings';
 import { useI18n, useToast } from '../lib/hooks';
-import { useVaultStore } from '../lib/vaultStore';
+import { useVaultStore, VaultLockedError } from '../lib/vaultStore';
 import { Modal } from '../components/Modal';
 import { copyText, scheduleClipboardClear } from '../lib/clipboard';
 import { downloadBlob, formatTime, timestampForFilename } from '../lib/format';
@@ -66,7 +66,12 @@ export function SettingsPage() {
     syncQrOpen && token !== null ? `${window.location.origin}/sync?code=${token}` : null,
     240,
   );
-  const migrationQr = useQrDataUrl(migrationOpen ? buildMigrationUri(accounts) : null, 260);
+  // 移行形式は周期を持てないため、30 秒以外の TOTP は黙って含めない。
+  const migration = partitionMigratableAccounts(accounts);
+  const migrationQrText = migrationOpen && migration.unsupported.length === 0 && migration.entries.length > 0
+    ? safeEncodeMigration(migration)
+    : null;
+  const migrationQr = useQrDataUrl(migrationQrText, 260);
 
   async function handleChangePassword(event: React.FormEvent): Promise<void> {
     event.preventDefault();
@@ -109,9 +114,8 @@ export function SettingsPage() {
   async function handleConfirmImport(): Promise<void> {
     if (pendingImport === null) return;
     try {
-      // バックアップのパスワードが現在のボルトと一致するか検証する。
-      await unlockVaultEnvelope(pendingImport, importPassword);
-      const count = await importEnvelope(pendingImport, importMode);
+      // 復号はストア側で行う（merge はバックアップ自身のパスワードで復号して現在の DEK で保存する）。
+      const count = await importEnvelope(pendingImport, importMode, importPassword);
       toast(
         importMode === 'replace' ? t('toast.restored') : t('settings.import.success', { count }),
         'success',
@@ -124,6 +128,12 @@ export function SettingsPage() {
         navigate('/');
       }
     } catch (error) {
+      if (error instanceof VaultLockedError) {
+        toast(t('conflict.mergeFailed'), 'error');
+        setPendingImport(null);
+        setImportPassword('');
+        return;
+      }
       if (error instanceof WrongPasswordError) {
         toast(t('settings.import.wrongPassword'), 'error');
       } else if (error instanceof CryptoError) {
@@ -145,7 +155,10 @@ export function SettingsPage() {
   function downloadCsv(): void {
     setCsvOpen(false);
     const header = ['issuer', 'label', 'secret', 'type', 'algorithm', 'digits', 'period', 'counter'];
-    const escape = (value: string) => `"${value.replace(/"/g, '""')}"`;
+    // 表計算ソフトが数式として評価する先頭文字を無効化する（CSV インジェクション対策）。
+    const neutralise = (value: string): string =>
+      /^[=+\-@\t\r]/.test(value) || value.startsWith('\u0000') ? `'${value}` : value;
+    const escape = (value: string) => `"${neutralise(value).replace(/"/g, '""')}"`;
     const rows = accounts.map((account) =>
       [
         escape(account.issuer),
@@ -165,14 +178,22 @@ export function SettingsPage() {
   async function handleCopyToken(): Promise<void> {
     if (token === null) return;
     const ok = await copyText(token);
-    if (ok) scheduleClipboardClear(token, settings.clearClipboard);
+    if (ok) {
+      void scheduleClipboardClear(token, settings.clearClipboard).then((outcome) => {
+        if (outcome === 'failed') toast(t('common.clipboardClearFailed'), 'warning');
+      });
+    }
     toast(ok ? t('common.copied') : t('common.copyFailed'), ok ? 'success' : 'error');
   }
 
   async function handleDownloadMigrationQr(): Promise<void> {
-    if (accounts.length === 0) return;
-    const blob = await renderQrPng(buildMigrationUri(accounts), 640);
-    downloadBlob(blob, `aegis-migration-${timestampForFilename()}.png`);
+    if (migrationQrText === null) return;
+    try {
+      const blob = await renderQrPng(migrationQrText, 640);
+      downloadBlob(blob, `aegis-migration-${timestampForFilename()}.png`);
+    } catch {
+      toast(t('common.error'), 'error');
+    }
   }
 
   return (
@@ -412,8 +433,12 @@ export function SettingsPage() {
 
         <Section title={t('settings.import')}>
           <div>
+            <label className="field-label" htmlFor="backup-file-input">
+              {t('settings.import.backup')}
+            </label>
             <input
               ref={fileRef}
+              id="backup-file-input"
               type="file"
               accept=".aegis,application/json"
               className="block w-full text-[0.82rem]"
@@ -453,8 +478,16 @@ export function SettingsPage() {
         <p className="mb-3 text-[0.8rem]" style={{ color: 'var(--clay)' }}>
           {t('detail.qr.warning')}
         </p>
-        {syncQr !== null ? (
-          <img src={syncQr} alt={t('settings.sync.qr')} className="mx-auto block w-full max-w-[240px] rounded-md" />
+        {syncQr.error ? (
+          <p className="field-error" role="alert">
+            {t('common.qrTooLarge')}
+          </p>
+        ) : syncQr.dataUrl !== null ? (
+          <img
+            src={syncQr.dataUrl}
+            alt={t('settings.sync.qr')}
+            className="mx-auto block w-full max-w-[240px] rounded-md"
+          />
         ) : (
           <p className="text-[0.82rem]">{t('common.loading')}</p>
         )}
@@ -512,7 +545,12 @@ export function SettingsPage() {
         onClose={() => setMigrationOpen(false)}
         width="sm"
         footer={
-          <button type="button" className="btn btn-secondary" onClick={() => void handleDownloadMigrationQr()}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => void handleDownloadMigrationQr()}
+            disabled={migrationQrText === null}
+          >
             {t('common.download')}
           </button>
         }
@@ -520,10 +558,28 @@ export function SettingsPage() {
         <p className="mb-3 text-[0.8rem]" style={{ color: 'var(--clay)' }}>
           {t('export.migrationWarning')}
         </p>
-        {migrationQr !== null ? (
-          <img src={migrationQr} alt={t('settings.export.migrationQr')} className="mx-auto block w-full max-w-[260px] rounded-md" />
+        {migration.unsupported.length > 0 && (
+          <p className="field-error mb-3" role="alert">
+            {t('export.migrationPeriodUnsupported', { count: migration.unsupported.length })}
+          </p>
+        )}
+        {migration.unsupported.length === 0 && migration.entries.length === 0 && (
+          <p className="field-error mb-3" role="alert">
+            {t('export.migrationNothingRepresentable')}
+          </p>
+        )}
+        {migrationQr.error ? (
+          <p className="field-error" role="alert">
+            {t('common.qrTooLarge')}
+          </p>
+        ) : migrationQr.dataUrl !== null ? (
+          <img
+            src={migrationQr.dataUrl}
+            alt={t('settings.export.migrationQr')}
+            className="mx-auto block w-full max-w-[260px] rounded-md"
+          />
         ) : (
-          <p className="text-[0.82rem]">{t('common.loading')}</p>
+          migrationQrText !== null && <p className="text-[0.82rem]">{t('common.loading')}</p>
         )}
       </Modal>
 
@@ -624,17 +680,12 @@ export function SettingsPage() {
   );
 }
 
-/** 全アカウントを 1 つの移行 URI にまとめる。 */
-function buildMigrationUri(accounts: readonly Account[]): string {
-  return encodeMigrationPayload(
-    accounts.map((account) => ({
-      secret: account.secret,
-      name: account.label,
-      issuer: account.issuer,
-      algorithm: account.algorithm,
-      digits: account.digits,
-      type: account.type,
-      counter: account.counter,
-    })),
-  );
+/** 移行 URI を組み立てる。表現できない周期が混ざっている場合は null（呼び出し側で案内する）。 */
+function safeEncodeMigration(partition: ReturnType<typeof partitionMigratableAccounts>): string | null {
+  if (partition.unsupported.length > 0 || partition.entries.length === 0) return null;
+  try {
+    return encodeMigrationPayload(partition.entries);
+  } catch {
+    return null;
+  }
 }

@@ -1,6 +1,8 @@
 /**
  * ボルトの状態。平文の秘密鍵と DEK はアンロック中のみメモリに置く。
  * 永続化するのは暗号文封筒だけ。
+ *
+ * 書き込みは 1 本のキューで直列化する（同時保存で先の変更が失われないように）。
  */
 
 import { create } from 'zustand';
@@ -41,6 +43,22 @@ export type Conflict = {
   remoteEnvelope: VaultEnvelope;
 };
 
+/** アンロック中でないと実行できない操作。 */
+export class VaultLockedError extends Error {
+  constructor() {
+    super('vault_locked');
+    this.name = 'VaultLockedError';
+  }
+}
+
+/** 操作中に別のボルトへ置き換わった（画面離脱後の完了など）。 */
+export class VaultChangedError extends Error {
+  constructor() {
+    super('vault_changed');
+    this.name = 'VaultChangedError';
+  }
+}
+
 type VaultStore = {
   status: VaultStatus;
   accounts: Account[];
@@ -51,6 +69,8 @@ type VaultStore = {
   syncState: SyncState;
   syncError: string | null;
   lastSyncedAt: string | null;
+  /** サーバーと一致している revision（ローカル専用モードでは null） */
+  syncedRevision: number | null;
   conflict: Conflict | null;
   failedAttempts: number;
   cooldownUntil: number;
@@ -76,8 +96,10 @@ type VaultStore = {
   changePassword: (current: string, next: string) => Promise<boolean>;
   syncNow: () => Promise<void>;
   refreshRemote: () => Promise<void>;
-  resolveConflict: (mode: 'overwrite' | 'discard' | 'merge') => Promise<{ added: number; updated: number }>;
-  importEnvelope: (envelope: VaultEnvelope, mode: 'replace' | 'merge') => Promise<number>;
+  resolveConflict: (
+    mode: 'overwrite' | 'discard' | 'merge',
+  ) => Promise<{ added: number; updated: number; resolved: boolean }>;
+  importEnvelope: (envelope: VaultEnvelope, mode: 'replace' | 'merge', password?: string) => Promise<number>;
   wipe: () => Promise<void>;
 };
 
@@ -85,6 +107,18 @@ export const syncClient = createSyncClient();
 
 const SYNC_DEBOUNCE_MS = 2000;
 let syncTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** 保存処理の直列化キュー。後から始まった保存が先の変更を取りこぼさない。 */
+let writeQueue: Promise<unknown> = Promise.resolve();
+
+function runExclusive<T>(task: () => Promise<T>): Promise<T> {
+  const result = writeQueue.then(task, task);
+  writeQueue = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
 
 export function makeAccountId(): string {
   if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
@@ -122,7 +156,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
     }, SYNC_DEBOUNCE_MS);
   }
 
-  /** 保留中の同期を即座に実行する（ページ離脱時など）。 */
+  /** 保留中の同期を即座に実行する（ページ離脱・ロック時など）。 */
   function flushSync(): void {
     if (syncTimer === null) return;
     clearTimeout(syncTimer);
@@ -142,7 +176,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
       revision,
       new Date().toISOString(),
     );
-    await writeVault(next, token === null ? null : envelope.revision);
+    await writeVault(next, get().syncedRevision);
     set({
       envelope: next,
       accounts: sortAccounts(accounts),
@@ -163,12 +197,17 @@ export const useVaultStore = create<VaultStore>((set, get) => {
           syncState: 'conflict',
         });
       } else if (remote.revision === envelope.revision) {
-        set({ syncState: 'synced', lastSyncedAt: remote.envelope.updatedAt });
+        set({ syncState: 'synced', syncedRevision: remote.revision, lastSyncedAt: remote.envelope.updatedAt });
+      } else {
+        // サーバーが古い（未送信の変更がある）→ 送信待ちとして扱う。
+        set({ syncState: 'pending' });
+        scheduleSync();
       }
     } catch (error) {
       if (error instanceof SyncNotFoundError) {
         // サーバーに無い → 初回アップロード待ち。
-        set({ syncState: 'pending' });
+        set({ syncState: 'pending', syncedRevision: null });
+        scheduleSync();
       }
     }
   }
@@ -183,6 +222,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
     syncState: 'local-only',
     syncError: null,
     lastSyncedAt: null,
+    syncedRevision: null,
     conflict: null,
     failedAttempts: 0,
     cooldownUntil: 0,
@@ -206,15 +246,21 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         set({ status: 'uninitialized', settings: normalized, token, vaultId: null });
         return;
       }
+      const syncedRevision = stored.syncedRevision;
+      const pending =
+        token !== null && (syncedRevision === null || syncedRevision !== stored.envelope.revision);
       set({
         status: 'locked',
         envelope: stored.envelope,
         settings: normalized,
         token,
         vaultId: token === null ? null : await deriveVaultId(token),
-        syncState: token === null ? 'local-only' : 'synced',
+        syncedRevision: token === null ? null : syncedRevision,
+        syncState: token === null ? 'local-only' : pending ? 'pending' : 'synced',
         lastSyncedAt: token === null ? null : stored.savedAt,
       });
+      // 未同期の変更が残っている場合は、ロック画面のままでも送信を試みる。
+      if (pending) scheduleSync();
     },
 
     async createVault(password, options) {
@@ -237,6 +283,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         dek,
         token,
         vaultId,
+        syncedRevision: token === null ? null : 0,
         syncState: token === null ? 'local-only' : 'pending',
         failedAttempts: 0,
         cooldownUntil: 0,
@@ -280,10 +327,8 @@ export const useVaultStore = create<VaultStore>((set, get) => {
     },
 
     lock() {
-      if (syncTimer !== null) {
-        clearTimeout(syncTimer);
-        syncTimer = null;
-      }
+      // 2 秒デバウンス内の変更を取りこぼさない（syncNow は DEK を必要としない）。
+      flushSync();
       set({ status: 'locked', dek: null, accounts: [], conflict: null });
     },
 
@@ -294,31 +339,37 @@ export const useVaultStore = create<VaultStore>((set, get) => {
     },
 
     async saveAccounts(accounts) {
-      await persist(accounts);
+      await runExclusive(() => persist(accounts));
     },
 
     async upsertAccount(account) {
-      const accounts = get().accounts;
-      const exists = accounts.some((a) => a.id === account.id);
-      const next = exists
-        ? accounts.map((a) => (a.id === account.id ? account : a))
-        : [...accounts, { ...account, order: nextOrder(accounts) }];
-      await persist(next);
+      await runExclusive(async () => {
+        const accounts = get().accounts;
+        const exists = accounts.some((a) => a.id === account.id);
+        const next = exists
+          ? accounts.map((a) => (a.id === account.id ? account : a))
+          : [...accounts, { ...account, order: nextOrder(accounts) }];
+        await persist(next);
+      });
     },
 
     async removeAccount(id) {
-      await persist(get().accounts.filter((a) => a.id !== id));
+      await runExclusive(async () => {
+        await persist(get().accounts.filter((a) => a.id !== id));
+      });
     },
 
     async reorderAccounts(orderedIds) {
-      const position = new Map(orderedIds.map((id, index) => [id, index]));
-      const now = new Date().toISOString();
-      const next = get().accounts.map((account) => {
-        const order = position.get(account.id);
-        if (order === undefined || order === account.order) return account;
-        return { ...account, order, updatedAt: now };
+      await runExclusive(async () => {
+        const position = new Map(orderedIds.map((id, index) => [id, index]));
+        const now = new Date().toISOString();
+        const next = get().accounts.map((account) => {
+          const order = position.get(account.id);
+          if (order === undefined || order === account.order) return account;
+          return { ...account, order, updatedAt: now };
+        });
+        await persist(next);
       });
-      await persist(next);
     },
 
     async replaceVault(envelope, token) {
@@ -332,6 +383,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         accounts: [],
         token,
         vaultId: token === null ? null : await deriveVaultId(token),
+        syncedRevision: token === null ? null : 0,
         syncState: token === null ? 'local-only' : 'synced',
         conflict: null,
         syncError: null,
@@ -339,8 +391,11 @@ export const useVaultStore = create<VaultStore>((set, get) => {
     },
 
     async attachSync(token) {
+      // 取得中に別のボルトが作られた場合は、そのボルトを上書きしない。
+      const before = get().envelope;
       const vaultId = await deriveVaultId(token);
       const remote = await syncClient.get(vaultId, token);
+      if (get().envelope !== before) throw new VaultChangedError();
       await writeVault(remote.envelope, remote.revision);
       await writeToken(token);
       set({
@@ -350,6 +405,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         accounts: [],
         token,
         vaultId,
+        syncedRevision: remote.revision,
         syncState: 'synced',
         lastSyncedAt: remote.envelope.updatedAt,
         conflict: null,
@@ -358,7 +414,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
     },
 
     async disableSync() {
-      const { vaultId, token, envelope } = get();
+      const { vaultId, token } = get();
       if (vaultId !== null && token !== null) {
         try {
           await syncClient.remove(vaultId, token);
@@ -367,8 +423,17 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         }
       }
       await deleteToken();
-      if (envelope !== null) await writeVault(envelope, null);
-      set({ token: null, vaultId: null, syncState: 'local-only', syncError: null, lastSyncedAt: null });
+      // await の間に persist が走っていても、最新の envelope / syncedRevision を保存する。
+      const latest = get().envelope;
+      if (latest !== null) await writeVault(latest, null);
+      set({
+        token: null,
+        vaultId: null,
+        syncedRevision: null,
+        syncState: 'local-only',
+        syncError: null,
+        lastSyncedAt: null,
+      });
     },
 
     async changePassword(current, next) {
@@ -380,8 +445,16 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         return false;
       }
       const rewrapped = await rewrapEnvelope(envelope, dek, next);
-      await writeVault(rewrapped, token === null ? null : envelope.revision);
-      set({ envelope: rewrapped });
+      // データ部は revision を AAD に含むため、revision を進めるなら同時に再暗号化する。
+      const updated = await updateEnvelopeData(
+        rewrapped,
+        dek,
+        JSON.stringify({ accounts: sortAccounts(get().accounts) }),
+        envelope.revision + 1,
+        new Date().toISOString(),
+      );
+      await writeVault(updated, get().syncedRevision);
+      set({ envelope: updated, syncState: token === null ? 'local-only' : 'pending' });
       if (token !== null) scheduleSync();
       return true;
     },
@@ -393,11 +466,21 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         set({ syncState: 'pending', syncError: 'offline' });
         return;
       }
+      // 基準は「最後にサーバーと一致した revision」（envelope.revision - 1 ではない）。
+      const sent = envelope;
+      const base = get().syncedRevision ?? 0;
       try {
-        // envelope.revision が「書き込み後の revision」、基準はその 1 つ前。
-        await syncClient.put(vaultId, token, envelope, Math.max(0, envelope.revision - 1));
-        await updateSyncedRevision(envelope.revision);
-        set({ syncState: 'synced', syncError: null, lastSyncedAt: new Date().toISOString() });
+        await syncClient.put(vaultId, token, sent, base);
+        await updateSyncedRevision(sent.revision);
+        set({ syncedRevision: sent.revision });
+        const latest = get().envelope;
+        if (latest !== null && latest.revision > sent.revision) {
+          // 送信中にさらに編集された → 続けて送る。
+          set({ syncState: 'pending', syncError: null });
+          scheduleSync();
+        } else {
+          set({ syncState: 'synced', syncError: null, lastSyncedAt: new Date().toISOString() });
+        }
       } catch (error) {
         if (error instanceof SyncConflictError) {
           try {
@@ -413,8 +496,14 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         }
         if (error instanceof SyncNotFoundError) {
           try {
-            await syncClient.put(vaultId, token, envelope, 0);
-            set({ syncState: 'synced', syncError: null, lastSyncedAt: new Date().toISOString() });
+            await syncClient.put(vaultId, token, sent, 0);
+            await updateSyncedRevision(sent.revision);
+            set({
+              syncedRevision: sent.revision,
+              syncState: 'synced',
+              syncError: null,
+              lastSyncedAt: new Date().toISOString(),
+            });
           } catch {
             set({ syncState: 'error', syncError: 'put_failed' });
           }
@@ -433,11 +522,18 @@ export const useVaultStore = create<VaultStore>((set, get) => {
 
     async resolveConflict(mode) {
       const { conflict, token, vaultId, envelope, dek } = get();
-      if (conflict === null || token === null || vaultId === null) return { added: 0, updated: 0 };
+      if (conflict === null || token === null || vaultId === null) {
+        return { added: 0, updated: 0, resolved: false };
+      }
 
       if (mode === 'discard') {
         await writeVault(conflict.remoteEnvelope, conflict.remoteRevision);
-        set({ envelope: conflict.remoteEnvelope, conflict: null, syncState: 'synced' });
+        set({
+          envelope: conflict.remoteEnvelope,
+          conflict: null,
+          syncState: 'synced',
+          syncedRevision: conflict.remoteRevision,
+        });
         if (dek !== null) {
           try {
             const plaintext = await decryptVaultDataWithDek(conflict.remoteEnvelope, dek);
@@ -446,10 +542,10 @@ export const useVaultStore = create<VaultStore>((set, get) => {
             set({ status: 'locked', dek: null, accounts: [] });
           }
         }
-        return { added: 0, updated: 0 };
+        return { added: 0, updated: 0, resolved: true };
       }
 
-      if (envelope === null || dek === null) return { added: 0, updated: 0 };
+      if (envelope === null || dek === null) return { added: 0, updated: 0, resolved: false };
 
       let accounts = get().accounts;
       let added = 0;
@@ -464,7 +560,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         } catch (error) {
           if (error instanceof CryptoError) {
             set({ conflict: null, status: 'locked', dek: null, accounts: [] });
-            return { added: 0, updated: 0 };
+            return { added: 0, updated: 0, resolved: false };
           }
           throw error;
         }
@@ -483,23 +579,51 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         envelope: next,
         accounts: sortAccounts(accounts),
         conflict: null,
+        syncedRevision: conflict.remoteRevision,
         syncState: 'pending',
       });
       await get().syncNow();
-      return { added, updated };
+      return { added, updated, resolved: true };
     },
 
-    async importEnvelope(envelope, mode) {
-      const { dek, envelope: current } = get();
-      if (mode === 'replace' || dek === null || current === null) {
-        await writeVault(envelope, get().token === null ? null : 0);
-        set({ envelope, status: 'locked', dek: null, accounts: [] });
+    /**
+     * バックアップ封筒を取り込む。
+     * - replace: 封筒をそのまま差し替える（別ボルトのバックアップも可）。
+     * - merge: バックアップ自身のパスワードで復号し、現在のボルトへ統合して現在の DEK で保存する。
+     */
+    async importEnvelope(envelope, mode, password) {
+      if (mode === 'replace') {
+        const token = get().token;
+        await writeVault(envelope, token === null ? null : 0);
+        set({
+          envelope,
+          status: 'locked',
+          dek: null,
+          accounts: [],
+          syncedRevision: token === null ? null : 0,
+          syncState: token === null ? 'local-only' : 'pending',
+        });
         return 0;
       }
-      // 同じ DEK で復号できる場合のみマージできる。
-      const plaintext = await decryptVaultDataWithDek(envelope, dek);
-      const merged = mergeVaultData({ accounts: get().accounts }, parseVaultData(plaintext));
-      await persist(merged.data.accounts);
+
+      const before = get();
+      if (before.dek === null || before.envelope === null || before.status !== 'unlocked') {
+        throw new VaultLockedError();
+      }
+      if (password === undefined || password === '') throw new WrongPasswordError();
+      // バックアップは別のパスワード（別の DEK）で作られていてもよい。
+      const unlocked = await unlockVaultEnvelope(envelope, password);
+      const current = get();
+      // 復号待ちの間にロックされた／ボルトが入れ替わった場合は適用しない。
+      if (
+        current.dek === null ||
+        current.envelope !== before.envelope ||
+        current.status !== 'unlocked'
+      ) {
+        throw new VaultLockedError();
+      }
+      const merged = mergeVaultData({ accounts: current.accounts }, parseVaultData(unlocked.plaintext));
+      await runExclusive(() => persist(merged.data.accounts));
       return merged.added + merged.updated;
     },
 
@@ -512,6 +636,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         dek: null,
         token: null,
         vaultId: null,
+        syncedRevision: null,
         syncState: 'local-only',
         syncError: null,
         lastSyncedAt: null,

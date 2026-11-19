@@ -19,6 +19,9 @@ const WIDTH_CLASS: Record<'sm' | 'md' | 'lg', string> = {
   lg: 'max-w-2xl',
 };
 
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 export function Modal({ open, title, onClose, children, footer, width = 'md', describedBy }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   useEscape(onClose, open);
@@ -26,13 +29,43 @@ export function Modal({ open, title, onClose, children, footer, width = 'md', de
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
-    const firstFocusable = dialogRef.current?.querySelector<HTMLElement>(
-      'input, button, textarea, select, [tabindex]:not([tabindex="-1"])',
-    );
+    const dialog = dialogRef.current;
+    const firstFocusable = dialog?.querySelector<HTMLElement>(FOCUSABLE);
     firstFocusable?.focus();
     const originalOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+
+    // モーダル外へ Tab / Shift+Tab で抜けないよう、フォーカスを内部で循環させる。
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Tab' || dialog === null || dialog === undefined) return;
+      const items = [...dialog.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
+        (item) => item.offsetParent !== null || item === document.activeElement,
+      );
+      if (items.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = items[0] as HTMLElement;
+      const last = items[items.length - 1] as HTMLElement;
+      const active = document.activeElement;
+      const index = active instanceof HTMLElement ? items.indexOf(active) : -1;
+      if (event.shiftKey) {
+        if (index <= 0) {
+          event.preventDefault();
+          last.focus();
+        }
+        return;
+      }
+      if (index === -1 || index === items.length - 1) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown, true);
+
     return () => {
+      document.removeEventListener('keydown', onKeyDown, true);
       document.body.style.overflow = originalOverflow;
       previous?.focus();
     };
@@ -57,6 +90,7 @@ export function Modal({ open, title, onClose, children, footer, width = 'md', de
         aria-modal="true"
         aria-label={title}
         aria-describedby={describedBy}
+        tabIndex={-1}
         className={`rise-in card relative w-full ${WIDTH_CLASS[width]} max-h-[92dvh] overflow-y-auto rounded-b-none sm:rounded-b-[12px]`}
         style={{ boxShadow: 'var(--shadow-float)' }}
       >
