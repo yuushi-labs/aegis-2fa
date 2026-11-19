@@ -105,8 +105,11 @@ jobs:
           printf 'runtime image: %s bytes (%s MB)\n' "$size" "$((size / 1000 / 1000))" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Verify devDependencies are not shipped
         run: |
-          if docker run --rm aegis-2fa:ci sh -c 'test -e node_modules/typescript'; then
-            echo "::error::runtime image still contains devDependencies"
+          # コンテナ内で「typescript が無い」ことを確かめる。docker run 自体が失敗した
+          # 場合（125 など）もこの条件は成立しないため、起動失敗も CI の失敗になる。
+          if ! docker run --rm aegis-2fa:ci sh -c 'test ! -e node_modules/typescript'; then
+            echo "::error::runtime image contains devDependencies, or the container failed to start"
+            docker images aegis-2fa:ci || true
             exit 1
           fi
           echo "runtime image has production dependencies only"
