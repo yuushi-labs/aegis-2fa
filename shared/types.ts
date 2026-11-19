@@ -28,8 +28,17 @@ export type Account = {
   updatedAt: string;
 };
 
+/** 削除の記録。同期マージで削除済みアカウントが復活しないようにする。 */
+export type Tombstone = {
+  id: string;
+  /** 削除した時刻（ISO 8601）。アカウントの updatedAt と比較する。 */
+  deletedAt: string;
+};
+
 export type VaultData = {
   accounts: Account[];
+  /** 削除記録（古いバックアップには無いため任意） */
+  tombstones?: Tombstone[];
 };
 
 export type VaultKdf = {

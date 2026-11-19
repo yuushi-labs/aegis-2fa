@@ -285,6 +285,40 @@ describe('Google Authenticator 移行形式', () => {
     expect(entries[1]?.counter).toBe(4);
   });
 
+  it('エクスポート→インポートで issuer/label が往復する（接頭辞を含むラベルも）', () => {
+    const cases = [
+      { issuer: 'Example', label: 'alice@example.com' },
+      { issuer: 'Example', label: 'Example:alice@example.com' },
+      { issuer: '', label: 'plain@example.com' },
+    ];
+    for (const item of cases) {
+      const uri = encodeMigrationPayload([
+        { secret: 'JBSWY3DPEHPK3PXP', name: item.label, issuer: item.issuer, algorithm: 'SHA1', digits: 6, type: 'totp', counter: 0 },
+      ]);
+      const parsed = parseMigrationUri(uri);
+      const entry = parsed.entries[0];
+      expect(entry).toBeDefined();
+      const account = migrationEntryToAccount(entry!, 'id', '2024-01-01T00:00:00.000Z', 0);
+      expect(account.issuer).toBe(item.issuer);
+      expect(account.label).toBe(item.label);
+    }
+  });
+
+  it('10 バイト目のペイロードが 2 以上の varint は拒否する', () => {
+    // 0x81 + 0x80 * 8 + 0x02 は 2^64 + 1（64bit 超過）。
+    const bytes = payload([TOTP_ENTRY], [...tag(5, 0), 0x81, ...Array(8).fill(0x80), 0x02]);
+    expect(() => decodeMigrationPayload(bytes)).toThrow(MigrationError);
+  });
+
+  it('安全整数を超える fixed64 の counter はスキップする', () => {
+    const fixed64Tag = [...tag(7, 1), ...Array(8).fill(0xff)];
+    const bytes = payload([TOTP_ENTRY], [...lenDelimited(1, [...HOTP_ENTRY, ...fixed64Tag])]);
+    const result = decodeMigrationPayload(bytes);
+    expect(result.skipped).toBe(1);
+    expect(result.skipReasons[0]).toContain('カウンタ');
+    expect(result.entries).toHaveLength(1);
+  });
+
   it('migrationEntryToAccount が issuer/label を分離する', () => {
     const entry = {
       secret: 'JBSWY3DPEHPK3PXP',

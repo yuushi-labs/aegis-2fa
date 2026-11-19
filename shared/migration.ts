@@ -92,11 +92,17 @@ class Reader {
   readVarintBig(): bigint {
     let result = 0n;
     let shift = 0n;
+    let byteCount = 0;
     while (true) {
       if (this.offset >= this.bytes.length) {
         throw new MigrationError('Protobuf の可変長整数が途中で終わっています');
       }
       const byte = this.bytes[this.offset++] as number;
+      byteCount += 1;
+      // 10 バイト目は 64bit の最上位ビットしか持てない（0x81 等は 64bit 超過）。
+      if (byteCount === 10 && (byte & 0x7f) > 1) {
+        throw new MigrationError('可変長整数が大きすぎます');
+      }
       result |= BigInt(byte & 0x7f) << shift;
       if ((byte & 0x80) === 0) break;
       shift += 7n;
@@ -199,7 +205,7 @@ function asInt32(field: Field | undefined): number {
 /** 宣言が int64 のフィールドを符号付きとして解釈する。安全整数に収まらない場合は null。 */
 function asInt64(field: Field | undefined): number | null {
   if (field === undefined) return 0;
-  if (typeof field.value === 'number') return field.value;
+  if (typeof field.value === 'number') return Number.isSafeInteger(field.value) ? field.value : null;
   if (typeof field.value === 'bigint') {
     const signed = BigInt.asIntN(64, field.value);
     if (signed < BigInt(Number.MIN_SAFE_INTEGER) || signed > BigInt(Number.MAX_SAFE_INTEGER)) return null;
@@ -365,9 +371,15 @@ export function migrationEntryToAccount(
   const nameIssuer = colonIndex === -1 ? '' : entry.name.slice(0, colonIndex).trim();
   const nameLabel = colonIndex === -1 ? entry.name : entry.name.slice(colonIndex + 1).trim();
   const issuer = entry.issuer !== '' ? entry.issuer : nameIssuer;
+  // issuer が分かっている場合は、その接頭辞（"Issuer:"）だけを 1 回外す。
+  const prefix = entry.issuer !== '' ? `${entry.issuer}:` : '';
   const stripPrefix =
-    colonIndex !== -1 && (entry.issuer === '' || nameIssuer.toLowerCase() === entry.issuer.toLowerCase());
-  const label = stripPrefix ? nameLabel || entry.name : entry.name;
+    entry.issuer !== ''
+      ? entry.name.startsWith(prefix)
+      : colonIndex !== -1 && nameIssuer !== '';
+  const label = stripPrefix
+    ? (entry.issuer !== '' ? entry.name.slice(prefix.length) : nameLabel) || entry.name
+    : entry.name;
   return {
     id,
     type: entry.type,
@@ -420,6 +432,15 @@ function writeVarintField(fieldNumber: number, value: number): number[] {
 }
 
 /**
+ * 移行形式の name は「Issuer:account」。取込側はこの接頭辞を 1 回だけ外すので、
+ * 出力側も常に 1 回付ける（ラベル自体が "Issuer:" で始まる場合も往復で失われない）。
+ */
+export function qualifiedEntryName(issuer: string, name: string): string {
+  if (issuer === '' || name === '') return name;
+  return `${issuer}:${name}`;
+}
+
+/**
  * アカウント群を otpauth-migration:// URI にエンコードする。
  * Google Authenticator の「QR を読み取る」でそのまま取り込める。
  */
@@ -434,7 +455,8 @@ export function encodeMigrationPayload(entries: readonly MigrationEntry[]): stri
   for (const entry of entries) {
     const secret = decodeBase32(entry.secret);
     const params: number[] = [...writeLengthDelimited(1, secret)];
-    if (entry.name !== '') params.push(...writeLengthDelimited(2, utf8ToBytes(entry.name)));
+    const qualifiedName = qualifiedEntryName(entry.issuer, entry.name);
+    if (qualifiedName !== '') params.push(...writeLengthDelimited(2, utf8ToBytes(qualifiedName)));
     if (entry.issuer !== '') params.push(...writeLengthDelimited(3, utf8ToBytes(entry.issuer)));
     params.push(...writeVarintField(4, ALGORITHM_TO_ENUM[entry.algorithm]));
     params.push(...writeVarintField(5, DIGITS_TO_ENUM[entry.digits]));

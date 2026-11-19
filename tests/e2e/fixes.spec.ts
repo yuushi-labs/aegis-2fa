@@ -141,3 +141,55 @@ test.describe('同期の基準 revision', () => {
     await expect(page.getByRole('dialog', { name: '同期の競合' })).toHaveCount(0);
   });
 });
+
+test.describe('削除の同期', () => {
+  test('削除したアカウントは別端末とのマージで復活しない', async ({ browser }) => {
+    const isPut = (response: { url: () => string; request: () => { method: () => string } }): boolean =>
+      response.url().includes('/api/vault/') && response.request().method() === 'PUT';
+
+    const contextA = await browser.newContext({ locale: 'ja-JP' });
+    const pageA = await contextA.newPage();
+    const initial = pageA.waitForResponse(isPut, { timeout: 20_000 });
+    const token = await createVault(pageA, { sync: true });
+    await initial;
+
+    const addOne = pageA.waitForResponse(isPut, { timeout: 20_000 });
+    await addManualAccount(pageA, { issuer: 'Alpha', label: 'alpha@example.com', secret: RFC_SECRET });
+    expect((await addOne).status()).toBe(200);
+    const addTwo = pageA.waitForResponse(isPut, { timeout: 20_000 });
+    await addManualAccount(pageA, { issuer: 'Beta', label: 'beta@example.com', secret: 'JBSWY3DPEHPK3PXP' });
+    expect((await addTwo).status()).toBe(200);
+
+    // 端末 B は同じボルトを読む（Alpha/Beta を保持）。
+    const contextB = await browser.newContext({ locale: 'ja-JP' });
+    const pageB = await contextB.newPage();
+    await pageB.goto('/');
+    await expect(pageB.getByRole('heading', { name: 'ボルトをつくる' })).toBeVisible();
+    await pageB.getByRole('link', { name: '接続する' }).click();
+    await pageB.getByTestId('sync-code-input').fill(token ?? '');
+    await pageB.getByTestId('sync-connect').click();
+    await expect(pageB.getByRole('heading', { name: 'ロック中' })).toBeVisible();
+    await unlock(pageB);
+    await expect(pageB.getByTestId('account-row').filter({ hasText: 'Alpha' })).toHaveCount(1);
+
+    // 端末 A で Alpha を削除して同期する。
+    const deleted = pageA.waitForResponse(isPut, { timeout: 20_000 });
+    await pageA.getByTestId('account-row').filter({ hasText: 'Alpha' }).dblclick();
+    await pageA.getByRole('button', { name: /削除/ }).first().click();
+    await pageA.getByRole('button', { name: '削除する' }).click();
+    expect((await deleted).status()).toBe(200);
+    await expect(pageA.getByTestId('account-row').filter({ hasText: 'Alpha' })).toHaveCount(0);
+
+    // 端末 B は古い状態のまま編集 → 409 → マージしても Alpha は戻らない。
+    await pageB.getByTestId('account-row').filter({ hasText: 'Beta' }).getByRole('button', { name: 'ピン留めする' }).click();
+    const dialog = pageB.getByRole('dialog', { name: '同期の競合' });
+    await expect(dialog).toBeVisible({ timeout: 25_000 });
+    await dialog.getByRole('button', { name: 'マージする' }).click();
+    await expect(dialog).toHaveCount(0, { timeout: 20_000 });
+    await expect(pageB.getByTestId('account-row').filter({ hasText: 'Beta' })).toHaveCount(1);
+    await expect(pageB.getByTestId('account-row').filter({ hasText: 'Alpha' })).toHaveCount(0);
+
+    await contextA.close();
+    await contextB.close();
+  });
+});

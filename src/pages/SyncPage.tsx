@@ -23,12 +23,13 @@ export function SyncPage() {
   const unmountedRef = useRef(false);
   const busyRef = useRef(false);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    // StrictMode の再実行でも有効に戻す（cleanup 後に true のままにしない）。
+    unmountedRef.current = false;
+    return () => {
       unmountedRef.current = true;
-    },
-    [],
-  );
+    };
+  }, []);
 
   async function connect(): Promise<void> {
     const token = normalizeSyncCode(code);

@@ -79,12 +79,14 @@ export function scheduleClipboardClear(copiedValue: string, enabled: boolean): P
 
 async function attemptClear(copiedValue: string, retriesLeft: number): Promise<ClipboardClearOutcome> {
   try {
-    const current = await navigator.clipboard?.readText();
+    // Clipboard API が無いと読み取りも書換えもできない（execCommand 経路でコピーした値が残る）。
+    if (navigator.clipboard === undefined) throw new Error('clipboard_unavailable');
+    const current = await navigator.clipboard.readText();
     if (current !== copiedValue) {
       lastOutcome = 'skipped';
       return 'skipped';
     }
-    await (navigator.clipboard as Clipboard).writeText('');
+    await navigator.clipboard.writeText('');
     lastOutcome = 'cleared';
     return 'cleared';
   } catch {

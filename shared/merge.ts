@@ -4,9 +4,12 @@
  *
  * updatedAt が同じ場合は、内容を安定した順序で直列化して比較し、
  * 引数の順序（どちらが base か）によらず同じ結果になるようにする。
+ *
+ * 削除は tombstone（id + deletedAt）で表し、削除時刻がアカウントの updatedAt 以上なら
+ * そのアカウントはマージ結果から取り除く（削除したアカウントが別端末から復活しない）。
  */
 
-import type { Account, VaultData } from './types';
+import type { Account, Tombstone, VaultData } from './types';
 
 export type MergeResult = {
   data: VaultData;
@@ -16,6 +19,8 @@ export type MergeResult = {
   updated: number;
   /** 失われた（ローカル側で上書きされた）件数 */
   overwritten: number;
+  /** 削除記録によって取り除かれた件数 */
+  deleted: number;
 };
 
 /** キー順を固定した JSON 文字列（内容比較用）。 */
@@ -48,6 +53,41 @@ function isNewer(candidate: Account, current: Account): boolean {
   return compareAccountContent(candidate, current) > 0;
 }
 
+/** 2 つの時刻表現を比較する（不正な値は文字列比較にフォールバック）。 */
+function compareTimestamps(a: string, b: string): number {
+  const ta = Date.parse(a);
+  const tb = Date.parse(b);
+  if (Number.isNaN(ta) || Number.isNaN(tb)) {
+    if (a === b) return 0;
+    return a > b ? 1 : -1;
+  }
+  if (ta === tb) return 0;
+  return ta > tb ? 1 : -1;
+}
+
+/** 削除記録を id 単位に統合する（同じ id は新しい deletedAt を残す）。 */
+export function mergeTombstones(
+  ...lists: readonly (readonly Tombstone[] | undefined)[]
+): Tombstone[] {
+  const byId = new Map<string, Tombstone>();
+  for (const list of lists) {
+    for (const tombstone of list ?? []) {
+      const current = byId.get(tombstone.id);
+      if (current === undefined || compareTimestamps(tombstone.deletedAt, current.deletedAt) > 0) {
+        byId.set(tombstone.id, tombstone);
+      }
+    }
+  }
+  return [...byId.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+/** そのアカウントが削除済みか（削除がアカウントの更新以降なら削除扱い）。 */
+function isDeleted(account: Account, tombstones: Map<string, Tombstone>): boolean {
+  const tombstone = tombstones.get(account.id);
+  if (tombstone === undefined) return false;
+  return compareTimestamps(tombstone.deletedAt, account.updatedAt) >= 0;
+}
+
 export function mergeVaultData(base: VaultData, incoming: VaultData): MergeResult {
   const byId = new Map<string, Account>();
   for (const account of base.accounts) {
@@ -73,13 +113,23 @@ export function mergeVaultData(base: VaultData, incoming: VaultData): MergeResul
     }
   }
 
+  const tombstones = mergeTombstones(base.tombstones, incoming.tombstones);
+  const tombstoneIndex = new Map(tombstones.map((tombstone) => [tombstone.id, tombstone]));
+  let deleted = 0;
+  for (const [id, account] of byId) {
+    if (isDeleted(account, tombstoneIndex)) {
+      byId.delete(id);
+      deleted += 1;
+    }
+  }
+
   const accounts = [...byId.values()].sort((a, b) => {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
     if (a.order !== b.order) return a.order - b.order;
     return a.createdAt.localeCompare(b.createdAt);
   });
 
-  return { data: { accounts }, added, updated, overwritten };
+  return { data: { accounts, tombstones }, added, updated, overwritten, deleted };
 }
 
 /** 重複判定キー: issuer + label + secret。 */

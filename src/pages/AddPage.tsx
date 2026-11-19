@@ -188,14 +188,15 @@ function QrScannerPanel({ onScan }: { onScan: (value: string) => boolean }) {
     setActive(false);
   }, []);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    // StrictMode の再実行でも有効に戻す（cleanup で false のままにしない）。
+    cancelledRef.current = false;
+    return () => {
       // 画面を離れたら、開始待ちで後から返ってくる handle も即座に止める。
       cancelledRef.current = true;
       stop();
-    },
-    [stop],
-  );
+    };
+  }, [stop]);
 
   async function start(): Promise<void> {
     const video = videoRef.current;
@@ -284,12 +285,13 @@ function QrImagePanel({ onScan }: { onScan: (value: string) => boolean }) {
   const requestRef = useRef(0);
   const mountedRef = useRef(true);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    // StrictMode の再実行でも有効に戻す。
+    mountedRef.current = true;
+    return () => {
       mountedRef.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
 
   async function handleFile(file: File): Promise<void> {
     const requestId = (requestRef.current += 1);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accountFingerprint, findDuplicates, mergeVaultData } from '../../shared/merge';
+import { accountFingerprint, findDuplicates, mergeTombstones, mergeVaultData } from '../../shared/merge';
 import type { Account, VaultData } from '../../shared/types';
 
 function makeAccount(overrides: Partial<Account> & { id: string }): Account {
@@ -72,6 +72,41 @@ describe('同期マージ', () => {
     expect(result.updated).toBe(0);
     expect(result.overwritten).toBe(0);
     expect(result.added).toBe(0);
+  });
+
+  it('削除記録があるアカウントは、保持している側とマージしても復活しない', () => {
+    const deleted = makeAccount({ id: 'gone', updatedAt: '2024-05-01T00:00:00.000Z' });
+    const tombstone = { id: 'gone', deletedAt: '2024-05-02T00:00:00.000Z' };
+    // 端末 A: 削除済み（tombstone あり）、端末 B: まだ持っている。
+    const a: VaultData = { accounts: [], tombstones: [tombstone] };
+    const b: VaultData = { accounts: [deleted], tombstones: [] };
+    for (const merged of [mergeVaultData(a, b), mergeVaultData(b, a)]) {
+      expect(merged.data.accounts.map((account) => account.id)).not.toContain('gone');
+      expect(merged.data.tombstones).toEqual([tombstone]);
+      expect(merged.deleted).toBe(1);
+    }
+  });
+
+  it('削除後に再加したアカウント（updatedAt が新しい）は残す', () => {
+    const tombstone = { id: 'back', deletedAt: '2024-05-01T00:00:00.000Z' };
+    const readded = makeAccount({ id: 'back', label: 're-added', updatedAt: '2024-05-03T00:00:00.000Z' });
+    const result = mergeVaultData(
+      { accounts: [], tombstones: [tombstone] },
+      { accounts: [readded], tombstones: [] },
+    );
+    expect(result.data.accounts.map((account) => account.label)).toEqual(['re-added']);
+    expect(result.deleted).toBe(0);
+  });
+
+  it('同じ id の削除記録は新しい deletedAt を残す', () => {
+    const merged = mergeTombstones(
+      [{ id: 'x', deletedAt: '2024-01-01T00:00:00.000Z' }],
+      [{ id: 'x', deletedAt: '2024-02-01T00:00:00.000Z' }, { id: 'y', deletedAt: '2024-01-01T00:00:00.000Z' }],
+    );
+    expect(merged).toEqual([
+      { id: 'x', deletedAt: '2024-02-01T00:00:00.000Z' },
+      { id: 'y', deletedAt: '2024-01-01T00:00:00.000Z' },
+    ]);
   });
 
   it('空のボルト同士でも壊れない', () => {

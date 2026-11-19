@@ -141,11 +141,14 @@ export function AccountsPage() {
         algorithm: latest.algorithm,
         digits: latest.digits,
       });
+      // 生成中にロックされたら、保存も通知も行わない（ロック画面にコードを出さない）。
+      if (useVaultStore.getState().dek === null) return;
       await upsertAccount({
         ...latest,
         counter: nextCounter,
         updatedAt: new Date().toISOString(),
       });
+      if (useVaultStore.getState().dek === null) return;
       toast(`${t('list.hotpIncrement')}: ${nextCode}`, 'info');
     } finally {
       setHotpBusyId(null);

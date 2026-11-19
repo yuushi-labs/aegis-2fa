@@ -7,7 +7,7 @@ import { CryptoError, WrongPasswordError } from '../../shared/crypto';
 import { formatSyncCode } from '../../shared/sync';
 import { AUTO_LOCK_OPTIONS, type AutoLockMinutes, type ThemeMode } from '../lib/settings';
 import { useI18n, useToast } from '../lib/hooks';
-import { useVaultStore, VaultLockedError } from '../lib/vaultStore';
+import { useVaultStore, VaultChangedError, VaultLockedError } from '../lib/vaultStore';
 import { Modal } from '../components/Modal';
 import { copyText, scheduleClipboardClear } from '../lib/clipboard';
 import { downloadBlob, formatTime, timestampForFilename } from '../lib/format';
@@ -128,6 +128,12 @@ export function SettingsPage() {
         navigate('/');
       }
     } catch (error) {
+      if (error instanceof VaultChangedError) {
+        toast(t('settings.import.changed'), 'error');
+        setPendingImport(null);
+        setImportPassword('');
+        return;
+      }
       if (error instanceof VaultLockedError) {
         toast(t('conflict.mergeFailed'), 'error');
         setPendingImport(null);

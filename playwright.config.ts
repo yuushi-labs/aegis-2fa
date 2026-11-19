@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { lstatSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
@@ -8,17 +8,26 @@ const HOST = process.env.E2E_HOST ?? '127.0.0.1';
 /** CI かどうか（空でない値なら CI とみなす）。 */
 const IS_CI = Boolean(process.env.CI);
 /** 実行ごとの一時 DB（前回実行のデータを持ち越さない）。 */
+const STALE_AFTER_MS = 3 * 24 * 60 * 60 * 1000;
 const dataRoot = join(tmpdir(), 'aegis-e2e');
-const dataDir = join(dataRoot, `run-${process.pid}-${Date.now()}`);
-mkdirSync(dataDir, { recursive: true });
+const dataDir =
+  process.env.TEST_WORKER_INDEX === undefined
+    ? mkdtempSync(join(dataRoot, 'run-'))
+    : join(dataRoot, 'run-worker');
 const databasePath = join(dataDir, 'e2e.db');
 
-// 前回実行の残骸を消す（メイン設定の読み込み時のみ。失敗しても実行は続ける）。
+// 3 日以上前の残骸だけを消す（他の実行が使用中の DB には触れない）。
 if (process.env.TEST_WORKER_INDEX === undefined) {
   try {
+    const now = Date.now();
     for (const entry of readdirSync(dataRoot)) {
-      if (join(dataRoot, entry) === dataDir) continue;
-      rmSync(join(dataRoot, entry), { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+      const path = join(dataRoot, entry);
+      if (path === dataDir) continue;
+      const info = lstatSync(path);
+      // シンボリックリンクは辿らない（共有 tmp の細工で別ディレクトリを消さない）。
+      if (!info.isDirectory()) continue;
+      if (now - info.mtimeMs < STALE_AFTER_MS) continue;
+      rmSync(path, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     }
   } catch {
     // 残骸の掃除に失敗しても E2E 自体は続行する。
