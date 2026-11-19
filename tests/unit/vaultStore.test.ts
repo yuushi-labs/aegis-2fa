@@ -771,6 +771,7 @@ describe('ボルトストア: 同期', () => {
   it('送信中に編集されたら、続けて新しい revision を送る', async () => {
     const { store } = await unlockedStore({ accounts: [], token: TOKEN, syncedRevision: 1 });
     const bases: number[] = [];
+    const sent: number[] = [];
     let releaseFirst: () => void = () => undefined;
     const firstPut = new Promise<void>((resolve) => {
       releaseFirst = resolve;
@@ -779,23 +780,29 @@ describe('ボルトストア: 同期', () => {
     H.server.put = async (_v: string, _t: string, envelope: VaultEnvelope, base: number) => {
       call += 1;
       bases.push(base);
+      sent.push(envelope.revision);
       if (call === 1) {
         await firstPut;
-        return { revision: 1 };
+        return { revision: envelope.revision };
       }
       return { revision: envelope.revision };
     };
-    const syncing = store.getState().syncNow();
-    await settle(5);
+    // 1 回目の編集はデバウンスで送られる（封筒 revision 2 / base 1）。
     await store.getState().upsertAccount(account('a'));
+    await vi.advanceTimersByTimeAsync(2000);
+    await settle(5);
+    // 送信中にさらにもう 1 件追加する（封筒 revision 3）。
+    await store.getState().upsertAccount(account('b'));
     releaseFirst();
-    await syncing;
     await settle();
+    expect(store.getState().syncedRevision).toBe(2);
     expect(store.getState().syncState).toBe('pending');
+    // 続けて revision 3 を base 2 で送る（サーバーの revision_must_advance を満たす）。
     await vi.advanceTimersByTimeAsync(2000);
     await settle();
-    expect(bases).toEqual([1, 1]);
-    expect(store.getState().syncedRevision).toBe(2);
+    expect(bases).toEqual([1, 2]);
+    expect(sent).toEqual([2, 3]);
+    expect(store.getState().syncedRevision).toBe(3);
     expect(store.getState().syncState).toBe('synced');
   });
 

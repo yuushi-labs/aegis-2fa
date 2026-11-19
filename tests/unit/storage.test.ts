@@ -70,11 +70,15 @@ describe('IndexedDB 永続化', () => {
   });
 
   it('updateSyncedRevision は封筒を変えずに同期位置だけ進める', async () => {
-    await writeVault(envelope(4), 3);
+    const stored = envelope(4);
+    await writeVault(stored, 3);
+    const before = await readVault();
     await updateSyncedRevision(4);
-    const read = await readVault();
-    expect(read?.syncedRevision).toBe(4);
-    expect(read?.envelope.revision).toBe(4);
+    const after = await readVault();
+    expect(after?.syncedRevision).toBe(4);
+    // syncedRevision 以外（封筒の暗号文・IV・verifier・savedAt）は変わらない。
+    expect(after?.envelope).toEqual(stored);
+    expect(after?.savedAt).toBe(before?.savedAt);
     await updateSyncedRevision(null);
     await expect(readVault()).resolves.toMatchObject({ syncedRevision: null });
   });

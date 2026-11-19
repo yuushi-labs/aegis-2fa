@@ -82,8 +82,10 @@ describe('表示整形', () => {
     expect(formatTime(null, 'ja')).toBe('未同期');
     expect(formatTime(null, 'en')).toBe('Never');
     expect(formatTime('not-a-date', 'ja')).toBe('—');
-    expect(formatTime('2026-01-01T00:00:00.000Z', 'en')).toMatch(/2026/);
-    expect(formatTime('2026-01-01T00:00:00.000Z', 'ja')).toMatch(/2026/);
+    // 表示は実行環境のタイムゾーンに依存するため、ローカル時刻から作った値で確認する。
+    const localDate = new Date(2026, 6, 15, 12, 0).toISOString();
+    expect(formatTime(localDate, 'en')).toMatch(/2026/);
+    expect(formatTime(localDate, 'ja')).toMatch(/2026/);
   });
 
   it('timestampForFilename はローカル時刻の 12 桁を作る', () => {
