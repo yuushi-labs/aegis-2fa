@@ -64,10 +64,10 @@ export function createVaultRoutes(options: VaultRoutesOptions): Hono<{ Variables
 
   const maxVaultBytes = options.maxVaultBytes ?? DEFAULT_MAX_VAULT_BYTES;
 
-  /** 保存済み暗号文の総量（文字数）を数える。 */
+  /** 保存済み暗号文の総量（UTF-8 のバイト数）を数える。 */
   async function storedBytes(): Promise<number> {
     const rows = await options.db
-      .select({ total: sql<number>`coalesce(sum(length(${vaults.envelope})), 0)` })
+      .select({ total: sql<number>`coalesce(sum(length(cast(${vaults.envelope} as blob))), 0)` })
       .from(vaults);
     return Number(rows[0]?.total ?? 0);
   }
@@ -150,7 +150,8 @@ export function createVaultRoutes(options: VaultRoutesOptions): Hono<{ Variables
     const existing = (await options.db.select().from(vaults).where(eq(vaults.id, id)).limit(1))[0];
     const now = new Date().toISOString();
 
-    const incomingBytes = JSON.stringify(envelope).length;
+    // 上限はバイト数で揃える（SQLite の TEXT 長は文字数なので BLOB として数える）。
+    const incomingBytes = Buffer.byteLength(JSON.stringify(envelope), 'utf8');
     if (existing === undefined) {
       if ((await storedBytes()) + incomingBytes > maxVaultBytes) {
         return c.json({ error: 'storage_limit' }, 507);
@@ -173,7 +174,8 @@ export function createVaultRoutes(options: VaultRoutesOptions): Hono<{ Variables
     if (existing.revision !== revision) {
       return c.json({ error: 'conflict', currentRevision: existing.revision }, 409);
     }
-    if ((await storedBytes()) - existing.envelope.length + incomingBytes > maxVaultBytes) {
+    const existingBytes = Buffer.byteLength(existing.envelope, 'utf8');
+    if ((await storedBytes()) - existingBytes + incomingBytes > maxVaultBytes) {
       return c.json({ error: 'storage_limit' }, 507);
     }
 

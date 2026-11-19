@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
 import { createApp } from '../../server/app';
 import { createDatabase, type DatabaseHandle } from '../../server/db/client';
 import { runMigrations } from '../../server/db/migrate';
@@ -521,6 +522,10 @@ describe('保存の境界と整合性', () => {
       headers: { Authorization: `Bearer ${token}` },
     });
     expect(read.status).toBe(404);
+    // 404 を返すだけでなく、行が作られていないこと（副作用なし）を DB で確認する。
+    const { vaults } = await import('../../server/db/schema');
+    const rows = await database.db.select().from(vaults).where(eq(vaults.id, unrelatedId));
+    expect(rows).toHaveLength(0);
   });
 
   it('保存量が上限を超える新規作成は 507 で、行を作らない', async () => {
