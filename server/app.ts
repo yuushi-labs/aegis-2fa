@@ -9,7 +9,7 @@ import { cors } from 'hono/cors';
 import { bodyLimit, type BodyLimitVariables } from './middleware/bodyLimit';
 import { createRateLimiter } from './middleware/rateLimit';
 import { requestLogger } from './middleware/logger';
-import { securityHeaders } from './middleware/security';
+import { applySecurityHeaders, securityHeaders } from './middleware/security';
 import { createHealthRoutes } from './routes/health';
 import { createVaultRoutes } from './routes/vault';
 import type { DatabaseHandle } from './db/client';
@@ -150,7 +150,10 @@ export function createApp(options: AppOptions): Hono<{ Variables: BodyLimitVaria
   app.onError((error, c) => {
     log(`ERROR ${c.req.method} ${c.req.path} ${error.name}`);
     const message = process.env.NODE_ENV === 'production' ? 'internal_error' : error.message;
-    return c.json({ error: 'internal_error', message }, 500);
+    const response = c.json({ error: 'internal_error', message }, 500);
+    // 例外時は securityHeaders ミドルウェアの後処理が走らないため、ここでも付与する。
+    applySecurityHeaders(response.headers, { https: options.https === true, path: c.req.path });
+    return response;
   });
 
   return app;
