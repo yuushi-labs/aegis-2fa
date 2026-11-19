@@ -101,3 +101,34 @@ Argon2id の方が GPU 耐性は高いものの、追加の WASM 依存（約 10
 
 セキュリティ上の問題は公開 Issue ではなく、リポジトリの Security Advisories
 （Private vulnerability reporting）からご連絡ください。
+
+## 8. 自動監査と外部監査の位置づけ
+
+v1.0.0 は**第三者による外部セキュリティ監査を受けていません**。下記は自動・内部で実施した
+チェックであり、「監査済み」を意味しません。外部監査を依頼する場合の前提もここに整理します。
+
+| チェック | 内容 | 実行タイミング |
+| --- | --- | --- |
+| 依存関係の脆弱性 | `pnpm audit --audit-level=high`（CI `audit` ジョブ）。high 以上で CI が失敗する | push / pull_request |
+| 依存の更新追従 | Dependabot（npm・GitHub Actions・Docker ベースイメージ、週次）。メジャー更新は自動 PR にせず手動で判断 | 週次 |
+| セキュリティ監査スキル | Cloudflare の `security-audit` スキル（OpenHands のマーケットプレイス `security-audit-skill`）で暗号・API・クライアント・Docker・CI を点検 | v1.0.0 準備時 |
+| 静的検査・型検査 | ESLint（`no-explicit-any` 等）、TypeScript strict、`tsc --noEmit` | push / pull_request |
+| 統合テスト | サーバー API と SQLite に平文の秘密鍵・パスワード・OTP コードが現れないことを検証 | push / pull_request |
+| E2E | Playwright で主要フロー・2 端末同期・モバイル幅・CSP・Service Worker を検証 | push / pull_request |
+| コンテナ | マルチステージビルド。runtime に devDependencies を含めないことと `/api/health` の応答を CI で検証 | push / pull_request |
+
+### v1.0.0 時点の依存関係監査
+
+- high / critical: 0 件（`pnpm audit --audit-level=high` が成功する状態でリリース）。
+- moderate: 残存あり。`drizzle-kit` が間接的に使う `esbuild <= 0.24.2` のみで、開発時の
+  マイグレーション生成にしか使わず配布物には含まれない。上流の更新が出たら追従する。
+- v1.0.0 準備時に解消したもの:
+  - `vitest` 3.2.7 → 4.1.12（`tinypool` の critical 2 件、`@vitest/mocker` の path traversal を解消）
+  - `zod` 3.25.76 → 4.6.7（GHSA-mrhx-c7xc-m3w5: 過大な制約付きコレクションでメモリを枯渇させる問題）
+
+### 外部監査を依頼する場合の前提
+
+- 対象は `v1.0.0` タグ時点のソース、`Dockerfile`、本ドキュメントの脅威モデル。
+- 秘密情報は含まれない（サーバーは暗号文と `tokenHash` のみ保持）。再現手順は README の
+  Docker 手順で完結し、外部サービスへの依存はない。
+- 監査で判明した問題は、修正版を `v1.0.1` 以降として公開し、本ドキュメントに追記する。
