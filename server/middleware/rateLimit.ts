@@ -5,6 +5,10 @@
  * キーは原則として「ソケットの接続元 IP」を使う。転送ヘッダ（X-Forwarded-For /
  * X-Real-IP）は、TRUST_PROXY=true で信頼できるプロキシ配下にあると明示された
  * 場合だけ採用する（未検証ヘッダをそのまま信用すると簡単に回避される）。
+ *
+ * X-Forwarded-For はクライアントが自由に付けられるため、**左端は信用しない**。
+ * 各プロキシが受信元を右端に追加するので、右端から `trustProxyHops` 番目の値
+ * （既定 1 = 直近のプロキシが付けたアドレス）を採用する。
  */
 
 import type { MiddlewareHandler } from 'hono';
@@ -22,6 +26,8 @@ export type RateLimitOptions = {
   now?: () => number;
   /** TRUST_PROXY=true のときだけ転送ヘッダを信頼する */
   trustProxy?: boolean;
+  /** 信頼するプロキシの段数（X-Forwarded-For の右端から数える。既定 1） */
+  trustProxyHops?: number;
 };
 
 type Bucket = {
@@ -35,6 +41,7 @@ export function createRateLimiter(options: RateLimitOptions): MiddlewareHandler 
   const buckets = new Map<string, Bucket>();
   const now = options.now ?? (() => Date.now());
   const trustProxy = options.trustProxy === true;
+  const trustProxyHops = normalizeHops(options.trustProxyHops);
   let lastSweep = now();
 
   function sweep(current: number): void {
@@ -48,7 +55,7 @@ export function createRateLimiter(options: RateLimitOptions): MiddlewareHandler 
   return async (c, next) => {
     const current = now();
     sweep(current);
-    const ip = options.keyFn?.(c) ?? getClientIp(c, trustProxy);
+    const ip = options.keyFn?.(c) ?? getClientIp(c, trustProxy, trustProxyHops);
     const key = `${options.name}:${ip}`;
     let bucket = buckets.get(key);
     if (bucket === undefined || bucket.resetAt <= current) {
@@ -82,12 +89,25 @@ export function getSocketIp(c: ContextLike): string | null {
   return null;
 }
 
-/** 転送ヘッダの先頭要素（信頼できる場合のみ使う）。 */
-function forwardedIp(c: ContextLike): string | null {
+/** 信頼するホップ数（1〜10 の整数。不正値は 1）。 */
+function normalizeHops(value: number | undefined): number {
+  if (value === undefined || !Number.isInteger(value) || value < 1) return 1;
+  return Math.min(value, 10);
+}
+
+/**
+ * 転送ヘッダからクライアント IP を取り出す（信頼できる場合のみ使う）。
+ * X-Forwarded-For は右端から数える（左端はクライアントが偽装できる）。
+ */
+function forwardedIp(c: ContextLike, hops: number): string | null {
   const forwarded = c.req.header('x-forwarded-for');
   if (forwarded !== undefined && forwarded.trim() !== '') {
-    const first = forwarded.split(',')[0];
-    if (first !== undefined && first.trim() !== '') return first.trim();
+    const parts = forwarded
+      .split(',')
+      .map((part) => part.trim())
+      .filter((part) => part !== '');
+    const candidate = parts[Math.max(0, parts.length - hops)];
+    if (candidate !== undefined && candidate !== '') return candidate;
   }
   const realIp = c.req.header('x-real-ip');
   if (realIp !== undefined && realIp.trim() !== '') return realIp.trim();
@@ -100,9 +120,9 @@ function forwardedIp(c: ContextLike): string | null {
  *   直接のアプリ呼び出しではソケットが無いため）。
  * - trustProxy=true: プロキシが置き換える転送ヘッダを優先し、無ければソケット。
  */
-export function getClientIp(c: ContextLike, trustProxy = false): string {
+export function getClientIp(c: ContextLike, trustProxy = false, trustProxyHops = 1): string {
   if (trustProxy) {
-    return forwardedIp(c) ?? getSocketIp(c) ?? 'unknown';
+    return forwardedIp(c, normalizeHops(trustProxyHops)) ?? getSocketIp(c) ?? 'unknown';
   }
   return getSocketIp(c) ?? 'local';
 }

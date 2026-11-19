@@ -34,12 +34,33 @@ describe('レート制限のクライアント IP', () => {
     expect(getClientIp(c, false)).toBe('203.0.113.9');
   });
 
-  it('TRUST_PROXY のときは転送ヘッダの先頭を使う', () => {
+  it('TRUST_PROXY のときは右端（直近のプロキシが付けた値）を使う', () => {
     const c = context({ forwardedFor: '198.51.100.1, 10.0.0.1', remoteAddress: '127.0.0.1' });
-    expect(getClientIp(c, true)).toBe('198.51.100.1');
+    // 左端はクライアントが自由に付けられるため採用しない。
+    expect(getClientIp(c, true)).toBe('10.0.0.1');
     expect(getClientIp(context({ realIp: '198.51.100.2', remoteAddress: '127.0.0.1' }), true)).toBe(
       '198.51.100.2',
     );
+  });
+
+  it('偽装された XFF を足しても、プロキシが付けた右端は変わらない', () => {
+    const spoofed = context({
+      forwardedFor: '203.0.113.77, 198.51.100.9',
+      remoteAddress: '127.0.0.1',
+    });
+    const plain = context({ forwardedFor: '198.51.100.9', remoteAddress: '127.0.0.1' });
+    expect(getClientIp(spoofed, true)).toBe(getClientIp(plain, true));
+  });
+
+  it('TRUST_PROXY_HOPS で多段プロキシの段数を指定できる', () => {
+    const c = context({ forwardedFor: '198.51.100.1, 10.0.0.1, 10.0.0.2', remoteAddress: '127.0.0.1' });
+    expect(getClientIp(c, true, 1)).toBe('10.0.0.2');
+    expect(getClientIp(c, true, 2)).toBe('10.0.0.1');
+    expect(getClientIp(c, true, 3)).toBe('198.51.100.1');
+    // 範囲外・不正値は 1 に丸める（ホップ数を減らしても左端へは飛ばない）。
+    expect(getClientIp(c, true, 0)).toBe('10.0.0.2');
+    expect(getClientIp(c, true, 99)).toBe('198.51.100.1');
+    expect(getClientIp(c, true, Number.NaN)).toBe('10.0.0.2');
   });
 
   it('TRUST_PROXY でも転送ヘッダが無ければソケットにフォールバックする', () => {
