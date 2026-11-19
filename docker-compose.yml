@@ -1,0 +1,24 @@
+services:
+  aegis:
+    build: .
+    image: aegis-2fa:local
+    container_name: aegis-2fa
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: "3000"
+      DATABASE_PATH: /data/aegis.db
+      # TLS 終端のリバースプロキシ配下で動かす場合:
+      # TRUST_PROXY: "true"
+      # AEGIS_HTTPS: "true"
+    volumes:
+      - aegis-data:/data
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  aegis-data:
