@@ -593,6 +593,10 @@ export const useVaultStore = create<VaultStore>((set, get) => {
      */
     async importEnvelope(envelope, mode, password) {
       if (mode === 'replace') {
+        // 置き換えでも、渡されたパスワードで解錠できることを確かめてから保存する
+        // （誤ったパスワードでバックアップを適用すると、解錠できないボルトになる）。
+        if (password === undefined || password === '') throw new WrongPasswordError();
+        await unlockVaultEnvelope(envelope, password);
         const token = get().token;
         await writeVault(envelope, token === null ? null : 0);
         set({
