@@ -193,3 +193,14 @@ test.describe('削除の同期', () => {
     await contextB.close();
   });
 });
+
+test.describe('同期コードの露出', () => {
+  test('URL の ?code= は読み取り直後に消える', async ({ page }) => {
+    // トークンはボルトの読み書き・削除権限を持つため、アドレスバーや履歴に残さない。
+    await page.goto('/sync?code=AbCdEfGhIjKlMnOpQrStUvWxYz0123456789ABCDEFG');
+    await expect(page.getByRole('heading', { name: '同期コードを入力', exact: true })).toBeVisible();
+    expect(new URL(page.url()).searchParams.get('code')).toBeNull();
+    // 読み取った値はフォームに残っている（貼り直しを強制しない）。
+    await expect(page.getByLabel('同期コード')).not.toHaveValue('');
+  });
+});

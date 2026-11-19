@@ -639,6 +639,36 @@ describe('ボルトストア: 保存の直列化と世代管理', () => {
     expect(store.getState().status).toBe('locked');
   });
 
+  it('wipe はサーバー側の暗号文も削除する', async () => {
+    const { store } = await unlockedStore({
+      accounts: [account('a')],
+      token: TOKEN,
+      syncedRevision: 1,
+    });
+    const remove = vi.fn(async () => undefined);
+    H.server.remove = remove;
+    await store.getState().wipe();
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(remove).toHaveBeenCalledWith(expect.any(String), TOKEN);
+    expect(H.vault).toBeNull();
+    expect(H.token).toBeNull();
+    expect(store.getState().status).toBe('uninitialized');
+  });
+
+  it('wipe はサーバー削除が失敗してもローカルを消す', async () => {
+    const { store } = await unlockedStore({
+      accounts: [account('a')],
+      token: TOKEN,
+      syncedRevision: 1,
+    });
+    H.server.remove = async () => {
+      throw new H.errors.SyncHttpError(503, null);
+    };
+    await store.getState().wipe();
+    expect(H.vault).toBeNull();
+    expect(store.getState().status).toBe('uninitialized');
+  });
+
   it('wipe 後の古いセッションからの操作では、消したボルトを復活させない', async () => {
     const { store } = await unlockedStore({ accounts: [account('a')] });
     await store.getState().wipe();
@@ -1076,6 +1106,13 @@ describe('ボルトストア: バックアップの取り込み', () => {
 });
 
 describe('ボルトストア: パスワード変更と設定', () => {
+  it('短すぎる新しいパスワードでは変更しない', async () => {
+    const { store } = await unlockedStore({ accounts: [account('a')] });
+    expect(await store.getState().changePassword(PASSWORD, 'short')).toBe(false);
+    expect(store.getState().status).toBe('unlocked');
+    expect(store.getState().failedAttempts).toBe(0);
+  });
+
   it('現在のパスワードが違えば変更しない', async () => {
     const { store } = await unlockedStore({ accounts: [account('a')] });
     expect(await store.getState().changePassword('wrong', OTHER_PASSWORD)).toBe(false);

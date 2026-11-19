@@ -519,6 +519,8 @@ export const useVaultStore = create<VaultStore>((set, get) => {
     },
 
     async changePassword(current, next) {
+      // UI 以外から呼ばれても短いパスワードでゼロ知識モデルを崩さない。
+      if (next.length < MIN_PASSWORD_LENGTH) return false;
       return runExclusive(async () => {
         // PBKDF2 を 2 回待つ間に保存が走らないよう、キューの内側で最新状態を読む。
         const { envelope, dek, token, accounts, tombstones } = get();
@@ -775,6 +777,16 @@ export const useVaultStore = create<VaultStore>((set, get) => {
       // 進行中の保存が削除後に書き戻さないよう、先に世代を進める。
       lifecycleGeneration += 1;
       unlockSession += 1;
+      // サーバー側の暗号文も消す（残すとユーザーが後から削除する手段を失う）。
+      // オフラインでもローカルの削除は続ける。
+      const { vaultId, token } = get();
+      if (vaultId !== null && token !== null) {
+        try {
+          await syncClient.remove(vaultId, token);
+        } catch {
+          // 失敗してもローカルは消す（次回接続時に使うトークンも消える）。
+        }
+      }
       await deleteVault();
       set({
         status: 'uninitialized',
