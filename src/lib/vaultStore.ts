@@ -355,15 +355,20 @@ export const useVaultStore = create<VaultStore>((set, get) => {
           return { ok: false, cooldownSeconds: Math.ceil((cooldownUntil - now) / 1000) };
         }
         try {
+          const generation = lifecycleGeneration;
+          const session = unlockSession;
           // 直前に確定した保存（IndexedDB の最新）を読み直してから復号する。
           const stored = await readVault();
           const target = stored?.envelope ?? envelope;
-          if (target !== envelope) set({ envelope: target });
+          if (generation !== lifecycleGeneration || session !== unlockSession) return { ok: false };
           const unlocked = await unlockVaultEnvelope(target, password);
+          // 復号中に接続（attachSync）・初期化（wipe）・ロックが起きたら結果を反映しない。
+          if (generation !== lifecycleGeneration || session !== unlockSession) return { ok: false };
           const data = parseVaultData(unlocked.plaintext);
           unlockSession += 1;
           set({
             status: 'unlocked',
+            envelope: target,
             dek: unlocked.dek,
             accounts: sortAccounts(data.accounts),
             tombstones: data.tombstones ?? [],
