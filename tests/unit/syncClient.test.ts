@@ -64,19 +64,30 @@ describe('同期 API クライアント', () => {
     });
   });
 
-  it('put は base revision を本文に載せ、次の ravision を受け取る', async () => {
+  it('put は base revision を本文に載せ、次の revision を受け取る', async () => {
     const fetchImpl = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
-      jsonResponse({ revision: 4 }),
+      jsonResponse({ revision: 5 }),
     );
     const client = createSyncClient({ fetchImpl });
-    await expect(client.put('vault-id', TOKEN, ENVELOPE, 3)).resolves.toEqual({ revision: 4 });
+    const envelope = { ...ENVELOPE, revision: 4 };
+    await expect(client.put('vault-id', TOKEN, envelope, 3)).resolves.toEqual({ revision: 5 });
     const init = fetchImpl.mock.calls[0]?.[1];
     expect(init?.method).toBe('PUT');
     expect(init?.headers).toEqual({
       Authorization: `Bearer ${TOKEN}`,
       'Content-Type': 'application/json',
     });
-    expect(JSON.parse(String(init?.body))).toEqual({ envelope: ENVELOPE, revision: 3 });
+    // 封筒の revision（書き込み後の値）と base revision（楽観ロックの基準）は別物。
+    expect(JSON.parse(String(init?.body))).toEqual({ envelope, revision: 3 });
+  });
+
+  it('put は 404 を SyncNotFoundError にする（サーバー側で消えている）', async () => {
+    const client = createSyncClient({
+      fetchImpl: async () => jsonResponse({ error: 'not_found' }, 404),
+    });
+    await expect(client.put('vault-id', TOKEN, ENVELOPE, 1)).rejects.toBeInstanceOf(
+      SyncNotFoundError,
+    );
   });
 
   it('put は 409 を現在の revision 付きの SyncConflictError にする', async () => {

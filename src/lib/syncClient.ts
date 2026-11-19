@@ -95,6 +95,9 @@ export function createSyncClient(options: SyncClientOptions = {}) {
         const body = (await parseJson(response)) as { currentRevision?: number } | null;
         throw new SyncConflictError(body?.currentRevision ?? baseRevision);
       }
+      // サーバー側でボルトが消えている（別端末が同期を解除した等）。
+      // 呼び出し側は base 0 で作り直せるよう、他の 4xx と区別する。
+      if (response.status === 404) throw new SyncNotFoundError();
       if (!response.ok) throw new SyncHttpError(response.status, await parseJson(response));
       return (await response.json()) as { revision: number };
     },
