@@ -77,7 +77,9 @@ master password ──PBKDF2-SHA256(600k, salt)──► KEK ──AES-GCM unwra
 - サーバーが保存するのは `kdf`（salt, iterations）、`cipher`（iv, wrappedDek）、
   `data`（iv, ciphertext）、`revision`、`updatedAt`、`tokenHash` のみ
 - 同期トークン本体は保存されません（`SHA-256(token)` のみ）。不一致は 404 で存在も秘匿
-- AAD に revision を含めるため、古い暗号文への巻き戻しは復号時に検出
+- AAD に revision を含めるため、暗号文と revision の不一致は復号時に検出されます。
+  ただし正当な旧 envelope 全体（revision を含む）を再送された場合は AAD では検出できません
+  （既存端末はサーバー revision との比較で古い応答を採用しませんが、初回接続時は比較基準がありません）
 - CSP `default-src 'self'` / `connect-src 'self'` / `script-src 'self'`、`nosniff`、`DENY`、
   `no-referrer`、COOP/CORP、`no-store`（`/api/*`）、レート制限、zod による入力検証
 

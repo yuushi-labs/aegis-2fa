@@ -74,6 +74,9 @@ After=network.target
 [Service]
 Type=simple
 User=aegis
+# /var/lib/aegis を systemd に作らせる（ReadWritePaths はディレクトリを作らない）。
+StateDirectory=aegis
+StateDirectoryMode=0700
 WorkingDirectory=/opt/aegis
 Environment=PORT=3000
 Environment=DATABASE_PATH=/var/lib/aegis/aegis.db
