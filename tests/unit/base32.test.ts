@@ -38,6 +38,15 @@ describe('Base32', () => {
     expect(canonicalBase32(' jbswy3dpehpk3pxp ')).toBe('JBSWY3DPEHPK3PXP');
   });
 
+  it('canonicalBase32 は未使用ビットの違いも同じ文字列に揃える', () => {
+    // MY / MZ はどちらも [0x66] に復号される。
+    expect([...decodeBase32('MY')]).toEqual([...decodeBase32('MZ')]);
+    expect(canonicalBase32('MY')).toBe(canonicalBase32('MZ'));
+    expect(canonicalBase32('my')).toBe('MY');
+    // 破壊的な変更ではない（正常な secret はそのまま）。
+    expect(canonicalBase32('JBSWY3DPEHPK3PXP')).toBe('JBSWY3DPEHPK3PXP');
+  });
+
   it('不正文字で例外を投げる', () => {
     expect(() => decodeBase32('MZXW6!')).toThrow(Base32Error);
     expect(() => decodeBase32('0189')).toThrow(Base32Error);

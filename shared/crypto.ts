@@ -18,7 +18,7 @@ import {
   utf8ToBytes,
 } from './encoding';
 import { hmac } from './hotp';
-import { PBKDF2_ITERATIONS } from './types';
+import { PBKDF2_ITERATIONS, MAX_KDF_ITERATIONS, MIN_KDF_ITERATIONS } from './types';
 import type { VaultCipher, VaultEnvelope, VaultKdf } from './types';
 
 /** DOM と Node の両方の型定義で通用する CryptoKey エイリアス。 */
@@ -57,8 +57,12 @@ export async function deriveKek(
   iterations: number = PBKDF2_ITERATIONS,
 ): Promise<CryptoKeyLike> {
   if (password.length === 0) throw new CryptoError('パスワードが空です');
-  if (!Number.isInteger(iterations) || iterations < 100_000) {
+  if (!Number.isInteger(iterations) || iterations < MIN_KDF_ITERATIONS) {
     throw new CryptoError('PBKDF2 の反復回数が少なすぎます');
+  }
+  // 外部の封筒（バックアップ等）が巨大な反復回数を主張しても、ここで打ち切る。
+  if (iterations > MAX_KDF_ITERATIONS) {
+    throw new CryptoError('PBKDF2 の反復回数が多すぎます');
   }
   const baseKey = await globalThis.crypto.subtle.importKey(
     'raw',

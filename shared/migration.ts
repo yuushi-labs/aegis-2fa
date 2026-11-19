@@ -52,7 +52,20 @@ export type MigrationEntry = {
   digits: 6 | 8;
   type: 'hotp' | 'totp';
   counter: number;
+  /** TOTP の周期（移行形式には保存できない。既定 30） */
+  period?: number;
 };
+
+/** 移行形式（otpauth-migration）が表現できる TOTP の周期。 */
+export const MIGRATION_TOTP_PERIOD = 30;
+
+/** この TOTP 周期を移行 QR で表現できるか。 */
+export function isMigrationRepresentable(
+  entry: Pick<MigrationEntry, 'type' | 'period'>,
+): boolean {
+  if (entry.type !== 'totp') return true;
+  return (entry.period ?? MIGRATION_TOTP_PERIOD) === MIGRATION_TOTP_PERIOD;
+}
 
 export type MigrationResult = {
   entries: MigrationEntry[];
@@ -64,7 +77,7 @@ export type MigrationResult = {
   batchId: number;
 };
 
-type Field = { fieldNumber: number; wireType: WireType; value: Uint8Array | number };
+type Field = { fieldNumber: number; wireType: WireType; value: Uint8Array | number | bigint };
 
 class Reader {
   private offset = 0;
@@ -75,23 +88,29 @@ class Reader {
     return this.offset >= this.bytes.length;
   }
 
-  readVarint(): number {
-    let result = 0;
-    let shift = 0;
+  /** 64bit までの可変長整数を bigint で読む（符号拡張された int32 も壊さない）。 */
+  readVarintBig(): bigint {
+    let result = 0n;
+    let shift = 0n;
     while (true) {
       if (this.offset >= this.bytes.length) {
         throw new MigrationError('Protobuf の可変長整数が途中で終わっています');
       }
       const byte = this.bytes[this.offset++] as number;
-      result += (byte & 0x7f) * 2 ** shift;
+      result |= BigInt(byte & 0x7f) << shift;
       if ((byte & 0x80) === 0) break;
-      shift += 7;
-      if (shift > 63) throw new MigrationError('可変長整数が大きすぎます');
-    }
-    if (!Number.isSafeInteger(result)) {
-      throw new MigrationError('可変長整数が安全な整数の範囲を超えています');
+      shift += 7n;
+      if (shift > 63n) throw new MigrationError('可変長整数が大きすぎます');
     }
     return result;
+  }
+
+  readVarint(): number {
+    const value = this.readVarintBig();
+    if (value > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new MigrationError('可変長整数が安全な整数の範囲を超えています');
+    }
+    return Number(value);
   }
 
   readBytes(length: number): Uint8Array {
@@ -146,7 +165,13 @@ function readFields(bytes: Uint8Array): Field[] {
   while (!reader.done) {
     const { fieldNumber, wireType } = reader.readTag();
     if (wireType === WireType.Varint) {
-      fields.push({ fieldNumber, wireType, value: reader.readVarint() });
+      const raw = reader.readVarintBig();
+      // 安全整数に収まる値は number、収まらない値（符号拡張された int32 など）は bigint で保持する。
+      fields.push({
+        fieldNumber,
+        wireType,
+        value: raw <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(raw) : raw,
+      });
     } else if (wireType === WireType.LengthDelimited) {
       fields.push({ fieldNumber, wireType, value: reader.readBytes(reader.readVarint()) });
     } else if (wireType === WireType.Fixed32) {
@@ -160,12 +185,32 @@ function readFields(bytes: Uint8Array): Field[] {
   return fields;
 }
 
-function asNumber(field: Field | undefined): number {
-  return field !== undefined && typeof field.value === 'number' ? field.value : 0;
+
+/** 宣言が int32 のフィールドを符号付き 32bit として解釈する（負の値は 10 バイトの varint になる）。 */
+function asInt32(field: Field | undefined): number {
+  if (field === undefined) return 0;
+  if (typeof field.value === 'number') {
+    return field.value > 0x7fffffff ? Number(BigInt.asIntN(32, BigInt(field.value))) : field.value;
+  }
+  if (typeof field.value === 'bigint') return Number(BigInt.asIntN(32, field.value));
+  return 0;
+}
+
+/** 宣言が int64 のフィールドを符号付きとして解釈する。安全整数に収まらない場合は null。 */
+function asInt64(field: Field | undefined): number | null {
+  if (field === undefined) return 0;
+  if (typeof field.value === 'number') return field.value;
+  if (typeof field.value === 'bigint') {
+    const signed = BigInt.asIntN(64, field.value);
+    if (signed < BigInt(Number.MIN_SAFE_INTEGER) || signed > BigInt(Number.MAX_SAFE_INTEGER)) return null;
+    return Number(signed);
+  }
+  return null;
 }
 
 function asBytes(field: Field | undefined): Uint8Array | null {
-  return field !== undefined && typeof field.value !== 'number' ? field.value : null;
+  if (field === undefined) return null;
+  return field.value instanceof Uint8Array ? field.value : null;
 }
 
 function asString(field: Field | undefined): string {
@@ -188,10 +233,14 @@ export function decodeOtpParameters(bytes: Uint8Array): { entry: MigrationEntry 
   }
   const secret = toBase32(secretBytes);
 
-  const algorithmEnum = asNumber(last(4));
-  const digitsEnum = asNumber(last(5));
-  const typeEnum = asNumber(last(6));
-  const counter = asNumber(last(7));
+  const algorithmEnum = asInt32(last(4));
+  const digitsEnum = asInt32(last(5));
+  const typeEnum = asInt32(last(6));
+  const counterValue = asInt64(last(7));
+  if (counterValue === null || counterValue < 0) {
+    return { entry: null, reason: 'HOTP のカウンタが不正です' };
+  }
+  const counter = counterValue;
 
   if (algorithmEnum === 4) {
     return { entry: null, reason: 'MD5 は未対応です' };
@@ -248,7 +297,7 @@ export function decodeMigrationPayload(data: Uint8Array): MigrationResult {
   const entries: MigrationEntry[] = [];
   const skipReasons: string[] = [];
   for (const field of fields) {
-    if (field.fieldNumber !== 1 || typeof field.value === 'number') continue;
+    if (field.fieldNumber !== 1 || !(field.value instanceof Uint8Array)) continue;
     const { entry, reason } = decodeOtpParameters(field.value);
     if (entry !== null) {
       entries.push(entry);
@@ -261,10 +310,10 @@ export function decodeMigrationPayload(data: Uint8Array): MigrationResult {
     entries,
     skipped: skipReasons.length,
     skipReasons,
-    version: asNumber(last(2)),
-    batchSize: asNumber(last(3)),
-    batchIndex: asNumber(last(4)),
-    batchId: asNumber(last(5)),
+    version: asInt32(last(2)),
+    batchSize: asInt32(last(3)),
+    batchIndex: asInt32(last(4)),
+    batchId: asInt32(last(5)),
   };
 }
 
@@ -375,6 +424,12 @@ function writeVarintField(fieldNumber: number, value: number): number[] {
  * Google Authenticator の「QR を読み取る」でそのまま取り込める。
  */
 export function encodeMigrationPayload(entries: readonly MigrationEntry[]): string {
+  for (const entry of entries) {
+    // 移行形式は周期を持たないため、30 秒以外の TOTP は黙って変換しない。
+    if (entry.type === 'totp' && !isMigrationRepresentable(entry)) {
+      throw new MigrationError('30 秒以外の TOTP は移行 QR にまとめられません');
+    }
+  }
   const body: number[] = [];
   for (const entry of entries) {
     const secret = decodeBase32(entry.secret);
@@ -388,7 +443,8 @@ export function encodeMigrationPayload(entries: readonly MigrationEntry[]): stri
     body.push(...writeLengthDelimited(1, Uint8Array.from(params)));
   }
   body.push(...writeVarintField(2, 1));
-  body.push(...writeVarintField(3, entries.length));
+  // batch_size は「分割された QR の総数」。1 つの URI にまとめるので常に 1。
+  body.push(...writeVarintField(3, 1));
   body.push(...writeVarintField(4, 0));
   body.push(...writeVarintField(5, 0));
   const encoded = bytesToBase64Url(Uint8Array.from(body));
@@ -403,4 +459,31 @@ export function isDecodableSecret(secret: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * アカウントを「移行 QR にまとめられるもの」と「周期を保てないもの」に分ける。
+ * 30 秒以外の TOTP はそのまま変換すると値が変わってしまうため、個別の otpauth URI へ誘導する。
+ */
+export function partitionMigratableAccounts(accounts: readonly Account[]): {
+  entries: MigrationEntry[];
+  unsupported: Account[];
+} {
+  const entries: MigrationEntry[] = [];
+  const unsupported: Account[] = [];
+  for (const account of accounts) {
+    const entry: MigrationEntry = {
+      secret: account.secret,
+      name: account.label,
+      issuer: account.issuer,
+      algorithm: account.algorithm,
+      digits: account.digits,
+      type: account.type,
+      counter: account.counter,
+      period: account.period,
+    };
+    if (isMigrationRepresentable(entry)) entries.push(entry);
+    else unsupported.push(account);
+  }
+  return { entries, unsupported };
 }

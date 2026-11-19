@@ -29,6 +29,19 @@ export type OtpauthParams = {
 
 const ALGORITHMS: readonly OtpAlgorithm[] = ['SHA1', 'SHA256', 'SHA512'];
 
+/** 文字列全体が 10 進整数（符号なし）であることを確かめてから数値にする。 */
+function parseStrictInteger(raw: string, param: string): number {
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    throw new OtpauthError(`${param} は整数である必要があります: ${raw}`);
+  }
+  const value = Number(trimmed);
+  if (!Number.isSafeInteger(value)) {
+    throw new OtpauthError(`${param} が大きすぎます: ${raw}`);
+  }
+  return value;
+}
+
 function normalizeAlgorithm(raw: string | null): OtpAlgorithm {
   if (raw === null || raw.trim() === '') return 'SHA1';
   const upper = raw.trim().toUpperCase().replace(/-/g, '');
@@ -41,7 +54,7 @@ function normalizeAlgorithm(raw: string | null): OtpAlgorithm {
 
 function normalizeDigits(raw: string | null): 6 | 8 {
   if (raw === null || raw.trim() === '') return 6;
-  const value = Number.parseInt(raw.trim(), 10);
+  const value = parseStrictInteger(raw, 'digits');
   if (value !== 6 && value !== 8) {
     throw new OtpauthError(`桁数は 6 か 8 のみ対応しています: ${raw}`);
   }
@@ -50,8 +63,8 @@ function normalizeDigits(raw: string | null): 6 | 8 {
 
 function normalizePeriod(raw: string | null): number {
   if (raw === null || raw.trim() === '') return 30;
-  const value = Number.parseInt(raw.trim(), 10);
-  if (!Number.isInteger(value) || value < MIN_PERIOD || value > MAX_PERIOD) {
+  const value = parseStrictInteger(raw, 'period');
+  if (value < MIN_PERIOD || value > MAX_PERIOD) {
     throw new OtpauthError(`period は ${MIN_PERIOD}〜${MAX_PERIOD} の整数である必要があります: ${raw}`);
   }
   return value;
@@ -59,10 +72,7 @@ function normalizePeriod(raw: string | null): number {
 
 function normalizeCounter(raw: string | null): number {
   if (raw === null || raw.trim() === '') return 0;
-  const value = Number.parseInt(raw.trim(), 10);
-  if (!Number.isSafeInteger(value) || value < 0) {
-    throw new OtpauthError(`counter は 0 以上の整数である必要があります: ${raw}`);
-  }
+  const value = parseStrictInteger(raw, 'counter');
   return value;
 }
 

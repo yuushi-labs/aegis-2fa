@@ -66,11 +66,12 @@ export function decodeBase32(input: string): Uint8Array {
   return Uint8Array.from(bytes);
 }
 
-/** 正規化と妥当性検証を行い、正規化済み文字列を返す。 */
+/** 正規化と妥当性検証を行い、正規化済み文字列を返す。
+ * 未使用ビットの違い（例: MY と MZ はどちらも [0x66]）も同じ文字列に揃えるため、
+ * 復号したバイト列を再エンコードした結果を返す。
+ */
 export function canonicalBase32(input: string): string {
-  const normalized = normalizeBase32(input);
-  decodeBase32(normalized);
-  return normalized;
+  return encodeBase32(decodeBase32(input));
 }
 
 export function isValidBase32(input: string): boolean {

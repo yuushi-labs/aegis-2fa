@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   MigrationError,
   decodeMigrationPayload,
+  encodeMigrationPayload,
   migrationEntryToAccount,
   parseMigrationUri,
+  partitionMigratableAccounts,
 } from '../../shared/migration';
+import type { Account } from '../../shared/types';
 import { bytesToBase64Url } from '../../shared/encoding';
 import { decodeBase32 } from '../../shared/base32';
 
@@ -31,6 +34,40 @@ function lenDelimited(fieldNumber: number, payload: number[] | Uint8Array): numb
 
 function varintField(fieldNumber: number, value: number): number[] {
   return [...tag(fieldNumber, 0), ...varint(value)];
+}
+
+/** 64bit の varint（負の int32 は符号拡張された 10 バイトになる）。 */
+function varintBig(value: bigint): number[] {
+  const out: number[] = [];
+  let rest = BigInt.asUintN(64, value);
+  while (rest > 0x7fn) {
+    out.push(Number(rest & 0x7fn) | 0x80);
+    rest >>= 7n;
+  }
+  out.push(Number(rest));
+  return out;
+}
+
+function varintFieldBig(fieldNumber: number, value: bigint): number[] {
+  return [...tag(fieldNumber, 0), ...varintBig(value)];
+}
+
+function makeAccount(overrides: Partial<Account> & { id: string }): Account {
+  return {
+    type: 'totp',
+    issuer: 'Example',
+    label: `${overrides.id}@example.com`,
+    secret: 'JBSWY3DPEHPK3PXP',
+    algorithm: 'SHA1',
+    digits: 6,
+    period: 30,
+    counter: 0,
+    pinned: false,
+    order: 0,
+    createdAt: '2024-01-01T00:00:00.000Z',
+    updatedAt: '2024-01-01T00:00:00.000Z',
+    ...overrides,
+  };
 }
 
 type OtpParamsInput = {
@@ -177,6 +214,75 @@ describe('Google Authenticator 移行形式', () => {
     expect(result.entries).toHaveLength(0);
     expect(result.skipped).toBe(1);
     expect(result.skipReasons[0]).toContain('MD5');
+  });
+
+  it('負の int32（batch_id=-1）でも取り込み全体が失敗しない', () => {
+    // Protobuf の int32 負数は符号拡張された 10 バイトの varint。
+    const bytes = payload([TOTP_ENTRY], [...varintFieldBig(2, 1n), ...varintFieldBig(5, -1n)]);
+    const result = decodeMigrationPayload(bytes);
+    expect(result.batchId).toBe(-1);
+    expect(result.entries).toHaveLength(1);
+    expect(result.entries[0]?.name).toBe('alice@example.com');
+  });
+
+  it('安全整数を超える HOTP counter はその 1 件だけスキップする', () => {
+    const hugeCounter = otpParameters({
+      secret: SECRET_C,
+      name: 'huge@example.com',
+      issuer: 'Legacy',
+      algorithm: 1,
+      digits: 1,
+      type: 1,
+    });
+    const bytes = payload([TOTP_ENTRY], [...lenDelimited(1, [...hugeCounter, ...varintFieldBig(7, 2n ** 60n)])]);
+    // 上の payload は field 1 を 2 つ持つので、huge な counter 側だけが skip される。
+    const result = decodeMigrationPayload(bytes);
+    expect(result.entries.some((entry) => entry.name === 'alice@example.com')).toBe(true);
+    expect(result.skipped).toBe(1);
+    expect(result.skipReasons[0]).toContain('カウンタ');
+  });
+
+  it('負の HOTP counter はスキップする', () => {
+    const bytes = payload([TOTP_ENTRY], [...lenDelimited(1, [...HOTP_ENTRY, ...varintFieldBig(7, -5n)])]);
+    const result = decodeMigrationPayload(bytes);
+    expect(result.skipped).toBe(1);
+    expect(result.skipReasons[0]).toContain('カウンタ');
+    expect(result.entries).toHaveLength(1);
+  });
+
+  it('エンコードした単一 URI の batch_size は 1', () => {
+    const uri = encodeMigrationPayload([
+      { secret: 'JBSWY3DPEHPK3PXP', name: 'a', issuer: 'I', algorithm: 'SHA1', digits: 6, type: 'totp', counter: 0 },
+      { secret: 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', name: 'b', issuer: 'I', algorithm: 'SHA1', digits: 6, type: 'totp', counter: 0 },
+    ]);
+    const result = parseMigrationUri(uri);
+    expect(result.batchSize).toBe(1);
+    expect(result.batchIndex).toBe(0);
+    expect(result.entries).toHaveLength(2);
+  });
+
+  it('30 秒以外の TOTP は黙って変換せず、出力を拒否する', () => {
+    const sixty = { secret: 'JBSWY3DPEHPK3PXP', name: 'p60', issuer: 'I', algorithm: 'SHA1' as const, digits: 6 as const, type: 'totp' as const, counter: 0, period: 60 };
+    expect(() => encodeMigrationPayload([sixty])).toThrow(MigrationError);
+    // 30 秒の TOTP と HOTP はそのまま出力できる。
+    expect(() =>
+      encodeMigrationPayload([{ ...sixty, period: 30 }]),
+    ).not.toThrow();
+    expect(() =>
+      encodeMigrationPayload([{ ...sixty, type: 'hotp', counter: 3 }]),
+    ).not.toThrow();
+  });
+
+  it('partitionMigratableAccounts が周期を保てないものだけを分ける', () => {
+    const accounts = [
+      makeAccount({ id: 'a', type: 'totp', period: 30 }),
+      makeAccount({ id: 'b', type: 'totp', period: 60 }),
+      makeAccount({ id: 'c', type: 'hotp', counter: 4 }),
+    ];
+    const { entries, unsupported } = partitionMigratableAccounts(accounts);
+    expect(entries.map((entry) => entry.name)).toEqual(['a@example.com', 'c@example.com']);
+    expect(unsupported.map((account) => account.id)).toEqual(['b']);
+    expect(entries[1]?.counter).toBe(4);
   });
 
   it('migrationEntryToAccount が issuer/label を分離する', () => {

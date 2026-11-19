@@ -137,6 +137,14 @@ describe('ボルト暗号（PBKDF2 + AES-256-GCM）', () => {
     ).rejects.toBeInstanceOf(CryptoError);
   });
 
+  it('外部封筒の過大な反復回数は拒否する（端末を長時間占有させない）', async () => {
+    const envelope = await createVaultEnvelope({ password: PASSWORD, plaintext: PLAINTEXT });
+    const hostile: VaultEnvelope = { ...envelope, kdf: { ...envelope.kdf, iterations: 1_000_000_000 } };
+    await expect(unlockVaultEnvelope(hostile, PASSWORD)).rejects.toBeInstanceOf(CryptoError);
+    // 上限内（既定 600k）は通る。
+    await expect(unlockVaultEnvelope(envelope, PASSWORD)).resolves.toBeTruthy();
+  });
+
   it('generateDek は 32 バイトのランダム値', async () => {
     const a = await generateDek();
     const b = await generateDek();

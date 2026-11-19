@@ -1,6 +1,9 @@
 /**
  * 同期の競合解決: アカウント id 単位の union。
  * 同一 id は updatedAt が新しい方を採る。
+ *
+ * updatedAt が同じ場合は、内容を安定した順序で直列化して比較し、
+ * 引数の順序（どちらが base か）によらず同じ結果になるようにする。
  */
 
 import type { Account, VaultData } from './types';
@@ -15,12 +18,34 @@ export type MergeResult = {
   overwritten: number;
 };
 
+/** キー順を固定した JSON 文字列（内容比較用）。 */
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
+  if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(',')}]`;
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, v]) => v !== undefined)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`).join(',')}}`;
+}
+
+/** 内容の安定比較。同じ内容なら 0、辞書順で大きい方が正。 */
+export function compareAccountContent(a: Account, b: Account): number {
+  const left = stableStringify(a);
+  const right = stableStringify(b);
+  if (left === right) return 0;
+  return left > right ? 1 : -1;
+}
+
 function isNewer(candidate: Account, current: Account): boolean {
   const a = Date.parse(candidate.updatedAt);
   const b = Date.parse(current.updatedAt);
-  if (Number.isNaN(a) || Number.isNaN(b)) return candidate.updatedAt > current.updatedAt;
-  if (a !== b) return a > b;
-  return candidate.id > current.id;
+  if (Number.isNaN(a) || Number.isNaN(b)) {
+    if (candidate.updatedAt !== current.updatedAt) return candidate.updatedAt > current.updatedAt;
+  } else if (a !== b) {
+    return a > b;
+  }
+  // 同時刻（または比較不能）: 内容で決める（入力順に依存しない）。
+  return compareAccountContent(candidate, current) > 0;
 }
 
 export function mergeVaultData(base: VaultData, incoming: VaultData): MergeResult {
@@ -37,10 +62,13 @@ export function mergeVaultData(base: VaultData, incoming: VaultData): MergeResul
     if (current === undefined) {
       byId.set(candidate.id, candidate);
       added += 1;
+    } else if (compareAccountContent(candidate, current) === 0) {
+      // 完全に同一なら件数に数えない。
+      continue;
     } else if (isNewer(candidate, current)) {
       byId.set(candidate.id, candidate);
       updated += 1;
-    } else if (isNewer(current, candidate)) {
+    } else {
       overwritten += 1;
     }
   }

@@ -55,6 +55,25 @@ describe('同期マージ', () => {
     expect(result.updated).toBe(0);
   });
 
+  it('updatedAt が同じでも入力順によらず同じ結果になる', () => {
+    const a = makeAccount({ id: 'same', label: 'alpha', updatedAt: '2024-05-01T00:00:00.000Z' });
+    const b = makeAccount({ id: 'same', label: 'beta', updatedAt: '2024-05-01T00:00:00.000Z' });
+    const forward = mergeVaultData({ accounts: [a] }, { accounts: [b] });
+    const backward = mergeVaultData({ accounts: [b] }, { accounts: [a] });
+    expect(forward.data.accounts[0]).toEqual(backward.data.accounts[0]);
+    // どちらか一方が必ず選ばれ、両方の結果が一致する。
+    const chosen = forward.data.accounts[0]?.label;
+    expect(['alpha', 'beta']).toContain(chosen);
+  });
+
+  it('内容が同じなら updated/overwritten を数えない', () => {
+    const a = makeAccount({ id: 'same', label: 'same' });
+    const result = mergeVaultData({ accounts: [a] }, { accounts: [{ ...a }] });
+    expect(result.updated).toBe(0);
+    expect(result.overwritten).toBe(0);
+    expect(result.added).toBe(0);
+  });
+
   it('空のボルト同士でも壊れない', () => {
     const result = mergeVaultData({ accounts: [] }, { accounts: [] });
     expect(result.data.accounts).toEqual([]);

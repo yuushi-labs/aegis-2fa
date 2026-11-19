@@ -78,6 +78,12 @@ export const DEFAULT_ACCOUNT: Omit<Account, 'id' | 'secret' | 'createdAt' | 'upd
 };
 
 export const PBKDF2_ITERATIONS = 600_000;
+/**
+ * 受け入れる PBKDF2 反復回数の下限・上限。
+ * 上限は外部（バックアップ封筒）から持ち込まれた値で端末を長時間占有させないために設ける。
+ */
+export const MIN_KDF_ITERATIONS = 100_000;
+export const MAX_KDF_ITERATIONS = 1_000_000;
 export const MIN_PASSWORD_LENGTH = 12;
 export const MAX_PERIOD = 300;
 export const MIN_PERIOD = 1;

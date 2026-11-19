@@ -104,6 +104,18 @@ describe('otpauth URI', () => {
     expect(() => parseOtpauthUri(uri)).toThrow(OtpauthError);
   });
 
+  it('数値パラメータは文字列全体が整数のときだけ受け付ける', () => {
+    const base = 'otpauth://totp/a?secret=JBSWY3DPEHPK3PXP';
+    expect(() => parseOtpauthUri(`${base}&period=30.5`)).toThrow(OtpauthError);
+    expect(() => parseOtpauthUri(`${base}&period=30x`)).toThrow(OtpauthError);
+    expect(() => parseOtpauthUri(`${base}&digits=6x`)).toThrow(OtpauthError);
+    expect(() => parseOtpauthUri(`${base}&digits=6.0`)).toThrow(OtpauthError);
+    expect(() => parseOtpauthUri('otpauth://hotp/a?secret=JBSWY3DPEHPK3PXP&counter=42oops')).toThrow(OtpauthError);
+    expect(() => parseOtpauthUri('otpauth://hotp/a?secret=JBSWY3DPEHPK3PXP&counter=-1')).toThrow(OtpauthError);
+    expect(parseOtpauthUri(`${base}&period=30&digits=6`).period).toBe(30);
+    expect(parseOtpauthUri('otpauth://hotp/a?secret=JBSWY3DPEHPK3PXP&counter=00042').counter).toBe(42);
+  });
+
   it('URI 種別判定', () => {
     expect(isOtpauthUri('otpauth://totp/a?secret=JBSWY3DPEHPK3PXP')).toBe(true);
     expect(isOtpauthUri('otpauth-migration://offline?data=x')).toBe(false);
