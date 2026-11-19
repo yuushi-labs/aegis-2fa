@@ -178,6 +178,11 @@ export function AccountRow({
           )}
           <div className="text-right">
             <Code code={code} size="md" />
+            {settings.announceCodes && (
+              <span className="sr-only" aria-live="polite" aria-atomic="true">
+                {code}
+              </span>
+            )}
             {account.type === 'totp' && nextCode !== '' && (
               <p className="code-text mt-0.5 text-[0.66rem]" style={{ color: 'var(--text-faint)' }}>
                 {t('list.next')} {nextCode}
