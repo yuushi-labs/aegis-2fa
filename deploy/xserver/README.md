@@ -204,10 +204,10 @@ Apache 固有の `.htaccess` の挙動は `php -S` では再現できないた�
      umask 077                                              # 0644 で作らない（他ユーザーに読ませない）
      mkdir -p ~/aegis-backups && chmod 700 ~/aegis-backups   # 共有の /tmp には置かない
      # sqlite3 CLI がある場合
-     sqlite3 /path/to/aegis.db ".backup '$HOME/aegis-backups/aegis-$(date +%F).db'"
+     sqlite3 /path/to/aegis.db ".backup '$HOME/aegis-backups/aegis-$(date +%F-%H%M%S).db'"
      # CLI が無い場合（Xserver でも PHP はある）
      php -r '$p = new PDO("sqlite:" . $argv[1]); $p->exec("VACUUM INTO " . $p->quote($argv[2]));' \
-       /path/to/aegis.db "$HOME/aegis-backups/aegis-$(date +%F).db"
+       /path/to/aegis.db "$HOME/aegis-backups/aegis-$(date +%F-%H%M%S).db"
      ```
 
      どちらも稼働中に実行でき、作られるファイルは 0600（`umask 077`）です。
