@@ -17,22 +17,45 @@ import {
   updateEnvelopeData,
 } from '../../shared/crypto';
 import { mergeTombstones, mergeVaultData } from '../../shared/merge';
+import {
+  PasskeyPrfUnsupportedError,
+  PasskeyCancelledError,
+  PasskeyUnavailableError,
+  createPasskeyCredential,
+  getPasskeyAssertion,
+  isPasskeyAvailable,
+} from './passkeys';
+import {
+  bindPasskeysToFingerprint,
+  derivePasskeyKek,
+  generatePrfSalt,
+  passkeyUserId,
+  unwrapDekForPasskey,
+  validPasskeysForEnvelope,
+  wrapDekForPasskey,
+} from '../../shared/passkey';
+import { base64ToBytes, bytesToBase64 } from '../../shared/encoding';
 import { MIN_PASSWORD_LENGTH } from '../../shared/types';
-import type { Account, Tombstone, VaultData, VaultEnvelope } from '../../shared/types';
+import type { Account, PasskeyRecord, Tombstone, VaultData, VaultEnvelope } from '../../shared/types';
 import { deriveVaultId, generateSyncToken } from '../../shared/sync';
 import {
+  deleteAllPasskeys,
+  deletePasskey,
   deleteToken,
   deleteVault,
+  putPasskey,
+  readPasskeys,
   readSettings,
   readToken,
   readVault,
+  replacePasskeys,
   updateSyncedRevision,
   writeSettings,
   writeToken,
   writeVault,
 } from './storage';
 import { DEFAULT_SETTINGS, normalizeSettings, type Settings } from './settings';
-import { clearSessionDek, readSessionDek, saveSessionDek } from './sessionKey';
+import { clearSessionDek, envelopeFingerprint, readSessionDek, saveSessionDek } from './sessionKey';
 import { SyncConflictError, SyncHttpError, SyncNotFoundError, createSyncClient } from './syncClient';
 
 export type VaultStatus = 'loading' | 'uninitialized' | 'locked' | 'unlocked';
@@ -51,6 +74,19 @@ export class VaultLockedError extends Error {
     this.name = 'VaultLockedError';
   }
 }
+
+/** パスキー登録の結果（画面でメッセージを出し分ける）。 */
+export type PasskeyRegisterResult =
+  | { ok: true; record: PasskeyRecord }
+  | { ok: false; reason: 'cancelled' | 'prf_unsupported' | 'unavailable' | 'failed' };
+
+/** パスキー解除の結果。 */
+export type PasskeyUnlockResult =
+  | { ok: true }
+  | {
+      ok: false;
+      reason: 'cancelled' | 'prf_unsupported' | 'unavailable' | 'mismatch' | 'no_passkeys' | 'failed';
+    };
 
 /** 操作中に別のボルトへ置き換わった（画面離脱後の完了など）。 */
 export class VaultChangedError extends Error {
@@ -81,6 +117,8 @@ type VaultStore = {
   pendingSyncToken: string | null;
   /** アンロック中の DEK（メモリのみ、ロック時に null） */
   dek: Uint8Array | null;
+  /** このボルトで使えるパスキー / セキュリティキーの登録（端末内のみ） */
+  passkeys: PasskeyRecord[];
 
   initialize: () => Promise<void>;
   acknowledgeSyncToken: () => void;
@@ -97,6 +135,9 @@ type VaultStore = {
   attachSync: (token: string) => Promise<void>;
   disableSync: () => Promise<void>;
   changePassword: (current: string, next: string) => Promise<boolean>;
+  registerPasskey: (name: string) => Promise<PasskeyRegisterResult>;
+  removePasskey: (id: string) => Promise<void>;
+  unlockWithPasskey: () => Promise<PasskeyUnlockResult>;
   syncNow: () => Promise<void>;
   refreshRemote: () => Promise<void>;
   resolveConflict: (
@@ -262,6 +303,30 @@ export const useVaultStore = create<VaultStore>((set, get) => {
     }
   }
 
+  /**
+   * 保存済みのパスキー登録を今の封筒に合わせて棚卸しする。
+   *
+   * - DEK が変わった（別ボルトの取り込み・別端末の同期コード）登録は削除する。
+   *   残すと「解除できるはずなのに失敗する」ボタンになるため。
+   * - 同じ DEK で封筒だけ変わった（パスワード変更）登録は、保存している指紋を
+   *   今の封筒へ付け替えて使い続けられるようにする。
+   */
+  async function syncPasskeys(envelope: VaultEnvelope | null): Promise<PasskeyRecord[]> {
+    if (envelope === null) {
+      await deleteAllPasskeys();
+      set({ passkeys: [] });
+      return [];
+    }
+    const stored = await readPasskeys();
+    const valid = validPasskeysForEnvelope(stored, envelope);
+    const rebound = bindPasskeysToFingerprint(valid, envelopeFingerprint(envelope));
+    const unchanged =
+      stored.length === valid.length && rebound.every((record, index) => record === valid[index]);
+    if (!unchanged) await replacePasskeys(rebound);
+    set({ passkeys: rebound });
+    return rebound;
+  }
+
   /** 実際の送信処理（syncNow は 1 本ずつ直列化して呼ぶ）。 */
   async function runSync(): Promise<void> {
     const { token, vaultId, envelope } = get();
@@ -359,6 +424,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
     cooldownUntil: 0,
     pendingSyncToken: null,
     dek: null,
+    passkeys: [],
 
     acknowledgeSyncToken() {
       set({ pendingSyncToken: null });
@@ -375,10 +441,14 @@ export const useVaultStore = create<VaultStore>((set, get) => {
       const normalized = normalizeSettings(settings);
       if (stored === null) {
         clearSessionDek();
+        // ボルトが無いなら、パスキーの登録も残さない。
+        await syncPasskeys(null);
         set({ status: 'uninitialized', settings: normalized, token, vaultId: null });
         return;
       }
       const syncedRevision = stored.syncedRevision;
+      // 今の封筒で使えないパスキーはここで落とす（ボルトを入れ替えた残骸を残さない）。
+      await syncPasskeys(stored.envelope);
       const pending =
         token !== null && (syncedRevision === null || syncedRevision !== stored.envelope.revision);
       const base = {
@@ -435,6 +505,8 @@ export const useVaultStore = create<VaultStore>((set, get) => {
       const vaultId = token === null ? null : await deriveVaultId(token);
       await writeVault(envelope, token === null ? null : 0);
       if (token !== null) await writeToken(token);
+      // 新しいボルトに前のボルトのパスキー登録を引き継がない。
+      await syncPasskeys(envelope);
       set({
         status: 'unlocked',
         envelope,
@@ -477,6 +549,8 @@ export const useVaultStore = create<VaultStore>((set, get) => {
           if (generation !== lifecycleGeneration || session !== unlockSession) return { ok: false };
           const data = parseVaultData(unlocked.plaintext);
           unlockSession += 1;
+          // 解錠できた封筒に合わせてパスキーの登録を棚卸しする（古い封筒の残骸を出さない）。
+          await syncPasskeys(target);
           set({
             status: 'unlocked',
             envelope: target,
@@ -500,6 +574,134 @@ export const useVaultStore = create<VaultStore>((set, get) => {
           set({ failedAttempts: attempts });
           return { ok: false };
         }
+      });
+    },
+
+    /**
+     * パスキー / セキュリティキーを登録し、DEK をそのパスキーで開ける形にラップして保存する。
+     * 認証器とのやりとりの間は保存キューを塞がないよう、WebAuthn はキューの外で待つ。
+     */
+    async registerPasskey(rawName) {
+      const { dek, envelope } = get();
+      if (dek === null || envelope === null) throw new VaultLockedError();
+      if (!isPasskeyAvailable()) return { ok: false, reason: 'unavailable' };
+      const name = rawName.trim().slice(0, 64) === '' ? 'パスキー' : rawName.trim().slice(0, 64);
+      // 同じボルトのパスキーは salt を共有する（1 回の get でどの認証器でも同じ KEK になる）。
+      const existing = validPasskeysForEnvelope(await readPasskeys(), envelope);
+      const firstRecord = existing[0];
+      const prfSalt =
+        firstRecord === undefined ? generatePrfSalt() : base64ToBytes(firstRecord.prfSalt);
+
+      let created;
+      try {
+        created = await createPasskeyCredential({
+          userId: await passkeyUserId(envelope.verifier),
+          prfSalt,
+          displayName: name,
+        });
+      } catch (error) {
+        if (error instanceof PasskeyCancelledError) return { ok: false, reason: 'cancelled' };
+        if (error instanceof PasskeyPrfUnsupportedError) return { ok: false, reason: 'prf_unsupported' };
+        if (error instanceof PasskeyUnavailableError) return { ok: false, reason: 'unavailable' };
+        return { ok: false, reason: 'failed' };
+      }
+
+      const kek = await derivePasskeyKek(created.prfOutput, prfSalt);
+      return runExclusive(async () => {
+        const current = get();
+        if (current.dek === null || current.envelope === null) throw new VaultLockedError();
+        // 認証器を待っている間にボルトが入れ替わったら、旧 DEK の登録は保存しない。
+        if (current.envelope !== envelope) return { ok: false, reason: 'failed' };
+        const wrappedDek = await wrapDekForPasskey(current.dek, kek);
+        const record: PasskeyRecord = {
+          v: 1,
+          id: created.credentialId,
+          name,
+          createdAt: new Date().toISOString(),
+          prfSalt: bytesToBase64(prfSalt),
+          wrappedDek,
+          vaultFingerprint: envelopeFingerprint(current.envelope),
+          verifier: current.envelope.verifier,
+          ...(created.transports.length === 0 ? {} : { transports: created.transports }),
+        };
+        await putPasskey(record);
+        const stored = validPasskeysForEnvelope(await readPasskeys(), current.envelope);
+        set({ passkeys: stored });
+        return { ok: true, record };
+      });
+    },
+
+    async removePasskey(id) {
+      await deletePasskey(id);
+      set({ passkeys: get().passkeys.filter((record) => record.id !== id) });
+    },
+
+    /**
+     * パスキー / セキュリティキーでアンロックする。マスターパスワードを入力しない経路。
+     * 認証器を待つ間に保存が走っても取りこぼさないよう、読み取りから復号までキューの中で行う。
+     */
+    async unlockWithPasskey() {
+      return runExclusive(async (): Promise<PasskeyUnlockResult> => {
+        const { envelope } = get();
+        if (envelope === null) return { ok: false, reason: 'failed' };
+        if (!isPasskeyAvailable()) return { ok: false, reason: 'unavailable' };
+        const generation = lifecycleGeneration;
+        const session = unlockSession;
+        const stored = await readVault();
+        const target = stored?.envelope ?? envelope;
+        const candidates = validPasskeysForEnvelope(await readPasskeys(), target);
+        if (candidates.length === 0) return { ok: false, reason: 'no_passkeys' };
+
+        let assertion;
+        try {
+          assertion = await getPasskeyAssertion(
+            candidates.map((record) => ({
+              id: record.id,
+              prfSalt: record.prfSalt,
+              ...(record.transports === undefined ? {} : { transports: record.transports }),
+            })),
+          );
+        } catch (error) {
+          if (error instanceof PasskeyCancelledError) return { ok: false, reason: 'cancelled' };
+          if (error instanceof PasskeyPrfUnsupportedError) return { ok: false, reason: 'prf_unsupported' };
+          if (error instanceof PasskeyUnavailableError) return { ok: false, reason: 'unavailable' };
+          return { ok: false, reason: 'failed' };
+        }
+        if (generation !== lifecycleGeneration || session !== unlockSession) {
+          return { ok: false, reason: 'failed' };
+        }
+
+        const record = candidates.find((candidate) => candidate.id === assertion.credentialId);
+        if (record === undefined) return { ok: false, reason: 'mismatch' };
+        let dek: Uint8Array;
+        let plaintext: string;
+        try {
+          const kek = await derivePasskeyKek(assertion.prfOutput, base64ToBytes(record.prfSalt));
+          dek = await unwrapDekForPasskey(record.wrappedDek, kek);
+          // verifier と AAD（revision）を確かめながらデータを復号する。
+          plaintext = await decryptVaultDataWithDek(target, dek);
+        } catch {
+          return { ok: false, reason: 'mismatch' };
+        }
+        if (generation !== lifecycleGeneration || session !== unlockSession) {
+          return { ok: false, reason: 'failed' };
+        }
+        const data = parseVaultData(plaintext);
+        unlockSession += 1;
+        set({
+          status: 'unlocked',
+          envelope: target,
+          dek,
+          accounts: sortAccounts(data.accounts),
+          tombstones: data.tombstones ?? [],
+          failedAttempts: 0,
+          cooldownUntil: 0,
+          passkeys: candidates,
+        });
+        // 自動ロック「なし」なら、このタブを開いている間は再読み込みで復帰できるようにする。
+        if (get().settings.autoLockMinutes === 0) saveSessionDek(target, dek);
+        void refreshRemote();
+        return { ok: true };
       });
     },
 
@@ -574,6 +776,8 @@ export const useVaultStore = create<VaultStore>((set, get) => {
       await writeVault(envelope, token === null ? null : 0);
       if (token === null) await deleteToken();
       else await writeToken(token);
+      // 置き換えたボルトに、前のボルトのパスキー登録を残さない（DEK が同じものだけ活かす）。
+      await syncPasskeys(envelope);
       set({
         status: 'locked',
         envelope,
@@ -607,6 +811,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
       }
       await writeVault(remote.envelope, remote.revision);
       await writeToken(token);
+      await syncPasskeys(remote.envelope);
       set({
         status: 'locked',
         envelope: remote.envelope,
@@ -674,6 +879,8 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         set({ envelope: updated, syncState: token === null ? 'local-only' : 'pending' });
         // 再ラップで封筒の指紋が変わったので、セッション継続用の DEK を今の封筒で預け直す。
         if (get().settings.autoLockMinutes === 0) saveSessionDek(updated, dek);
+        // DEK は変わらないのでパスキーはそのまま使える。保存している指紋だけ新しくする。
+        await syncPasskeys(updated);
         if (token !== null) scheduleSync();
         return true;
       });
@@ -808,6 +1015,8 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         clearSessionDek();
         const token = get().token;
         await writeVault(envelope, token === null ? null : 0);
+        // 別ボルトのバックアップなら旧登録は使えない。同じ DEK のバックアップなら残る。
+        await syncPasskeys(envelope);
         set({
           envelope,
           status: 'locked',
@@ -883,6 +1092,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         tombstones: [],
         envelope: null,
         dek: null,
+        passkeys: [],
         token: null,
         vaultId: null,
         syncedRevision: null,
