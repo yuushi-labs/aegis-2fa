@@ -39,7 +39,8 @@ export function trashRemainingDays(
   if (expiresAt === null) return 0;
   const remaining = expiresAt - now;
   if (remaining <= 0) return 0;
-  return Math.ceil(remaining / DAY_MS);
+  // 秒単位の now と保存時刻の端数で 31 日と出ないよう、上限は保持日数にする。
+  return Math.min(TRASH_RETENTION_DAYS, Math.ceil(remaining / DAY_MS));
 }
 
 /** 30 日を過ぎて完全削除の対象になったか。 */

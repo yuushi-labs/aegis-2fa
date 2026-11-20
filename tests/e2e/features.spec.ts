@@ -185,7 +185,8 @@ test.describe('複数ボルト（プロファイル）', () => {
     await page.getByLabel('マスターパスワード', { exact: true }).fill(secondPassword);
     await page.getByLabel('マスターパスワード（確認）').fill(secondPassword);
     await page.getByRole('radio', { name: /この端末だけで使う/ }).check();
-    await page.getByRole('button', { name: 'ボルトを作成' }).click();
+    // 直前のトースト（「ボルトを作成しました」）と区別する。
+    await page.getByRole('button', { name: 'ボルトを作成', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'アカウント' })).toBeVisible();
     await expect(page.getByTestId('account-row')).toHaveCount(0);
 

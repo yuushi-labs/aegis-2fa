@@ -47,6 +47,8 @@ describe('ゴミ箱（30 日）', () => {
     expect(trashExpiresAt(target)).toBe(Date.parse(deletedAt) + TRASH_RETENTION_MS);
     expect(TRASH_RETENTION_DAYS).toBe(30);
     expect(trashRemainingDays(target, NOW)).toBe(20);
+    // 端数のある now でも保持日数を超えない。
+    expect(trashRemainingDays(account('d', { deletedAt: new Date(NOW).toISOString() }), NOW + 400)).toBe(30);
     expect(isTrashExpired(target, NOW)).toBe(false);
 
     // 29 日目はまだ残る。
