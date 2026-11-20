@@ -40,12 +40,16 @@ curl -fsS http://localhost:3000/api/health
 ```bash
 fly launch --no-deploy
 fly volumes create aegis_data --size 1 --region nrt
-fly secrets set AEGIS_HTTPS=true TRUST_PROXY=true
+fly secrets set AEGIS_HTTPS=true TRUST_PROXY=true TRUST_PROXY_HOPS=2
 fly deploy
 ```
 
 `fly.toml` の `[mounts]` で `/data` にボリュームを割り当て、`DATABASE_PATH=/data/aegis.db` を
 設定してください。`internal_port = 3000`、ヘルスチェックは `GET /api/health`。
+
+`TRUST_PROXY_HOPS` は「アプリの手前にあるプロキシの段数」です。Fly Proxy だけが前段なら `2`
+（右端はアプリ側から見たプロキシのアドレスで、その 1 つ前がクライアント IP）。CDN などを
+さらに前段に置く場合は段数を増やし、`X-Forwarded-For` の並びを実測して決めてください。
 
 ## Render
 
