@@ -227,6 +227,9 @@ const ja = {
   'sync.connected': 'ボルトに接続しました。パスワードで解錠してください。',
   'sync.haveVault': 'この端末には既にボルトがあります',
   'sync.haveVaultConfirm': '既存のボルトを置き換えます。よろしいですか？',
+  'sync.qr': 'QR から読み取る',
+  'sync.scanned': 'QR から同期コードを読み取りました',
+  'sync.qrInvalid': 'この QR からは同期コードを読み取れませんでした',
   'sync.or': 'または',
 
   'export.ready': 'エクスポートの準備ができました',
@@ -488,6 +491,9 @@ const en: Record<MessageKey, string> = {
   'sync.connected': 'Connected. Unlock with your password.',
   'sync.haveVault': 'This device already has a vault',
   'sync.haveVaultConfirm': 'This replaces the existing vault. Continue?',
+  'sync.qr': 'Scan a QR code',
+  'sync.scanned': 'Read a sync code from the QR',
+  'sync.qrInvalid': 'This QR code does not contain a sync code',
   'sync.or': 'or',
 
   'export.ready': 'Export ready',

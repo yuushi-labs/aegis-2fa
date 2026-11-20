@@ -399,7 +399,12 @@ export function SettingsPage() {
                   <button type="button" className="btn btn-ghost text-[0.78rem]" onClick={() => void handleCopyToken()}>
                     {t('settings.sync.copy')}
                   </button>
-                  <button type="button" className="btn btn-ghost text-[0.78rem]" onClick={() => setSyncQrOpen(true)}>
+                  <button
+                    type="button"
+                    className="btn btn-ghost text-[0.78rem]"
+                    onClick={() => setSyncQrOpen(true)}
+                    data-testid="sync-qr-open"
+                  >
                     {t('settings.sync.qr')}
                   </button>
                 </div>
@@ -497,6 +502,7 @@ export function SettingsPage() {
             src={syncQr.dataUrl}
             alt={t('settings.sync.qr')}
             className="mx-auto block w-full max-w-[240px] rounded-md"
+            data-testid="sync-qr-image"
           />
         ) : (
           <p className="text-[0.82rem]">{t('common.loading')}</p>

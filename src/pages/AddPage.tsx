@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Account } from '../../shared/types';
 import { isMigrationUri, isOtpauthUri, parseOtpauthUri, toAccountDraft } from '../../shared/otpauth';
@@ -8,7 +8,7 @@ import { AccountForm } from '../components/AccountForm';
 import { EMPTY_DRAFT, draftToAccount, type AccountDraft } from '../lib/accountDraft';
 import { useI18n, useToast } from '../lib/hooks';
 import { makeAccountId, useVaultStore } from '../lib/vaultStore';
-import { startCameraScanner, decodeImageFile, hasBarcodeDetector, type ScannerHandle } from '../lib/qr';
+import { QrScanPanel } from '../components/QrScanPanel';
 
 type Tab = 'manual' | 'qr' | 'image' | 'migration';
 
@@ -87,7 +87,7 @@ export function AddPage() {
     <main className="mx-auto max-w-2xl px-4 pt-5 pb-6">
       <h1 className="text-[1.35rem]">{t('add.title')}</h1>
 
-      <div role="tablist" aria-label={t('add.title')} className="mt-4 flex gap-1 overflow-x-auto pb-1">
+      <div role="tablist" aria-label={t('add.title')} className="mt-4 grid grid-cols-2 gap-1 sm:flex sm:gap-1">
         {(
           [
             ['manual', t('add.tab.manual')],
@@ -102,7 +102,7 @@ export function AddPage() {
             type="button"
             aria-selected={tab === key}
             onClick={() => setTab(key)}
-            className={`btn shrink-0 text-[0.8rem] ${tab === key ? 'btn-secondary' : 'btn-ghost'}`}
+            className={`btn w-full text-[0.8rem] sm:w-auto ${tab === key ? 'btn-secondary' : 'btn-ghost'}`}
             style={tab === key ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : undefined}
             data-testid={`tab-${key}`}
           >
@@ -126,7 +126,7 @@ export function AddPage() {
                   onChange={(event) => setUriInput(event.target.value)}
                   placeholder="otpauth://totp/..."
                   spellCheck={false}
-                  className="code-text text-[0.8rem]"
+                  className="code-text min-w-0 text-[0.8rem]"
                 />
                 <button
                   type="button"
@@ -160,184 +160,27 @@ export function AddPage() {
           </>
         )}
 
-        {tab === 'qr' && <QrScannerPanel onScan={applyUri} />}
-        {tab === 'image' && <QrImagePanel onScan={applyUri} />}
+        {tab === 'qr' && (
+          <QrScanPanel
+            mode="camera"
+            onValue={applyUri}
+            invalidMessage={t('add.invalidUri')}
+            videoTestId="qr-video"
+          />
+        )}
+        {tab === 'image' && (
+          <QrScanPanel
+            mode="image"
+            onValue={applyUri}
+            invalidMessage={t('add.invalidUri')}
+            imageTestId="qr-image-input"
+          />
+        )}
         {tab === 'migration' && (
           <MigrationPanel initialUri={migrationUri} onDone={() => navigate('/')} />
         )}
       </div>
     </main>
-  );
-}
-
-function QrScannerPanel({ onScan }: { onScan: (value: string) => boolean }) {
-  const { t } = useI18n();
-  const toast = useToast();
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const handleRef = useRef<ScannerHandle | null>(null);
-  const startingRef = useRef(false);
-  const cancelledRef = useRef(false);
-  const [active, setActive] = useState(false);
-  const [starting, setStarting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const supported = typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia !== undefined;
-
-  const stop = useCallback(() => {
-    handleRef.current?.stop();
-    handleRef.current = null;
-    setActive(false);
-  }, []);
-
-  useEffect(() => {
-    // StrictMode の再実行でも有効に戻す（cleanup で false のままにしない）。
-    cancelledRef.current = false;
-    return () => {
-      // 画面を離れたら、開始待ちで後から返ってくる handle も即座に止める。
-      cancelledRef.current = true;
-      stop();
-    };
-  }, [stop]);
-
-  async function start(): Promise<void> {
-    const video = videoRef.current;
-    if (video === null || startingRef.current || active) return;
-    startingRef.current = true;
-    setStarting(true);
-    setError(null);
-    try {
-      const handle = await startCameraScanner(
-        video,
-        (value) => {
-          stop();
-          if (!onScan(value)) {
-            setError(t('add.invalidUri'));
-            toast(t('add.invalidUri'), 'error');
-          }
-        },
-        (scannerError) => {
-          setError(scannerError.message);
-          stop();
-        },
-      );
-      if (cancelledRef.current) {
-        // 開始待ちの間にタブを離れた等。返ってきた handle は即停止する。
-        handle.stop();
-        return;
-      }
-      handleRef.current?.stop();
-      handleRef.current = handle;
-      setActive(true);
-    } catch (scannerError) {
-      const name = scannerError instanceof Error ? scannerError.message : 'camera_error';
-      setError(name === 'camera_unsupported' ? t('qr.unsupported') : t('qr.denied'));
-    } finally {
-      startingRef.current = false;
-      setStarting(false);
-    }
-  }
-
-  return (
-    <div>
-      <p className="text-[0.86rem] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-        {t('qr.lead')}
-      </p>
-      {!supported ? (
-        <p className="field-error mt-3">{t('qr.unsupported')}</p>
-      ) : (
-        <>
-          <div
-            className="mt-3 overflow-hidden rounded-lg"
-            style={{ background: '#0d0f10', aspectRatio: '4 / 3', border: '1px solid var(--border)' }}
-          >
-            <video
-              ref={videoRef}
-              className="h-full w-full object-cover"
-              aria-label={t('qr.lead')}
-              data-testid="qr-video"
-            />
-          </div>
-          {error !== null && <p className="field-error mt-2">{error}</p>}
-          <div className="mt-3 flex items-center gap-2">
-            {active ? (
-              <button type="button" className="btn btn-secondary" onClick={stop}>
-                {t('qr.stop')}
-              </button>
-            ) : (
-              <button type="button" className="btn btn-primary" onClick={() => void start()} disabled={starting}>
-                {starting ? t('common.loading') : t('qr.start')}
-              </button>
-            )}
-            <span className="text-[0.72rem]" style={{ color: 'var(--text-faint)' }}>
-              {hasBarcodeDetector() ? 'BarcodeDetector' : 'jsQR'}
-            </span>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-function QrImagePanel({ onScan }: { onScan: (value: string) => boolean }) {
-  const { t } = useI18n();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const requestRef = useRef(0);
-  const mountedRef = useRef(true);
-
-  useEffect(() => {
-    // StrictMode の再実行でも有効に戻す。
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-
-  async function handleFile(file: File): Promise<void> {
-    const requestId = (requestRef.current += 1);
-    const isLatest = (): boolean => requestRef.current === requestId && mountedRef.current;
-    setBusy(true);
-    setError(null);
-    try {
-      const value = await decodeImageFile(file);
-      // 画像 A の解析中に画像 B が選ばれた場合、古い結果は適用しない。
-      if (!isLatest()) return;
-      if (value === null) {
-        setError(t('migration.invalid'));
-        return;
-      }
-      if (!onScan(value)) setError(t('add.invalidUri'));
-    } catch {
-      if (!isLatest()) return;
-      setError(t('migration.invalid'));
-    } finally {
-      if (isLatest()) setBusy(false);
-    }
-  }
-
-  return (
-    <div>
-      <p className="text-[0.86rem] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-        {t('qr.imageLead')}
-      </p>
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/*"
-        className="mt-3 block w-full text-[0.82rem]"
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          if (file !== undefined) void handleFile(file);
-        }}
-        data-testid="qr-image-input"
-      />
-      {busy && (
-        <p className="mt-2 flex items-center gap-2 text-[0.8rem]" style={{ color: 'var(--text-muted)' }}>
-          <span className="spinner" /> {t('qr.scanning')}
-        </p>
-      )}
-      {error !== null && <p className="field-error mt-2">{error}</p>}
-    </div>
   );
 }
 
