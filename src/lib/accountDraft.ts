@@ -1,5 +1,5 @@
-import type { Account, OtpAlgorithm } from '../../shared/types';
-import { DEFAULT_ACCOUNT } from '../../shared/types';
+import type { Account, OtpAlgorithm, RecoveryCode } from '../../shared/types';
+import { DEFAULT_ACCOUNT, MAX_RECOVERY_CODES, MAX_RECOVERY_CODE_LENGTH } from '../../shared/types';
 import { canonicalBase32 } from '../../shared/base32';
 
 export type AccountDraft = {
@@ -11,6 +11,10 @@ export type AccountDraft = {
   digits: 6 | 8;
   period: number;
   counter: number;
+  /** サービスごとのメモ（空なら保存しない） */
+  notes: string;
+  /** 使い捨てバックアップコード（使用済みの印を含む） */
+  recoveryCodes: RecoveryCode[];
 };
 
 export const EMPTY_DRAFT: AccountDraft = {
@@ -22,7 +26,25 @@ export const EMPTY_DRAFT: AccountDraft = {
   digits: DEFAULT_ACCOUNT.digits,
   period: DEFAULT_ACCOUNT.period,
   counter: DEFAULT_ACCOUNT.counter,
+  notes: '',
+  recoveryCodes: [],
 };
+
+/** 入力されたコード列を整える（空行・重複・長すぎるものを落とす）。 */
+export function normaliseRecoveryCodes(codes: readonly RecoveryCode[]): RecoveryCode[] {
+  const seen = new Set<string>();
+  const result: RecoveryCode[] = [];
+  for (const entry of codes) {
+    const code = entry.code.trim();
+    if (code === '' || code.length > MAX_RECOVERY_CODE_LENGTH) continue;
+    const key = code.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push({ id: entry.id, code, used: entry.used === true });
+    if (result.length >= MAX_RECOVERY_CODES) break;
+  }
+  return result;
+}
 
 export function draftToAccount(
   draft: AccountDraft,
@@ -30,6 +52,8 @@ export function draftToAccount(
   id: string,
   nowIso: string,
 ): Account {
+  const notes = draft.notes.trim();
+  const recoveryCodes = normaliseRecoveryCodes(draft.recoveryCodes);
   return {
     id,
     type: draft.type,
@@ -44,6 +68,13 @@ export function draftToAccount(
     order: existing?.order ?? 0,
     createdAt: existing?.createdAt ?? nowIso,
     updatedAt: nowIso,
+    // 空にした項目は持たせない（消したメモが残らないように）。
+    ...(notes === '' ? {} : { notes }),
+    ...(recoveryCodes.length === 0 ? {} : { recoveryCodes }),
+    // 既存の状態（ゴミ箱・使用回数）は編集で失わない。
+    ...(existing?.deletedAt === undefined ? {} : { deletedAt: existing.deletedAt }),
+    ...(existing?.useCount === undefined ? {} : { useCount: existing.useCount }),
+    ...(existing?.lastUsedAt === undefined ? {} : { lastUsedAt: existing.lastUsedAt }),
   };
 }
 
@@ -57,6 +88,7 @@ export function accountToDraft(account: Account): AccountDraft {
     digits: account.digits,
     period: account.period,
     counter: account.counter,
+    notes: account.notes ?? '',
+    recoveryCodes: account.recoveryCodes ?? [],
   };
 }
-

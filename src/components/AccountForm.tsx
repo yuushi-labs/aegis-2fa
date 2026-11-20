@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { OtpAlgorithm } from '../../shared/types';
-import { MAX_PERIOD, MIN_PERIOD } from '../../shared/types';
+import { MAX_NOTES_LENGTH, MAX_PERIOD, MIN_PERIOD } from '../../shared/types';
 import { decodeBase32, isValidBase32 } from '../../shared/base32';
 import { generateHOTP } from '../../shared/hotp';
 import { generateTOTP } from '../../shared/totp';
@@ -11,6 +11,7 @@ import { ISSUER_SUGGESTIONS, matchedIssuerSuggestion } from '../lib/issuerSugges
 import { detectSecretUri, draftFromOtpauthUri, type DetectedSecretUri } from '../lib/secretUri';
 import { Avatar } from './Avatar';
 import { Code } from './Code';
+import { RecoveryCodeEditor } from './RecoveryCodeEditor';
 
 export type AccountFormProps = {
   value: AccountDraft;
@@ -94,7 +95,7 @@ export function AccountForm({
       return true;
     }
     try {
-      onChange(draftFromOtpauthUri(detected.uri));
+      onChange(draftFromOtpauthUri(detected.uri, value));
       toast(t('add.pasteApplied'), 'success');
       return true;
     } catch {
@@ -326,6 +327,28 @@ export function AccountForm({
           )}
         </div>
       )}
+
+      <div>
+        <label className="field-label" htmlFor={`${idPrefix}-notes`}>
+          {t('notes.label')}
+        </label>
+        <textarea
+          id={`${idPrefix}-notes`}
+          rows={3}
+          maxLength={MAX_NOTES_LENGTH}
+          value={value.notes}
+          onChange={(event) => patch({ notes: event.target.value })}
+          placeholder={t('notes.placeholder')}
+          data-testid="notes-input"
+        />
+        <p className="field-hint">{t('notes.hint')}</p>
+      </div>
+
+      <RecoveryCodeEditor
+        codes={value.recoveryCodes}
+        onChange={(codes) => patch({ recoveryCodes: codes })}
+        idPrefix={`${idPrefix}-codes`}
+      />
     </div>
   );
 }

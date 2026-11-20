@@ -202,7 +202,56 @@ describe('アカウントの下書き変換', () => {
       digits: 6,
       period: 30,
       counter: 0,
+      notes: '',
+      recoveryCodes: [],
     });
+  });
+
+  it('メモとバックアップコードは下書きに載り、空なら保存しない', () => {
+    const draft: AccountDraft = {
+      ...EMPTY_DRAFT,
+      issuer: 'GitHub',
+      label: 'octocat',
+      secret: 'JBSWY3DPEHPK3PXP',
+      notes: '  予備の鍵は金庫  ',
+      recoveryCodes: [
+        { id: 'c1', code: 'AAAA-1111', used: false },
+        { id: 'c2', code: 'bbbb-2222', used: true },
+      ],
+    };
+    const created = draftToAccount(draft, null, 'id-1', '2026-02-01T00:00:00.000Z');
+    expect(created.notes).toBe('予備の鍵は金庫');
+    expect(created.recoveryCodes).toEqual([
+      { id: 'c1', code: 'AAAA-1111', used: false },
+      { id: 'c2', code: 'bbbb-2222', used: true },
+    ]);
+    expect(accountToDraft(created).notes).toBe('予備の鍵は金庫');
+
+    // 空にしたメモ・コードは項目ごと落とす（消したものが残らない）。
+    const cleared = draftToAccount(
+      { ...draft, notes: '   ', recoveryCodes: [] },
+      created,
+      'id-1',
+      '2026-03-01T00:00:00.000Z',
+    );
+    expect(cleared.notes).toBeUndefined();
+    expect(cleared.recoveryCodes).toBeUndefined();
+
+    // 同じコードの重複は 1 件にまとめる。
+    const deduped = draftToAccount(
+      {
+        ...draft,
+        recoveryCodes: [
+          { id: 'c1', code: 'AAAA-1111', used: false },
+          { id: 'c2', code: 'aaaa-1111', used: false },
+          { id: 'c3', code: '   ', used: false },
+        ],
+      },
+      null,
+      'id-2',
+      '2026-02-01T00:00:00.000Z',
+    );
+    expect(deduped.recoveryCodes).toHaveLength(1);
   });
 });
 

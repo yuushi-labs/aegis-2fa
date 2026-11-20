@@ -7,7 +7,7 @@
  */
 
 import { parseOtpauthUri, toAccountDraft } from '../../shared/otpauth';
-import type { AccountDraft } from './accountDraft';
+import { EMPTY_DRAFT, type AccountDraft } from './accountDraft';
 
 export type DetectedSecretUri = {
   kind: 'otpauth' | 'migration';
@@ -31,11 +31,13 @@ export function detectSecretUri(raw: string): DetectedSecretUri | null {
 
 /**
  * otpauth URI をフォームの下書きへ展開する。
+ * メモやバックアップコードは `base` のものを引き継ぐ（URI には入っていないため）。
  * 解釈できない URI は `OtpauthError` を投げる（呼び出し側で通知する）。
  */
-export function draftFromOtpauthUri(uri: string): AccountDraft {
+export function draftFromOtpauthUri(uri: string, base: AccountDraft = EMPTY_DRAFT): AccountDraft {
   const parsed = toAccountDraft(parseOtpauthUri(uri));
   return {
+    ...base,
     type: parsed.type,
     issuer: parsed.issuer,
     label: parsed.label,
