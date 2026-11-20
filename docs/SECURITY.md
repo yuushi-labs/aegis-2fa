@@ -74,6 +74,16 @@ DEK ──AES-256-GCM (IV 12B, AAD "aegis-data-v1:<revision>")──► data (ci
 - **マスターパスワードの忘却**: 復旧手段はありません。これがゼロ知識の代償です。
 - **タイミング攻撃の完全な排除**: 比較は定数時間実装ですが、ブラウザの JIT 最適化までは制御できません。
 - **マルチテナント分離**: 単一ユーザー / 小規模チーム向けの設計です。監査ログや RBAC はありません。
+- **復号失敗の原因を区別しない**: AES-GCM の認証タグ不一致（改ざん・ビット化け）も
+  「パスワードが違います」として扱います。壊れたデータは 5 回でクールダウンに入り、
+  整合性違反であることが画面に出ません（バックアップからの復元が有効です）。
+- **解錠の試行制限はメモリのみ**: 5 回失敗で 30 秒のクールダウンはページ再読み込みで
+  リセットされます。ローカル封筒に対する総当たりの主防御は PBKDF2 600,000 回です。
+- **同期データの項目検証は最小限**: 同期マージやバックアップから取り込んだ `accounts` は
+  形だけを検査します。細工された `period` や `digits` は表示・コード生成の失敗として
+  現れますが、XSS には至りません（`innerHTML` 系の DOM シンクは使用していません）。
+- **CI のアクションは可変タグ参照**: `actions/*@v4` 等を使用しています。サプライチェーン
+  対策として SHA 固定が望ましく、未対応です。
 
 ## 5. サーバー側の防御
 
@@ -82,6 +92,15 @@ DEK ──AES-256-GCM (IV 12B, AAD "aegis-data-v1:<revision>")──► data (ci
   `Cross-Origin-Resource-Policy: same-origin`、`Permissions-Policy`（カメラのみ self）。
 - HTTPS 運用時は HSTS（`AEGIS_HTTPS=true`）。
 - レート制限: 読み取り 60 req/min、書き込み 20 req/min（IP 単位、`429` + `Retry-After`）。
+  `TRUST_PROXY=true` のときは `X-Forwarded-For` を**右端から** `TRUST_PROXY_HOPS` 番目の
+  値で識別する（左端はクライアントが偽装できるため採用しない）。`X-Real-IP` は読まない。
+  前段のプロキシが `X-Forwarded-For` を設定または上書きする構成が前提。
+- 保存の同一性: `vaultId = hex(SHA-256(token))[0:32]` を書き込み時に検証し、トークンから
+  導出できない ID は `404`（任意 ID の作成・名前空間の占有を防ぐ）。
+- 保存量の上限: 暗号文の総量が `MAX_VAULT_BYTES`（既定 256 MiB）を超える書き込みは `507`。
+- 破損した行: 保存された封筒が JSON として読めない場合は `500` ではなく `409 corrupt_vault`。
+  JSON としては読めるが暗号文が壊れている場合は `200` を返し、復号はクライアント側で失敗する
+  （`docs/SECURITY.md` の「保証しないこと」にあるとおり、原因は「パスワード誤り」として扱われる）。
 - 入力検証: すべてのボディを zod で検証。256 KiB を超えるボディは `413`。
 - エラーレスポンスは本番で内部情報を出さない（`internal_error`）。
 - `Cache-Control: no-store` を `/api/*` に付与。
@@ -101,3 +120,56 @@ Argon2id の方が GPU 耐性は高いものの、追加の WASM 依存（約 10
 
 セキュリティ上の問題は公開 Issue ではなく、リポジトリの Security Advisories
 （Private vulnerability reporting）からご連絡ください。
+
+## 8. 自動監査と外部監査の位置づけ
+
+v1.0.0 は**第三者による外部セキュリティ監査を受けていません**。下記は自動・内部で実施した
+チェックであり、「監査済み」を意味しません。外部監査を依頼する場合の前提もここに整理します。
+
+| チェック | 内容 | 実行タイミング |
+| --- | --- | --- |
+| 依存関係の脆弱性 | `pnpm audit --audit-level=high`（CI `audit` ジョブ）。high 以上で CI が失敗する | push / pull_request |
+| 依存の更新追従 | Dependabot（npm・GitHub Actions・Docker ベースイメージ、週次）。メジャー更新は自動 PR にせず手動で判断 | 週次 |
+| セキュリティ監査スキル | Cloudflare の `security-audit` スキル（OpenHands のマーケットプレイス `security-audit-skill`）で暗号・API・クライアント・Docker・CI を点検 | v1.0.0 準備時 |
+| 静的検査・型検査 | ESLint（`no-explicit-any` 等）、TypeScript strict、`tsc --noEmit` | push / pull_request |
+| 統合テスト | サーバー API と SQLite に平文の秘密鍵・パスワード・OTP コードが現れないことを検証 | push / pull_request |
+| E2E | Playwright で主要フロー・2 端末同期・モバイル幅・CSP・Service Worker を検証 | push / pull_request |
+| コンテナ | マルチステージビルド。runtime に devDependencies を含めないことと `/api/health` の応答を CI で検証 | push / pull_request |
+
+### v1.0.0 時点の依存関係監査
+
+- high / critical: 0 件（`pnpm audit --audit-level=high` が成功する状態でリリース）。
+- moderate: 残存あり。`drizzle-kit` が間接的に使う `esbuild <= 0.24.2` のみで、開発時の
+  マイグレーション生成にしか使わず配布物には含まれない。上流の更新が出たら追従する。
+- v1.0.0 準備時に解消したもの:
+  - `vitest` 3.2.7 → 4.1.12（`tinypool` の critical 2 件、`@vitest/mocker` の path traversal を解消）
+  - `zod` 3.25.76 → 4.6.7（GHSA-mrhx-c7xc-m3w5: 過大な制約付きコレクションでメモリを枯渇させる問題）
+
+### v1.0.0 準備時の Cloudflare `security-audit` 点検
+
+OpenHands 上で `security-audit` スキル（Cloudflare の `security-audit-skill`）を使い、
+`src/`・`server/`・`shared/`・`Dockerfile`・`ci.yml` をレビューしました（単一パス、独立再検証なし）。
+
+結果: **Critical 0 件 / High 2 件 / Medium 3 件 / Low 6 件 / Info 3 件**。
+暗号設計（PBKDF2 600k、AES-256-GCM、KEK/DEK 分離、AAD への revision バインド、定数時間比較）は
+健全と評価され、指摘はサーバー側のレート制限・リソース境界と同期トークンの扱いに集中しました。
+
+| 指摘 | 対応 |
+| --- | --- |
+| High: `TRUST_PROXY=true` で `X-Forwarded-For` 偽装によりレート制限を回避 | 修正（右端ホップを採用、`TRUST_PROXY_HOPS`） |
+| High: 未認証で任意 ID のボルト行を作成でき、ディスクを消費 | 修正（`vaultId` の導出検証 + `MAX_VAULT_BYTES`） |
+| Medium: 同期トークンが `?code=` で URL に残る | 修正（読み取り直後に `history.replaceState`） |
+| Medium: 「ボルトを削除」がサーバー側の暗号文を消さない | 修正（`wipe` で DELETE を試行） |
+| Medium: サーバーが `vaultId = SHA-256(token)` を検証しない | 修正（上記 High と同じ対応） |
+| Low: 壊れた封筒で GET が 500 | 修正（`409 corrupt_vault`） |
+| Low: `changePassword` がパスワード長を検証しない | 修正（`MIN_PASSWORD_LENGTH` 未満は拒否） |
+| Low: runtime イメージに devDependencies（678 MB） | 修正（301 MB、CI で非同梱を検証） |
+| Low: 復号失敗がすべて「パスワード誤り」／解錠回数がメモリのみ／`accounts` の項目検証が最小限 | 未対応（上記「保証しないこと」に明記） |
+| Info: CI アクションが可変タグ参照 | 未対応（Dependabot で追従） |
+
+### 外部監査を依頼する場合の前提
+
+- 対象は `v1.0.0` タグ時点のソース、`Dockerfile`、本ドキュメントの脅威モデル。
+- 秘密情報は含まれない（サーバーは暗号文と `tokenHash` のみ保持）。再現手順は README の
+  Docker 手順で完結し、外部サービスへの依存はない。
+- 監査で判明した問題は、修正版を `v1.0.1` 以降として公開し、本ドキュメントに追記する。

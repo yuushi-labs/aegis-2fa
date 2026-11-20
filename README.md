@@ -53,7 +53,8 @@ docker compose up --build -d
 curl -fsS http://localhost:3000/api/health
 ```
 
-マルチステージビルド、非 root 実行、`read_only` ルートFS、ヘルスチェック付きです。
+マルチステージビルドです。runtime イメージには本番依存だけを入れ（devDependencies は
+含めません）、非 root 実行、`read_only` ルートFS、ヘルスチェック付きです。
 詳細は [docs/DEPLOY.md](docs/DEPLOY.md)。
 
 ## 環境変数
@@ -62,7 +63,9 @@ curl -fsS http://localhost:3000/api/health
 | --- | --- | --- |
 | `PORT` | `3000` | 待ち受けポート |
 | `DATABASE_PATH` | `./data/aegis.db` | SQLite ファイル（親ディレクトリは自動作成） |
-| `TRUST_PROXY` | `false` | リバースプロキシ配下で `true` |
+| `TRUST_PROXY` | `false` | リバースプロキシ配下で `true`。前段が `X-Forwarded-For` を設定／上書きする構成が前提 |
+| `TRUST_PROXY_HOPS` | `1` | 信頼するプロキシの段数。`X-Forwarded-For` の**右端**から数える |
+| `MAX_VAULT_BYTES` | `268435456`（256 MiB） | 保存できる暗号文の総量。超過する書き込みは `507` |
 | `AEGIS_HTTPS` | `false` | TLS 終端が前段にある場合 `true`（HSTS 付与） |
 | `CORS_ORIGIN` | 未設定 | 通常は未設定。別オリジンから API を使う場合のみ |
 
@@ -113,7 +116,15 @@ pnpm test:e2e     # Playwright（要 pnpm build）
 | --- | --- |
 | unit | RFC 4226 / 6238 の公式テストベクタ全一致、Base32 境界、`otpauth` パース、移行 Protobuf、暗号の往復と改ざん検出、マージ規則 |
 | integration | 実 SQLite + `app.request`。PUT/GET/meta/DELETE、楽観ロック 409、404 秘匿、バリデーション、413、レート制限 429、セキュリティヘッダ、**DB とペイロードに平文秘密鍵が無いこと**、ログに秘密が出ないこと |
+| unit（client） | ボルトストアの世代カウンタ・保存の直列化・競合解決・バックアップ取り込み、IndexedDB 永続化、同期クライアント、表示整形・設定・i18n |
 | e2e | 作成 → 追加 → 時刻固定でコード一致、ロック/解錠、検索/ピン、バックアップ書き出しと復元、移行 URI 一括インポート、2 端末同期、375px レイアウト、ダークのコントラスト、セキュリティヘッダ |
+
+カバレッジは `pnpm test:coverage` で `shared`・`server`・`src/lib` を対象に計測し、
+2026-11 時点で行 92.4% / 分岐 83.3% / 関数 94.9%。下限（行 85%）を下回ると CI が失敗します。
+
+CI（GitHub Actions）は lint/typecheck、unit + integration（カバレッジ下限つき）、
+依存関係監査（`pnpm audit --audit-level=high`）、Playwright E2E、Docker ビルドと
+smoke test（`/api/health`・devDependencies 非同梱の検証）を push と pull request で実行します。
 
 ## デプロイ
 

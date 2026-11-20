@@ -22,6 +22,8 @@ function readVersion(): string {
 const port = Number.parseInt(process.env.PORT ?? '3000', 10);
 const databasePath = process.env.DATABASE_PATH ?? './data/aegis.db';
 const trustProxy = process.env.TRUST_PROXY === 'true';
+const trustProxyHops = Number.parseInt(process.env.TRUST_PROXY_HOPS ?? '1', 10);
+const maxVaultBytes = Number.parseInt(process.env.MAX_VAULT_BYTES ?? String(256 * 1024 * 1024), 10);
 const corsOrigin = process.env.CORS_ORIGIN;
 const https = process.env.AEGIS_HTTPS === 'true';
 
@@ -35,6 +37,8 @@ const app = createApp({
   database,
   version: readVersion(),
   trustProxy,
+  trustProxyHops: Number.isFinite(trustProxyHops) ? trustProxyHops : 1,
+  maxVaultBytes: Number.isFinite(maxVaultBytes) && maxVaultBytes > 0 ? maxVaultBytes : 256 * 1024 * 1024,
   https,
   ...(corsOrigin === undefined ? {} : { corsOrigin }),
   ...(staticRoot === undefined ? {} : { staticRoot }),

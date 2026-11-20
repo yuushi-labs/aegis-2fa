@@ -9,7 +9,7 @@ import { cors } from 'hono/cors';
 import { bodyLimit, type BodyLimitVariables } from './middleware/bodyLimit';
 import { createRateLimiter } from './middleware/rateLimit';
 import { requestLogger } from './middleware/logger';
-import { securityHeaders } from './middleware/security';
+import { applySecurityHeaders, securityHeaders } from './middleware/security';
 import { createHealthRoutes } from './routes/health';
 import { createVaultRoutes } from './routes/vault';
 import type { DatabaseHandle } from './db/client';
@@ -19,6 +19,10 @@ export type AppOptions = {
   version?: string;
   /** TRUST_PROXY=true のとき X-Forwarded-* を信頼する（レート制限のキー） */
   trustProxy?: boolean;
+  /** 信頼するプロキシの段数（X-Forwarded-For の右端から数える。既定 1） */
+  trustProxyHops?: number;
+  /** 保存できる暗号文の総量（バイト）。超過した書き込みは 507。既定 256 MiB */
+  maxVaultBytes?: number;
   /** HTTPS 終端されている場合に HSTS を付ける */
   https?: boolean;
   /** 同一オリジン以外を許可する場合のみ設定 */
@@ -104,8 +108,23 @@ export function createApp(options: AppOptions): Hono<{ Variables: BodyLimitVaria
   if (options.disableRateLimit !== true) {
     const clock = options.now === undefined ? {} : { now: options.now };
     const trustProxy = options.trustProxy === true;
-    const vaultLimiter = createRateLimiter({ name: 'vault', windowMs: 60_000, max: 60, trustProxy, ...clock });
-    const putLimiter = createRateLimiter({ name: 'vault-put', windowMs: 60_000, max: 20, trustProxy, ...clock });
+    const trustProxyHops = options.trustProxyHops ?? 1;
+    const vaultLimiter = createRateLimiter({
+      name: 'vault',
+      windowMs: 60_000,
+      max: 60,
+      trustProxy,
+      trustProxyHops,
+      ...clock,
+    });
+    const putLimiter = createRateLimiter({
+      name: 'vault-put',
+      windowMs: 60_000,
+      max: 20,
+      trustProxy,
+      trustProxyHops,
+      ...clock,
+    });
     app.use('/api/vault/*', vaultLimiter);
     app.use('/api/vault/:id', async (c, next) => {
       if (c.req.method !== 'PUT') {
@@ -119,7 +138,13 @@ export function createApp(options: AppOptions): Hono<{ Variables: BodyLimitVaria
   app.route('/api/health', createHealthRoutes({ db: options.database.db, version }));
 
   app.use('/api/vault/*', bodyLimit(256 * 1024));
-  app.route('/api/vault', createVaultRoutes({ db: options.database.db }));
+  app.route(
+    '/api/vault',
+    createVaultRoutes({
+      db: options.database.db,
+      ...(options.maxVaultBytes === undefined ? {} : { maxVaultBytes: options.maxVaultBytes }),
+    }),
+  );
 
   app.notFound((c) => {
     const path = c.req.path;
@@ -150,7 +175,10 @@ export function createApp(options: AppOptions): Hono<{ Variables: BodyLimitVaria
   app.onError((error, c) => {
     log(`ERROR ${c.req.method} ${c.req.path} ${error.name}`);
     const message = process.env.NODE_ENV === 'production' ? 'internal_error' : error.message;
-    return c.json({ error: 'internal_error', message }, 500);
+    const response = c.json({ error: 'internal_error', message }, 500);
+    // 例外時は securityHeaders ミドルウェアの後処理が走らないため、ここでも付与する。
+    applySecurityHeaders(response.headers, { https: options.https === true, path: c.req.path });
+    return response;
   });
 
   return app;

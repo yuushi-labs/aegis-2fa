@@ -24,6 +24,15 @@ export function SyncPage() {
   const busyRef = useRef(false);
 
   useEffect(() => {
+    // 同期コードはボルトの読み書き・削除権限を持つ。URL の ?code= に残すと
+    // 履歴・アドレスバー・画面共有から漏れるため、読み取った直後に消す。
+    if (params.get('code') === null) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete('code');
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+  }, [params]);
+
+  useEffect(() => {
     // StrictMode の再実行でも有効に戻す（cleanup 後に true のままにしない）。
     unmountedRef.current = false;
     return () => {

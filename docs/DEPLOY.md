@@ -9,7 +9,10 @@ Aegis 2FA は **静的 SPA + 単一 Node プロセス + SQLite ファイル** �
 | --- | --- | --- |
 | `PORT` | `3000` | 待ち受けポート |
 | `DATABASE_PATH` | `./data/aegis.db` | SQLite ファイル。親ディレクトリは自動作成 |
-| `TRUST_PROXY` | `false` | `true` で `X-Forwarded-For` を信頼（リバースプロキシ配下で必須） |
+| `TRUST_PROXY` | `false` | `true` で `X-Forwarded-For` を信頼（リバースプロキシ配下で必須）。**`PORT` への直接接続をファイアウォール等で遮断すること**（直接届くとヘッダを偽装できる）。前段は `X-Forwarded-For` を上書きし、`X-Real-IP` は読みません |
+| `TRUST_PROXY_HOPS` | `1` | 信頼するプロキシの段数。`X-Forwarded-For` を**右端から**数えた位置をクライアント IP とみなす（CDN + LB のように 2 段なら `2`） |
+| | | 多段の場合、最初のプロキシがクライアントの `X-Forwarded-For` を置き換え、後続のプロキシが接続元 IP を履歴へ追加する構成にすること（全利用者が同じキーにまとまって制限を共有しないため） |
+| `MAX_VAULT_BYTES` | `268435456`（256 MiB） | 保存できる暗号文の総量。超過する書き込みは `507`（`/data` の枯渇防止） |
 | `AEGIS_HTTPS` | `false` | `true` で HSTS を付与（TLS 終端が前段にある場合に有効化） |
 | `CORS_ORIGIN` | 未設定 | 別オリジンから API を使う場合のみ。通常は未設定のまま |
 
@@ -37,12 +40,20 @@ curl -fsS http://localhost:3000/api/health
 ```bash
 fly launch --no-deploy
 fly volumes create aegis_data --size 1 --region nrt
-fly secrets set AEGIS_HTTPS=true TRUST_PROXY=true
+fly secrets set AEGIS_HTTPS=true TRUST_PROXY=true TRUST_PROXY_HOPS=2
 fly deploy
 ```
 
 `fly.toml` の `[mounts]` で `/data` にボリュームを割り当て、`DATABASE_PATH=/data/aegis.db` を
 設定してください。`internal_port = 3000`、ヘルスチェックは `GET /api/health`。
+
+`TRUST_PROXY_HOPS` は「アプリの手前にあるプロキシの段数」です。Fly Proxy だけが前段なら `2`
+（右端はアプリ側から見たプロキシのアドレスで、その 1 つ前がクライアント IP）。CDN などを
+さらに前段に置く場合は段数を増やし、`X-Forwarded-For` の並びを実測して決めてください。
+
+CDN を併用する場合は、**CDN 以外から Fly アプリへ直接届く要求を拒否**する構成にしてください
+（`.fly.dev` を公開したままにすると、クライアントが指定した `X-Forwarded-For` がそのまま
+レート制限のキーに使われ得ます）。
 
 ## Render
 

@@ -113,6 +113,9 @@ let syncTimer: ReturnType<typeof setTimeout> | null = null;
 /** 保存処理の直列化キュー。後から始まった保存が先の変更を取りこぼさない。 */
 let writeQueue: Promise<unknown> = Promise.resolve();
 
+/** 同期送信の直列化チェーン（待機中の呼び出しも含めて順に実行する）。 */
+let syncChain: Promise<void> = Promise.resolve();
+
 /**
  * ボルトの世代。作成・置換・接続・削除で進む。
  * 待機中に別のライフサイクル操作が完了したら、古い保存を確定しないために使う。
@@ -255,6 +258,86 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         set({ syncState: 'pending', syncedRevision: null });
         scheduleSync();
       }
+    }
+  }
+
+  /** 実際の送信処理（syncNow は 1 本ずつ直列化して呼ぶ）。 */
+  async function runSync(): Promise<void> {
+    const { token, vaultId, envelope } = get();
+    if (token === null || vaultId === null || envelope === null) return;
+    // 待機中にボルトが置き換わった／消えたら、状態も保存先も触らない。
+    const generation = lifecycleGeneration;
+    const isCurrent = (): boolean => generation === lifecycleGeneration && get().vaultId === vaultId;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      set({ syncState: 'pending', syncError: 'offline' });
+      return;
+    }
+    // 基準は「最後にサーバーと一致した revision」（envelope.revision - 1 ではない）。
+    const sent = envelope;
+    const base = get().syncedRevision ?? 0;
+    try {
+      await syncClient.put(vaultId, token, sent, base);
+      if (!isCurrent()) return;
+      await updateSyncedRevision(sent.revision);
+      if (!isCurrent()) return;
+      set({ syncedRevision: sent.revision });
+      const latest = get().envelope;
+      if (latest !== null && latest.revision > sent.revision) {
+        // 送信中にさらに編集された → 続けて送る。
+        set({ syncState: 'pending', syncError: null });
+        scheduleSync();
+      } else {
+        set({ syncState: 'synced', syncError: null, lastSyncedAt: new Date().toISOString() });
+      }
+    } catch (error) {
+      if (error instanceof SyncConflictError) {
+        try {
+          const remote = await syncClient.get(vaultId, token);
+          if (!isCurrent()) return;
+          // 応答だけ失われた PUT を「競合」と誤認しない（サーバーが同じ封筒を持っている）。
+          const sameEnvelope =
+            remote.revision === sent.revision &&
+            remote.envelope.data.iv === sent.data.iv &&
+            remote.envelope.data.ciphertext === sent.data.ciphertext;
+          if (sameEnvelope) {
+            await updateSyncedRevision(remote.revision);
+            if (!isCurrent()) return;
+            set({ syncedRevision: remote.revision, syncState: 'synced', syncError: null });
+            return;
+          }
+          set({
+            syncState: 'conflict',
+            conflict: { remoteRevision: remote.revision, remoteEnvelope: remote.envelope },
+          });
+        } catch {
+          set({ syncState: 'error', syncError: 'conflict_fetch_failed' });
+        }
+        return;
+      }
+      if (error instanceof SyncNotFoundError) {
+        try {
+          await syncClient.put(vaultId, token, sent, 0);
+          if (!isCurrent()) return;
+          await updateSyncedRevision(sent.revision);
+          if (!isCurrent()) return;
+          set({ syncedRevision: sent.revision, syncError: null });
+          const latest = get().envelope;
+          if (latest !== null && latest.revision > sent.revision) {
+            // 再作成の送信中にさらに編集された → 続けて送る。
+            set({ syncState: 'pending' });
+            scheduleSync();
+          } else {
+            set({ syncState: 'synced', lastSyncedAt: new Date().toISOString() });
+          }
+        } catch {
+          set({ syncState: 'error', syncError: 'put_failed' });
+        }
+        return;
+      }
+      set({
+        syncState: 'error',
+        syncError: error instanceof SyncHttpError ? `http_${error.status}` : 'network',
+      });
     }
   }
 
@@ -519,6 +602,8 @@ export const useVaultStore = create<VaultStore>((set, get) => {
     },
 
     async changePassword(current, next) {
+      // UI 以外から呼ばれても短いパスワードでゼロ知識モデルを崩さない。
+      if (next.length < MIN_PASSWORD_LENGTH) return false;
       return runExclusive(async () => {
         // PBKDF2 を 2 回待つ間に保存が走らないよう、キューの内側で最新状態を読む。
         const { envelope, dek, token, accounts, tombstones } = get();
@@ -548,70 +633,16 @@ export const useVaultStore = create<VaultStore>((set, get) => {
     },
 
     async syncNow() {
-      const { token, vaultId, envelope } = get();
-      if (token === null || vaultId === null || envelope === null) return;
-      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-        set({ syncState: 'pending', syncError: 'offline' });
-        return;
-      }
-      // 基準は「最後にサーバーと一致した revision」（envelope.revision - 1 ではない）。
-      const sent = envelope;
-      const base = get().syncedRevision ?? 0;
-      try {
-        await syncClient.put(vaultId, token, sent, base);
-        await updateSyncedRevision(sent.revision);
-        set({ syncedRevision: sent.revision });
-        const latest = get().envelope;
-        if (latest !== null && latest.revision > sent.revision) {
-          // 送信中にさらに編集された → 続けて送る。
-          set({ syncState: 'pending', syncError: null });
-          scheduleSync();
-        } else {
-          set({ syncState: 'synced', syncError: null, lastSyncedAt: new Date().toISOString() });
-        }
-      } catch (error) {
-        if (error instanceof SyncConflictError) {
-          try {
-            const remote = await syncClient.get(vaultId, token);
-            // 応答だけ失われた PUT を「競合」と誤認しない（サーバーが同じ封筒を持っている）。
-            const sameEnvelope =
-              remote.revision === sent.revision &&
-              remote.envelope.data.iv === sent.data.iv &&
-              remote.envelope.data.ciphertext === sent.data.ciphertext;
-            if (sameEnvelope) {
-              await updateSyncedRevision(remote.revision);
-              set({ syncedRevision: remote.revision, syncState: 'synced', syncError: null });
-              return;
-            }
-            set({
-              syncState: 'conflict',
-              conflict: { remoteRevision: remote.revision, remoteEnvelope: remote.envelope },
-            });
-          } catch {
-            set({ syncState: 'error', syncError: 'conflict_fetch_failed' });
-          }
-          return;
-        }
-        if (error instanceof SyncNotFoundError) {
-          try {
-            await syncClient.put(vaultId, token, sent, 0);
-            await updateSyncedRevision(sent.revision);
-            set({
-              syncedRevision: sent.revision,
-              syncState: 'synced',
-              syncError: null,
-              lastSyncedAt: new Date().toISOString(),
-            });
-          } catch {
-            set({ syncState: 'error', syncError: 'put_failed' });
-          }
-          return;
-        }
-        set({
-          syncState: 'error',
-          syncError: error instanceof SyncHttpError ? `http_${error.status}` : 'network',
-        });
-      }
+      // 送信は 1 本ずつ順に実行する（待機中の呼び出しも同じチェーンに並ぶ）。
+      const generation = lifecycleGeneration;
+      const vaultId = get().vaultId;
+      const run = syncChain.then(async () => {
+        // 待機中にボルトが置き換わった／消えたら、この送信は行わない。
+        if (generation !== lifecycleGeneration || get().vaultId !== vaultId) return;
+        await runSync();
+      });
+      syncChain = run.catch(() => undefined);
+      await run;
     },
 
     async refreshRemote() {
@@ -773,9 +804,29 @@ export const useVaultStore = create<VaultStore>((set, get) => {
 
     async wipe() {
       // 進行中の保存が削除後に書き戻さないよう、先に世代を進める。
-      lifecycleGeneration += 1;
+      const { vaultId, token } = get();
+      const generation = lifecycleGeneration + 1;
+      lifecycleGeneration = generation;
       unlockSession += 1;
-      await deleteVault();
+      // デバウンス中の送信を取り消し、進行中の送信が終わるのを待つ。
+      // これをしないと、DELETE の後に PUT が確定して行が作り直される。
+      if (syncTimer !== null) {
+        clearTimeout(syncTimer);
+        syncTimer = null;
+      }
+      // 待機中の送信を含むチェーンが終わるのを待つ（世代を進めたので何も送らない）。
+      await syncChain;
+      if (generation === lifecycleGeneration && syncTimer !== null) {
+        clearTimeout(syncTimer);
+        syncTimer = null;
+      }
+      // 先にローカルを消す（置き換えられた場合に新しいボルトを消さないため）。
+      // 保存キューの中で実行し、進行中の保存が削除後に書き戻さないようにする。
+      await runExclusive(() => deleteVault());
+      if (generation !== lifecycleGeneration) {
+        // 待機中に別のボルトが作られた／接続された → 状態は触らない。
+        return;
+      }
       set({
         status: 'uninitialized',
         accounts: [],
@@ -792,6 +843,15 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         failedAttempts: 0,
         cooldownUntil: 0,
       });
+      // サーバー側の暗号文も消す（残すとユーザーが後から削除する手段を失う）。
+      // 失敗してもローカルは消えているので、そのまま終える。
+      if (vaultId !== null && token !== null) {
+        try {
+          await syncClient.remove(vaultId, token);
+        } catch {
+          // オフライン等でもローカル削除は完了させる。
+        }
+      }
     },
   };
 });
