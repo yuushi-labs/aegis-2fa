@@ -45,11 +45,30 @@ export function SettingsPage() {
   const wipe = useVaultStore((state) => state.wipe);
   const lock = useVaultStore((state) => state.lock);
   const passkeys = useVaultStore((state) => state.passkeys);
+  const profiles = useVaultStore((state) => state.profiles);
+  const activeProfileId = useVaultStore((state) => state.activeProfileId);
+  const createProfile = useVaultStore((state) => state.createProfile);
+  const switchProfile = useVaultStore((state) => state.switchProfile);
+  const renameProfile = useVaultStore((state) => state.renameProfile);
+  const deleteProfile = useVaultStore((state) => state.deleteProfile);
+  const devices = useVaultStore((state) => state.devices);
+  const deviceId = useVaultStore((state) => state.deviceId);
+  const deviceName = useVaultStore((state) => state.deviceName);
+  const renameDevice = useVaultStore((state) => state.renameDevice);
+  const forgetDevice = useVaultStore((state) => state.forgetDevice);
   const registerPasskey = useVaultStore((state) => state.registerPasskey);
   const removePasskey = useVaultStore((state) => state.removePasskey);
 
   const [revealToken, setRevealToken] = useState(false);
   const [syncQrOpen, setSyncQrOpen] = useState(false);
+  const [printOpen, setPrintOpen] = useState(false);
+  const [newProfileName, setNewProfileName] = useState('');
+  const [profileToDelete, setProfileToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [profileToRename, setProfileToRename] = useState<{ id: string; name: string } | null>(null);
+  const [profileRenameValue, setProfileRenameValue] = useState('');
+  const [deviceRenameOpen, setDeviceRenameOpen] = useState(false);
+  const [deviceRenameValue, setDeviceRenameValue] = useState('');
+  const [deviceToRemove, setDeviceToRemove] = useState<{ id: string; name: string } | null>(null);
 
   const [disableOpen, setDisableOpen] = useState(false);
   const [csvOpen, setCsvOpen] = useState(false);
@@ -82,6 +101,41 @@ export function SettingsPage() {
     ? safeEncodeMigration(migration)
     : null;
   const migrationQr = useQrDataUrl(migrationQrText, 260);
+
+  async function handleCreateProfile(): Promise<void> {
+    await createProfile(newProfileName);
+    setNewProfileName('');
+    toast(t('profiles.added'), 'success');
+  }
+
+  async function handleRenameProfile(): Promise<void> {
+    if (profileToRename === null) return;
+    await renameProfile(profileToRename.id, profileRenameValue);
+    setProfileToRename(null);
+    toast(t('profiles.renamed'), 'success');
+  }
+
+  async function handleDeleteProfile(): Promise<void> {
+    if (profileToDelete === null) return;
+    const target = profileToDelete;
+    setProfileToDelete(null);
+    await deleteProfile(target.id);
+    toast(t('profiles.removed'), 'success');
+  }
+
+  async function handleRenameDevice(): Promise<void> {
+    await renameDevice(deviceRenameValue);
+    setDeviceRenameOpen(false);
+    toast(t('settings.devices.renamed'), 'success');
+  }
+
+  async function handleRemoveDevice(): Promise<void> {
+    if (deviceToRemove === null) return;
+    const target = deviceToRemove;
+    setDeviceToRemove(null);
+    await forgetDevice(target.id);
+    toast(t('settings.devices.removed'), 'success');
+  }
 
   async function handleChangePassword(event: React.FormEvent): Promise<void> {
     event.preventDefault();
@@ -253,6 +307,95 @@ export function SettingsPage() {
       <h1 className="text-[1.35rem]">{t('settings.title')}</h1>
 
       <div className="mt-4 flex flex-col gap-4">
+        <Section title={t('profiles.title')}>
+          <p className="field-hint">{t('profiles.lead')}</p>
+          <ul className="flex flex-col" data-testid="profile-list">
+            {profiles.map((profile) => {
+              const isActive = profile.id === activeProfileId;
+              return (
+                <li
+                  key={profile.id}
+                  className="flex flex-wrap items-center gap-2 border-t py-2 first:border-t-0"
+                  style={{ borderColor: 'var(--border)' }}
+                  data-testid="profile-item"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[0.9rem]">
+                      {profile.name}
+                      {isActive && (
+                        <span className="badge badge-accent ml-2 text-[0.64rem]" data-testid="profile-current">
+                          {t('profiles.current')}
+                        </span>
+                      )}
+                    </p>
+                    <p className="text-[0.72rem]" style={{ color: 'var(--text-faint)' }}>
+                      {formatTime(profile.createdAt, language)}
+                    </p>
+                  </div>
+                  {!isActive && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary shrink-0 text-[0.76rem]"
+                      onClick={() => void switchProfile(profile.id)}
+                      data-testid="profile-use"
+                    >
+                      {t('profiles.switch')}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="btn btn-ghost shrink-0 text-[0.76rem]"
+                    onClick={() => {
+                      setProfileToRename({ id: profile.id, name: profile.name });
+                      setProfileRenameValue(profile.name);
+                    }}
+                    data-testid="profile-rename"
+                  >
+                    {t('profiles.rename')}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost shrink-0 text-[0.76rem]"
+                    style={{ color: 'var(--danger)' }}
+                    disabled={profiles.length <= 1}
+                    title={profiles.length <= 1 ? t('profiles.deleteLast') : t('profiles.delete')}
+                    onClick={() => setProfileToDelete({ id: profile.id, name: profile.name })}
+                    data-testid="profile-delete"
+                  >
+                    {t('profiles.delete')}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          <div>
+            <label className="field-label" htmlFor="new-profile-name">
+              {t('profiles.create')}
+            </label>
+            <div className="flex gap-2">
+              <input
+                id="new-profile-name"
+                type="text"
+                maxLength={32}
+                value={newProfileName}
+                onChange={(event) => setNewProfileName(event.target.value)}
+                placeholder={t('profiles.namePlaceholder')}
+                autoComplete="off"
+                data-testid="new-profile-name"
+              />
+              <button
+                type="button"
+                className="btn btn-secondary shrink-0 text-[0.8rem]"
+                onClick={() => void handleCreateProfile()}
+                data-testid="profile-create"
+              >
+                {t('common.add')}
+              </button>
+            </div>
+            <p className="field-hint">{t('profiles.deleteLast')}</p>
+          </div>
+        </Section>
+
         <Section title={t('settings.security')}>
           <div>
             <label className="field-label" htmlFor="auto-lock">
@@ -544,6 +687,69 @@ export function SettingsPage() {
                   {t('settings.sync.disable')}
                 </button>
               </div>
+
+              <hr className="rule" />
+              <div>
+                <p className="text-[0.88rem] font-medium">{t('settings.devices')}</p>
+                <p className="field-hint mt-1">{t('settings.devices.lead')}</p>
+                <ul className="mt-2 flex flex-col" data-testid="device-list">
+                  {devices.length === 0 && (
+                    <li className="py-1 text-[0.82rem]" style={{ color: 'var(--text-faint)' }}>
+                      {t('settings.devices.empty')}
+                    </li>
+                  )}
+                  {devices.map((device) => {
+                    const isSelf = device.id === deviceId;
+                    const name = isSelf ? deviceName : device.name;
+                    return (
+                      <li
+                        key={device.id}
+                        className="flex flex-wrap items-center gap-2 border-t py-2 first:border-t-0"
+                        style={{ borderColor: 'var(--border)' }}
+                        data-testid="device-item"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[0.88rem]">
+                            {name}
+                            {isSelf && (
+                              <span className="badge badge-accent ml-2 text-[0.62rem]" data-testid="device-self">
+                                {t('settings.devices.thisDevice')}
+                              </span>
+                            )}
+                          </p>
+                          <p className="text-[0.72rem]" style={{ color: 'var(--text-faint)' }}>
+                            {device.platform !== '' ? `${device.platform} · ` : ''}
+                            {t('settings.devices.lastSynced', { time: formatTime(device.lastSyncedAt, language) })}
+                          </p>
+                        </div>
+                        {isSelf ? (
+                          <button
+                            type="button"
+                            className="btn btn-ghost shrink-0 text-[0.74rem]"
+                            onClick={() => {
+                              setDeviceRenameValue(deviceName);
+                              setDeviceRenameOpen(true);
+                            }}
+                            data-testid="device-rename"
+                          >
+                            {t('settings.devices.rename')}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="btn btn-ghost shrink-0 text-[0.74rem]"
+                            style={{ color: 'var(--danger)' }}
+                            onClick={() => setDeviceToRemove({ id: device.id, name })}
+                            data-testid="device-remove"
+                          >
+                            {t('settings.devices.remove')}
+                          </button>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
             </>
           )}
         </Section>
@@ -571,6 +777,23 @@ export function SettingsPage() {
           >
             {t('settings.export.migrationQr')}
           </button>
+          <hr className="rule" />
+          <div className="flex flex-col gap-2">
+            <p className="text-[0.88rem] font-medium">{t('settings.print.title')}</p>
+            <p className="field-hint -mt-1">{t('settings.print.lead')}</p>
+            <button
+              type="button"
+              className="btn btn-secondary self-start"
+              onClick={() => setPrintOpen(true)}
+              disabled={accounts.length === 0}
+              data-testid="open-print-sheet"
+            >
+              {t('settings.print.open')}
+            </button>
+            <p className="field-hint -mt-1" style={{ color: 'var(--clay)' }}>
+              {t('settings.print.warning')}
+            </p>
+          </div>
         </Section>
 
         <Section title={t('settings.import')}>
@@ -769,6 +992,138 @@ export function SettingsPage() {
         }
       >
         <p className="text-[0.88rem]">{t('lock.resetConfirm')}</p>
+      </Modal>
+
+      <Modal
+        open={printOpen}
+        title={t('settings.print.title')}
+        onClose={() => setPrintOpen(false)}
+        width="sm"
+        footer={
+          <>
+            <button type="button" className="btn btn-secondary" onClick={() => setPrintOpen(false)}>
+              {t('common.cancel')}
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => {
+                setPrintOpen(false);
+                navigate('/print');
+              }}
+              data-testid="confirm-print-sheet"
+            >
+              {t('settings.print.confirm')}
+            </button>
+          </>
+        }
+      >
+        <p className="text-[0.88rem] leading-relaxed" style={{ color: 'var(--clay)' }}>
+          {t('settings.print.warning')}
+        </p>
+        <p className="mt-2 text-[0.82rem]" style={{ color: 'var(--text-muted)' }}>
+          {t('print.accounts', { count: accounts.filter((account) => account.deletedAt === undefined).length })}
+        </p>
+      </Modal>
+
+      <Modal
+        open={profileToRename !== null}
+        title={t('profiles.rename')}
+        onClose={() => setProfileToRename(null)}
+        width="sm"
+        footer={
+          <>
+            <button type="button" className="btn btn-secondary" onClick={() => setProfileToRename(null)}>
+              {t('common.cancel')}
+            </button>
+            <button type="button" className="btn btn-primary" onClick={() => void handleRenameProfile()} data-testid="profile-rename-save">
+              {t('common.save')}
+            </button>
+          </>
+        }
+      >
+        <label className="field-label" htmlFor="profile-rename-input">
+          {t('profiles.nameLabel')}
+        </label>
+        <input
+          id="profile-rename-input"
+          type="text"
+          maxLength={32}
+          value={profileRenameValue}
+          onChange={(event) => setProfileRenameValue(event.target.value)}
+          data-testid="profile-rename-input"
+        />
+      </Modal>
+
+      <Modal
+        open={profileToDelete !== null}
+        title={t('profiles.delete')}
+        onClose={() => setProfileToDelete(null)}
+        width="sm"
+        footer={
+          <>
+            <button type="button" className="btn btn-secondary" onClick={() => setProfileToDelete(null)}>
+              {t('common.cancel')}
+            </button>
+            <button type="button" className="btn btn-danger" onClick={() => void handleDeleteProfile()} data-testid="profile-delete-confirm">
+              {t('common.delete')}
+            </button>
+          </>
+        }
+      >
+        <p className="text-[0.88rem] leading-relaxed">
+          {t('profiles.deleteConfirm', { name: profileToDelete?.name ?? '' })}
+        </p>
+      </Modal>
+
+      <Modal
+        open={deviceRenameOpen}
+        title={t('settings.devices.rename')}
+        onClose={() => setDeviceRenameOpen(false)}
+        width="sm"
+        footer={
+          <>
+            <button type="button" className="btn btn-secondary" onClick={() => setDeviceRenameOpen(false)}>
+              {t('common.cancel')}
+            </button>
+            <button type="button" className="btn btn-primary" onClick={() => void handleRenameDevice()} data-testid="device-rename-save">
+              {t('common.save')}
+            </button>
+          </>
+        }
+      >
+        <label className="field-label" htmlFor="device-rename-input">
+          {t('settings.devices.renamePrompt')}
+        </label>
+        <input
+          id="device-rename-input"
+          type="text"
+          maxLength={64}
+          value={deviceRenameValue}
+          onChange={(event) => setDeviceRenameValue(event.target.value)}
+          data-testid="device-rename-input"
+        />
+      </Modal>
+
+      <Modal
+        open={deviceToRemove !== null}
+        title={t('settings.devices.remove')}
+        onClose={() => setDeviceToRemove(null)}
+        width="sm"
+        footer={
+          <>
+            <button type="button" className="btn btn-secondary" onClick={() => setDeviceToRemove(null)}>
+              {t('common.cancel')}
+            </button>
+            <button type="button" className="btn btn-danger" onClick={() => void handleRemoveDevice()} data-testid="device-remove-confirm">
+              {t('common.delete')}
+            </button>
+          </>
+        }
+      >
+        <p className="text-[0.88rem] leading-relaxed">
+          {t('settings.devices.removeConfirm', { name: deviceToRemove?.name ?? '' })}
+        </p>
       </Modal>
 
       <Modal

@@ -19,9 +19,12 @@ function ShieldMark() {
 export function AppHeader({ onLock }: { onLock: () => void }) {
   const { t } = useI18n();
   const syncState = useVaultStore((state) => state.syncState);
+  const profiles = useVaultStore((state) => state.profiles);
+  const activeProfileId = useVaultStore((state) => state.activeProfileId);
+  const switchProfile = useVaultStore((state) => state.switchProfile);
 
   return (
-    <header className="sticky top-0 z-30 border-b" style={{ background: 'var(--surface)' }}>
+    <header className="app-header sticky top-0 z-30 border-b" style={{ background: 'var(--surface)' }}>
       <div className="mx-auto flex h-14 max-w-2xl items-center gap-2 px-3 sm:gap-3 sm:px-4">
         <NavLink to="/" className="flex shrink-0 items-center gap-2 no-underline" style={{ color: 'var(--text)' }}>
           <span style={{ color: 'var(--accent)' }}>
@@ -43,6 +46,23 @@ export function AppHeader({ onLock }: { onLock: () => void }) {
         {syncState === 'pending' && (
           <span className="badge max-w-[42vw] truncate">{t('settings.sync.status.pending')}</span>
         )}
+        {profiles.length > 1 && (
+          <select
+            value={activeProfileId ?? ''}
+            onChange={(event) => void switchProfile(event.target.value)}
+            aria-label={t('profiles.switch')}
+            title={t('profiles.switch')}
+            className="max-w-[30vw] shrink truncate text-[0.74rem]"
+            style={{ width: 'auto' }}
+            data-testid="profile-switch"
+          >
+            {profiles.map((profile) => (
+              <option key={profile.id} value={profile.id}>
+                {profile.name}
+              </option>
+            ))}
+          </select>
+        )}
         <nav className="ml-auto flex shrink-0 items-center gap-0.5" aria-label="主要">
           <NavLink
             to="/settings"
@@ -62,7 +82,7 @@ export function AppHeader({ onLock }: { onLock: () => void }) {
 export function AppFooter() {
   const { t } = useI18n();
   return (
-    <footer className="mx-auto max-w-2xl px-4 pt-6 pb-10">
+    <footer className="app-footer mx-auto max-w-2xl px-4 pt-6 pb-10">
       <p className="text-[0.72rem] leading-relaxed" style={{ color: 'var(--text-faint)' }}>
         {t('app.tagline')}
       </p>

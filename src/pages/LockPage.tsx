@@ -11,6 +11,9 @@ export function LockPage() {
   const wipe = useVaultStore((state) => state.wipe);
   const token = useVaultStore((state) => state.token);
   const passkeys = useVaultStore((state) => state.passkeys);
+  const profiles = useVaultStore((state) => state.profiles);
+  const activeProfileId = useVaultStore((state) => state.activeProfileId);
+  const switchProfile = useVaultStore((state) => state.switchProfile);
 
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -80,6 +83,25 @@ export function LockPage() {
         <p className="mt-1.5 text-[0.88rem]" style={{ color: 'var(--text-muted)' }}>
           {t('lock.lead')}
         </p>
+        {profiles.length > 1 && (
+          <div className="mt-4">
+            <label className="field-label" htmlFor="lock-profile">
+              {t('profiles.switch')}
+            </label>
+            <select
+              id="lock-profile"
+              value={activeProfileId ?? ''}
+              onChange={(event) => void switchProfile(event.target.value)}
+              data-testid="lock-profile-switch"
+            >
+              {profiles.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       <form onSubmit={(event) => void handleSubmit(event)} className="card mt-6 p-5" noValidate>
