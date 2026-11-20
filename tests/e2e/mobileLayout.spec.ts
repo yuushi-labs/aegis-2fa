@@ -86,3 +86,17 @@ test.describe('スマホ幅（360px / 390px）のレイアウト', () => {
     await expect(page.getByTestId('account-row')).toHaveCount(0);
   });
 });
+
+test.describe('スマホ幅のオンボーディングとロック画面', () => {
+  test('360px でも初回設定とロック画面がはみ出さない', async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 740 });
+    await page.goto('/');
+    await expect(page.getByRole('heading', { name: 'ボルトをつくる' })).toBeVisible();
+    expect(await overflowPx(page)).toBeLessThanOrEqual(1);
+
+    await createVault(page, { sync: false });
+    await page.getByRole('button', { name: 'ロック', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'ロック中' })).toBeVisible();
+    expect(await overflowPx(page)).toBeLessThanOrEqual(1);
+  });
+});
