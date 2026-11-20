@@ -1,0 +1,9 @@
+# SQLite の DB とローカル設定を置く。直接アクセスは 403。
+# DB を公開ディレクトリの外に置く場合は、aegis-config.php の db_path で指定する（README 参照）。
+<IfModule mod_authz_core.c>
+  Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+  Order allow,deny
+  Deny from all
+</IfModule>

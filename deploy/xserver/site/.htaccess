@@ -1,0 +1,110 @@
+# Aegis 2FA — Xserver（Apache 2.4 + PHP-FPM）用の .htaccess
+#
+# 前提: このファイルを公開ディレクトリ（例: public_html/aegis/）へ置く。
+# サイトをドメイン直下に置いても、サブディレクトリ（/aegis/ など）に置いても動く。
+#
+# 役割
+#   1. /api/... を PHP のフロントコントローラ（api/index.php）へ流す
+#   2. それ以外の未知パスを SPA の index.html へ返す（BrowserRouter 用）
+#   3. app/・storage/・DB・設定・ログへの直接アクセスを遮断する
+#   4. セキュリティヘッダとキャッシュ方針を Node 版（server/app.ts）と揃える
+
+Options -Indexes -MultiViews
+DirectoryIndex index.html
+AddDefaultCharset UTF-8
+
+<IfModule mod_mime.c>
+  AddType application/manifest+json .webmanifest
+  AddType font/woff2 .woff2
+  AddType image/svg+xml .svg
+</IfModule>
+
+# ---------------------------------------------------------------------------
+# Authorization ヘッダを PHP へ渡す
+#   PHP を CGI/FastCGI（Xserver の PHP-FPM）で動かすと Authorization ヘッダが
+#   落ちることがある。落ちると Bearer 認証がすべて 404 になるので必ず退避する。
+# ---------------------------------------------------------------------------
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteCond %{HTTP:Authorization} .
+  RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+</IfModule>
+<IfModule mod_setenvif.c>
+  SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+</IfModule>
+
+# ---------------------------------------------------------------------------
+# ルーティング
+# ---------------------------------------------------------------------------
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  # /api 以下はすべて PHP へ（未知のパスも JSON の 404 を返す）。
+  RewriteCond %{REQUEST_URI} !/api/index\.php$
+  RewriteRule ^api(/.*)?$ api/index.php [QSA,L]
+
+  # 実在するファイル・ディレクトリはそのまま配信する。
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  # それ以外は SPA の入口（/accounts などを直接開いたとき）。
+  RewriteRule ^ index.html [L]
+</IfModule>
+
+# ---------------------------------------------------------------------------
+# 直接アクセスさせないもの
+#   app/ と storage/ は各ディレクトリの .htaccess でも 403 にしている。
+#   DB を公開ディレクトリの外に置く運用が最も安全（README 参照）。
+# ---------------------------------------------------------------------------
+<IfModule mod_authz_core.c>
+  <FilesMatch "\.(db|db-wal|db-shm|sqlite|sqlite3|sql|log|ini|md|lock)$">
+    Require all denied
+  </FilesMatch>
+  <FilesMatch "^\.">
+    Require all denied
+  </FilesMatch>
+</IfModule>
+<IfModule !mod_authz_core.c>
+  <FilesMatch "\.(db|db-wal|db-shm|sqlite|sqlite3|sql|log|ini|md|lock)$">
+    Order allow,deny
+    Deny from all
+  </FilesMatch>
+  <FilesMatch "^\.">
+    Order allow,deny
+    Deny from all
+  </FilesMatch>
+</IfModule>
+
+# ---------------------------------------------------------------------------
+# セキュリティヘッダ（PHP が返す API 応答にも同じ値が付く）
+# ---------------------------------------------------------------------------
+<IfModule mod_headers.c>
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self' blob:; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set Referrer-Policy "no-referrer"
+  Header always set X-Frame-Options "DENY"
+  Header always set Permissions-Policy "camera=(self), microphone=(), geolocation=(), interest-cohort=()"
+  Header always set Cross-Origin-Opener-Policy "same-origin"
+  Header always set Cross-Origin-Resource-Policy "same-origin"
+  Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" env=HTTPS
+  Header unset X-Powered-By
+</IfModule>
+
+# ---------------------------------------------------------------------------
+# キャッシュ
+#   assets/ は内容ハッシュ付きのファイル名なので immutable。
+#   index.html と /api/* は no-store（デプロイ直後に古い画面を出さない）。
+# ---------------------------------------------------------------------------
+<IfModule mod_setenvif.c>
+  SetEnvIf Request_URI "/assets/" AEGIS_IMMUTABLE
+  SetEnvIf Request_URI "^[^?]*/$" AEGIS_NO_STORE
+  SetEnvIf Request_URI "\.html$" AEGIS_NO_STORE
+  SetEnvIf Request_URI "/sw\.js$" AEGIS_NO_STORE
+  SetEnvIf Request_URI "/api/" AEGIS_NO_STORE
+</IfModule>
+<IfModule mod_headers.c>
+  Header always set Cache-Control "public, max-age=3600"
+  Header always set Cache-Control "public, max-age=31536000, immutable" env=AEGIS_IMMUTABLE
+  Header always set Cache-Control "no-store" env=AEGIS_NO_STORE
+</IfModule>
