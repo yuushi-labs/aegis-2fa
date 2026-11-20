@@ -89,7 +89,7 @@ test.describe('サービス名のクイック候補', () => {
     await addManualAccount(page, { issuer: 'Example', label: 'me@example.com', secret: RFC_SECRET });
 
     await page.getByTestId('account-row').filter({ hasText: 'Example' }).dblclick();
-    await expect(page.getByRole('heading', { name: 'アカウントを編集' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Example' })).toBeVisible();
     await page.getByTestId('edit-issuer-suggestions').getByRole('button', { name: 'Notion' }).click();
     await expect(page.getByLabel('サービス名', { exact: true })).toHaveValue('Notion');
   });
@@ -101,7 +101,7 @@ test.describe('編集画面での URI 貼り付け', () => {
     await addManualAccount(page, { issuer: 'Example', label: 'me@example.com', secret: RFC_SECRET });
 
     await page.getByTestId('account-row').filter({ hasText: 'Example' }).dblclick();
-    await expect(page.getByRole('heading', { name: 'アカウントを編集' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Example' })).toBeVisible();
 
     // まずはキャンセル: 入力中の値はそのまま。
     page.once('dialog', (dialog) => void dialog.dismiss());
