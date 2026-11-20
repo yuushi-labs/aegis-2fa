@@ -196,12 +196,23 @@ Apache 固有の `.htaccess` の挙動は `php -S` では再現できないた�
 - サーバーが持つのは暗号文・`vaultId`・`token_hash`（SHA-256）・版・時刻だけです。復号鍵もトークン本体も保存しません。
 - バックアップは 2 層で:
   1. アプリの「設定 → エクスポート → 暗号化バックアップ」（推奨。中身は暗号文）
-  2. DB ファイルの複製。WAL を使っているため、**稼働中に `cp` する方法は使わないでください**
-     （`-wal` / `-shm` を一緒にコピーしても、コピー中に進む更新で時点が混ざり、復元できないファイルになります）。
-     稼働中は SQLite のバックアップ API を使ってください:
-     `sqlite3 /path/aegis.db ".backup '/tmp/aegis-backup.db'"`
-     `cp` で複製する場合は、全 DB 接続を止めてから（例: Apache のアクセスを止める、`storage/` を使っているなら
-     サイトをメンテナンス状態にする）行ってください。
+  2. DB ファイルの複製。WAL を使っているため、**`cp` は使わないでください**（`-wal` / `-shm` を一緒にコピーしても、
+     コピー中に進む更新で時点が混ざります。接続を止めた後でも、未チェックポイントの WAL が残っていると
+     確定済みの更新が欠けます）。SQLite のバックアップ API を使ってください。
+
+     ```bash
+     umask 077                                              # 0644 で作らない（他ユーザーに読ませない）
+     mkdir -p ~/aegis-backups && chmod 700 ~/aegis-backups   # 共有の /tmp には置かない
+     # sqlite3 CLI がある場合
+     sqlite3 /path/to/aegis.db ".backup '$HOME/aegis-backups/aegis-$(date +%F).db'"
+     # CLI が無い場合（Xserver でも PHP はある）
+     php -r '$p = new PDO("sqlite:" . $argv[1]); $p->exec("VACUUM INTO " . $p->quote($argv[2]));' \
+       /path/to/aegis.db "$HOME/aegis-backups/aegis-$(date +%F).db"
+     ```
+
+     どちらも稼働中に実行でき、作られるファイルは 0600（`umask 077`）です。
+     どうしても `cp` する場合は、全 DB 接続を止め（例: Apache のアクセスを止める、`storage/` を使っているなら
+     サイトをメンテナンス状態にする）、DB 本体と残っている `-wal` を同じ時点でコピーしてください。
 - アクセスログにはパスのみが残り、`Authorization` ヘッダや本文は記録しません（PHP 側のログも同じ方針）。
 
 ## 11. 既知の違い・制約
