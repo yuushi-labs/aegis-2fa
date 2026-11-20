@@ -54,10 +54,11 @@ export type CodeProps = {
   size?: 'sm' | 'md' | 'lg';
 };
 
+// スマホ幅（360〜390px）でも行からはみ出さないよう、小さい画面では一段小さくする。
 const SIZES: Record<'sm' | 'md' | 'lg', string> = {
-  sm: 'text-[1.05rem]',
-  md: 'text-[1.45rem]',
-  lg: 'text-[2.6rem]',
+  sm: 'text-[1.02rem] sm:text-[1.05rem]',
+  md: 'text-[1.28rem] sm:text-[1.45rem]',
+  lg: 'text-[1.9rem] sm:text-[2.6rem]',
 };
 
 export function Code({ code, compact = false, size = 'md' }: CodeProps) {

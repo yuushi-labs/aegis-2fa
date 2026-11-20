@@ -172,6 +172,7 @@
   input[type='password'],
   input[type='number'],
   input[type='url'],
+  input[type='search'],
   textarea,
   select {
     background: var(--surface-raised);
@@ -179,6 +180,8 @@
     border-radius: 8px;
     padding: 0.55rem 0.75rem;
     width: 100%;
+    /* flex の中で縮めるようにする（スマホ幅で横スクロールを出さない）。 */
+    min-width: 0;
     transition: border-color 160ms ease, box-shadow 160ms ease;
   }
 
@@ -231,6 +234,9 @@
     font-size: 0.9rem;
     font-weight: 500;
     cursor: pointer;
+    /* タップ領域を 36px 以上にする（スマホで押しやすい大きさ）。 */
+    min-height: 2.25rem;
+    touch-action: manipulation;
     transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease,
       transform 160ms ease;
     white-space: nowrap;
@@ -270,6 +276,8 @@
     color: var(--text-muted);
     border-color: transparent;
     padding: 0.4rem 0.55rem;
+    /* アイコンだけのボタンでも指で押せる幅を確保する。 */
+    min-width: 2.25rem;
   }
 
   .btn-ghost:hover:not(:disabled) {
@@ -448,6 +456,12 @@
   border-top-color: currentColor;
   border-radius: 50%;
   animation: spin 700ms linear infinite;
+}
+
+/* 画像・QR は親の幅からはみ出さない。 */
+img {
+  max-width: 100%;
+  height: auto;
 }
 
 /* スクロールバーも控えめに（Chrome/Edge）。 */
