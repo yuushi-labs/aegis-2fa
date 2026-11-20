@@ -92,7 +92,7 @@ switch ($scenario) {
         }
         $client->check('1 回目は 200', ($responses[0]['status'] ?? 0) === 200, 'status=' . ($responses[0]['status'] ?? 0));
         $client->check('2 回目以降は 409（同じ revision）', ($responses[1]['status'] ?? 0) === 409, 'status=' . ($responses[1]['status'] ?? 0));
-        $client->check('20 回目までは 200/409（制限内）', ($responses[19]['status'] ?? 0) !== 429, 'status=' . ($responses[19]['status'] ?? 0));
+        $client->check('20 回目までは 200/409（制限内）', ($responses[19]['status'] ?? 0) === 409, 'status=' . ($responses[19]['status'] ?? 0));
         $client->check('21 回目は 429', ($responses[20]['status'] ?? 0) === 429, 'status=' . ($responses[20]['status'] ?? 0));
         $client->check('PUT の X-RateLimit-Limit は 20', ($responses[0]['headers']['x-ratelimit-limit'] ?? null) === '20');
         $client->check('429 に Retry-After が付く', (int) ($responses[20]['headers']['retry-after'] ?? 0) >= 1);

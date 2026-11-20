@@ -13,7 +13,7 @@ deploy/xserver/
 │   ├── .htaccess         ← ルーティング / 403 / セキュリティヘッダ / キャッシュ
 │   ├── api/index.php     ← API のフロントコントローラ
 │   ├── app/              ← PHP 本体（.htaccess で 403）
-│   └── storage/          ← DB の置き場（.htaccess で 403）
+│   └── storage/          ← ローカル設定の置き場（.htaccess で 403）
 ├── tests/                ← php -S 上で動く互換テスト
 └── build/aegis/          ← pnpm build:xserver の出力（これをアップロードする）
 ```
@@ -44,7 +44,7 @@ public_html/aegis/
 ├── icons/  icon.svg  manifest.webmanifest  robots.txt  sw.js
 ├── api/index.php
 ├── app/               ← PHP 本体（403）
-└── storage/           ← DB の置き場（403）
+└── storage/           ← ローカル設定の置き場（403。DB は公開領域外を推奨）
 ```
 
 サブFTPを使う場合、接続先を単体の `public_html` にするとドメイン外に置かれることがあります。
@@ -68,12 +68,14 @@ return [
 - この場所は配信されません（`public_html` の外）。
 - 置き場所を変えるときは `.htaccess` に `SetEnv AEGIS_CONFIG /path/to/aegis-config.php` を追加します。
 - 設定しない場合は、`DOCUMENT_ROOT` の親の `aegis-data/` に自動で作ります。
-  そこへ書けない環境では `storage/aegis.db`（`.htaccess` で 403）にフォールバックします。
+  そこへ書けない場合は、**黙って公開領域内へ逃げずに設定エラーで停止します**（`error_log` に保存先の例が出ます）。
+  `db_path` を明示してください。`.htaccess` の 403 は Apache には効きますが、Xserver の Nginx が
+  静的ファイルを直接配信する構成では効かないため、公開領域内の DB は自動配置しません。
 - `aegis-data/` は PHP が作れないときがあるので、事前に `mkdir` して権限 `0700` にしておくと確実です。
 
 | 設定キー | 既定値 | 説明 |
 | --- | --- | --- |
-| `db_path` | 自動（公開領域外 → `storage/`） | SQLite ファイルの絶対パス |
+| `db_path` | 自動（公開領域外の `aegis-data/`） | SQLite ファイルの絶対パス。公開領域内を指定する場合は Nginx の静的配信に注意 |
 | `max_vault_bytes` | `268435456`（256 MiB） | 保存できる暗号文の総量。超過は `507` |
 | `trust_proxy` | `false` | 前段が `X-Forwarded-For` を設定・上書きする場合のみ `true` |
 | `trust_proxy_hops` | `1` | 信頼するプロキシ段数（右端から数える） |
@@ -91,7 +93,7 @@ return [
 
 ## 4. 権限
 
-- `aegis-data/`（または `storage/`）: PHP（FPM の実行ユーザー）が読み書きできること。目安 `0700`。
+- `aegis-data/`（`db_path` を `storage/` にする場合は `storage/`）: PHP（FPM の実行ユーザー）が読み書きできること。目安 `0700`。
 - アップロードしたファイル: `644`、ディレクトリ: `755`。
 - DB ファイルは作成時に `0600` にします（`-wal` / `-shm` も同じディレクトリに出ます）。
 
@@ -162,10 +164,12 @@ AEGIS_BASE=/ pnpm test:xserver   # ルート配置として全テスト
 PHP_BIN=/path/to/php pnpm test:xserver
 ```
 
-`php -S` 上で 5 つのサーバー（機能・レート制限 3 種・保存上限）を起動し、HTTP で検証します。
+`php -S` 上で 5 つのサーバー（機能・レート制限 3 種・保存上限）を起動し、HTTP で検証します
+（合計 99 アサーション。設定の解決だけは HTTP を介さずに検証します）。
 
 | スイート | 内容 |
 | --- | --- |
+| `config.php` | DB の置き場所（公開領域外が既定）、外に書けないときは止まること、公開領域外の `aegis-config.php`、環境変数の上書きと丸め |
 | `api-compat.php` | health / 静的配信 / SPA フォールバック / 403、PUT・GET・meta・DELETE、409、404 秘匿、400 系（id・JSON・必須・負値・未知キー・revision）、413（Content-Length あり/なし）、409 corrupt_vault、トークンが DB に残らないこと、セキュリティヘッダ |
 | `rate-limit.php` | 60/分で 429 + `Retry-After`、`X-Forwarded-For` の偽装では回避できない、`TRUST_PROXY=true` では転送ヘッダ単位、PUT は 20/分 |
 | `storage-limit.php` | 総量超過の新規作成・更新が 507、縮小は通る |
@@ -181,7 +185,7 @@ Apache 固有の `.htaccess` の挙動は `php -S` では再現できないた�
 | `/aegis/api/health` が 404 で HTML が返る | `.htaccess` の `RewriteRule` が効いていない | `AllowOverride` と `mod_rewrite` を確認。サブディレクトリ名と `--base` の不一致、`RewriteBase` の要否を確認 |
 | API が全部 404（JSON） | `Authorization` ヘッダが PHP に届いていない（PHP-FPM/CGI で落ちる） | `.htaccess` の `SetEnvIf Authorization ...` と `[E=HTTP_AUTHORIZATION:...]` を確認 |
 | 500（`internal_error`） | PHP のバージョン / `pdo_sqlite` 無効 / `app/` の場所 | パネルで PHP 8.3 を選択。`AEGIS_APP_DIR` を確認。`debug` を一時的に `true` にして本文を見る（終わったら戻す） |
-| health が `503 degraded` | DB に書けない | `aegis-data/`（または `storage/`）の権限と所有者を確認 |
+| health が `503 degraded`、または 500（`error_log` に「データベースの保存先を確保できません」） | DB に書けない | `aegis-data/` の権限と所有者を確認。作れない環境では `aegis-config.php` の `db_path` に書ける場所を指定する |
 | 507 | 保存量の上限 | `max_vault_bytes` を上げる（ディスク容量に注意） |
 | 429 | レート制限 | `Retry-After` 秒待つ。自分しか使わないなら `rate_limit_*` を調整 |
 | 更新が反映されない | Xserver の Nginx キャッシュ（7 日） | `?v=2` を付けて確認。`assets/` はハッシュ名なので影響なし |
@@ -192,8 +196,12 @@ Apache 固有の `.htaccess` の挙動は `php -S` では再現できないた�
 - サーバーが持つのは暗号文・`vaultId`・`token_hash`（SHA-256）・版・時刻だけです。復号鍵もトークン本体も保存しません。
 - バックアップは 2 層で:
   1. アプリの「設定 → エクスポート → 暗号化バックアップ」（推奨。中身は暗号文）
-  2. DB ファイルのコピー。WAL を使うため、**サービス中にコピーするなら `-wal` / `-shm` も含める**か、
-     `sqlite3 aegis.db ".backup /tmp/aegis-backup.db"` を使ってください。
+  2. DB ファイルの複製。WAL を使っているため、**稼働中に `cp` する方法は使わないでください**
+     （`-wal` / `-shm` を一緒にコピーしても、コピー中に進む更新で時点が混ざり、復元できないファイルになります）。
+     稼働中は SQLite のバックアップ API を使ってください:
+     `sqlite3 /path/aegis.db ".backup '/tmp/aegis-backup.db'"`
+     `cp` で複製する場合は、全 DB 接続を止めてから（例: Apache のアクセスを止める、`storage/` を使っているなら
+     サイトをメンテナンス状態にする）行ってください。
 - アクセスログにはパスのみが残り、`Authorization` ヘッダや本文は記録しません（PHP 側のログも同じ方針）。
 
 ## 11. 既知の違い・制約

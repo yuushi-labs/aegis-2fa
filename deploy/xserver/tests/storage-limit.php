@@ -54,7 +54,7 @@ $shrink = $client->request(
     'PUT',
     '/api/vault/' . $idA,
     ['Authorization' => test_bearer($tokenA), 'Content-Type' => 'application/json'],
-    test_put_body(test_envelope(2, str_repeat('D', 2000)), 1),
+    test_put_body(test_envelope(2, str_repeat('D', 4000)), 1),
 );
 $client->check('同じ行のサイズを差し引いて判定する（縮小は 200）', $shrink['status'] === 200, 'status=' . $shrink['status']);
 
