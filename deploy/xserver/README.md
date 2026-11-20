@@ -84,12 +84,22 @@ return [
 | `rate_limit` | `true` | `/api/vault/*` 60/分、PUT 20/分 |
 | `rate_limit_read_max` / `rate_limit_write_max` | `60` / `20` | 上限回数 |
 | `rate_limit_window_seconds` | `60` | ウィンドウ長 |
+| `rate_limit_create_max` / `rate_limit_create_window_seconds` | `10` / `3600` | **新規ボルトの作成だけ**の上限（何回/ウィンドウ）。既存ボルトの同期更新は数えない |
 | `debug` | `false` | 500 の本文に例外メッセージを含める |
 
 環境変数（`.htaccess` の `SetEnv` など）でも同じキーを上書きできます:
 `AEGIS_DB_PATH` / `AEGIS_MAX_VAULT_BYTES` / `AEGIS_TRUST_PROXY` / `AEGIS_TRUST_PROXY_HOPS` /
-`AEGIS_HTTPS` / `AEGIS_CORS_ORIGIN` / `AEGIS_RATE_LIMIT` / `AEGIS_DEBUG` / `AEGIS_CONFIG` /
+`AEGIS_HTTPS` / `AEGIS_CORS_ORIGIN` / `AEGIS_RATE_LIMIT` / `AEGIS_RATE_LIMIT_CREATE_MAX` /
+`AEGIS_RATE_LIMIT_CREATE_WINDOW` / `AEGIS_DEBUG` / `AEGIS_CONFIG` /
 `AEGIS_APP_DIR`（`app/` を公開ディレクトリ外へ移した場合）。
+
+新規ボルトの作成は、`PUT 20/分` とは別に **既定 10 回/時（IP 単位）** のバケットで制限されます。
+未認証でも作れる以上、制限がないと 1 つの IP から総量上限（`max_vault_bytes`）まで埋められ、
+全員の書き込みが `507` になるためです。上限超過は `429` + `Retry-After`（本文の `scope` は `vault_create`）。
+自分でボルトを作り直すことが多い場合は `rate_limit_create_max` を上げてください。
+`trust_proxy` が `false`（既定）で Nginx が前段にいる構成では、接続元が Nginx（`127.0.0.1`）に見えて
+この上限が「サイト全体で 10 回/時」になることがあります。利用者ごとに数えたい場合は `trust_proxy` と
+`trust_proxy_hops` を実構成に合わせて設定してください。
 
 ## 4. 権限
 
@@ -102,6 +112,9 @@ return [
 1. サーバーパネルで PHP を 8.3 系にする（`pdo_sqlite` は標準で有効）。
 2. SSL を有効化してから常時 SSL リダイレクトを設定する（SSL 反映前にリダイレクトすると
    `*.xserver.jp` の証明書不一致で「無効な URL」になります）。
+   パネルの「常時 SSL」を ON にしなくても、`.htaccess` が HTTP を HTTPS へ 301 リダイレクトします
+   （`X-Forwarded-Proto: https` も見るので、Nginx が TLS を終端する Xserver でも無限リダイレクトになりません）。
+   ただしパネルで SSL が有効になっていない状態でアクセスすると証明書不一致になるので、**SSL の反映後に**確認します。
 3. API の疎通:
 
 ```bash
@@ -110,6 +123,9 @@ curl -fsS https://<ドメイン>/aegis/api/health
 
 curl -sI https://<ドメイン>/aegis/api/health | grep -i -E 'content-security-policy|cache-control|strict-transport'
 curl -sI https://<ドメイン>/aegis/ | grep -i content-security-policy
+
+# HTTP は HTTPS へ 301（Location が https:// で始まる）
+curl -sI http://<ドメイン>/aegis/ | grep -i -E '^HTTP|^location'
 ```
 
 4. ブラウザで `https://<ドメイン>/aegis/` を開き、マスターパスワードを決めてボルトを作成。
@@ -142,14 +158,15 @@ pnpm build:xserver
 | 項目 | Node 版 | PHP 版 |
 | --- | --- | --- |
 | ルーティング | Hono | `api/index.php` + `.htaccess`（`/api/*` → PHP、他は `index.html`） |
+| HTTP→HTTPS | 前段（リバースプロキシ）の責務 | `.htaccess` で 301（`X-Forwarded-Proto` も見る） |
 | DB | better-sqlite3 + Drizzle | PDO (`pdo_sqlite`)。スキーマは同一 |
 | 認可 | `vaultId = sha256(token)[0:32]` + `token_hash` 一致（`hash_equals` 相当） | 同じ。不一致はすべて 404 |
 | 楽観ロック | `revision` 照合、`409 {currentRevision}` | 同じ。書き込みは `BEGIN IMMEDIATE` で直列化 |
-| レート制限 | プロセス内 Map | `rate_limits` テーブル（IP 単位、固定ウィンドウ） |
+| レート制限 | プロセス内 Map | `rate_limits` テーブル（IP 単位、固定ウィンドウ）。新規作成は別バケット |
 | body 上限 | 256 KiB（ストリームを読みながら検査） | `php://input` を上限付きで読む + `Content-Length` 検査 |
 | 保存上限 | 暗号文の総バイト数、超過は 507 | 同じ（`length(cast(envelope as blob))`） |
 | 破損行 | `409 corrupt_vault` | 同じ |
-| セキュリティヘッダ | `server/middleware/security.ts` | `app/src/Security.php` + `.htaccess`（ビルド時に一致を検査） |
+| セキュリティヘッダ | `server/middleware/security.ts` | `app/src/Security.php` + `.htaccess`（ビルド時に一致を検査）。`X-Powered-By` は `bootstrap.php` でも消す |
 | health の `uptime` | `process.uptime()` | PHP には常駐プロセスがないため「DB を最初に作った時刻からの経過秒数」 |
 
 `vaultId` / `tokenHash` / 封筒の検証（zod 相当）は Node 版と同じ規則です。
@@ -164,14 +181,15 @@ AEGIS_BASE=/ pnpm test:xserver   # ルート配置として全テスト
 PHP_BIN=/path/to/php pnpm test:xserver
 ```
 
-`php -S` 上で 5 つのサーバー（機能・レート制限 3 種・保存上限）を起動し、HTTP で検証します
-（合計 99 アサーション。設定の解決だけは HTTP を介さずに検証します）。
+`php -S` 上で 6 つのサーバー（機能・レート制限 4 種・保存上限）を起動し、HTTP で検証します
+（合計 161 アサーション。設定の解決と `.htaccess` の静的検査は HTTP を介さずに検証します）。
 
 | スイート | 内容 |
 | --- | --- |
-| `config.php` | DB の置き場所（公開領域外が既定）、外に書けないときは止まること、公開領域外の `aegis-config.php`、環境変数の上書きと丸め |
+| `config.php` | DB の置き場所（公開領域外が既定）、外に書けないときは止まること、公開領域外の `aegis-config.php`、相対 `db_path` の警告、環境変数の上書きと丸め |
+| `htaccess.php` | HTTP→HTTPS の 301 ルール、遮断する拡張子（`db-journal`・`bak`・`.php[.~]` 等）、HSTS、配信物（`build/aegis`）とソース（`site/`）の一致 |
 | `api-compat.php` | health / 静的配信 / SPA フォールバック / 403、PUT・GET・meta・DELETE、409、404 秘匿、400 系（id・JSON・必須・負値・未知キー・revision）、413（Content-Length あり/なし）、409 corrupt_vault、トークンが DB に残らないこと、セキュリティヘッダ |
-| `rate-limit.php` | 60/分で 429 + `Retry-After`、`X-Forwarded-For` の偽装では回避できない、`TRUST_PROXY=true` では転送ヘッダ単位、PUT は 20/分 |
+| `rate-limit.php` | 60/分で 429 + `Retry-After`、`X-Forwarded-For` の偽装では回避できない、`TRUST_PROXY=true` では転送ヘッダ単位、PUT は 20/分、新規作成は別バケット（既存の更新は妨げない） |
 | `storage-limit.php` | 総量超過の新規作成・更新が 507、縮小は通る |
 
 Apache 固有の `.htaccess` の挙動は `php -S` では再現できないため、`tests/router.php` が同じ規則
@@ -187,7 +205,9 @@ Apache 固有の `.htaccess` の挙動は `php -S` では再現できないた�
 | 500（`internal_error`） | PHP のバージョン / `pdo_sqlite` 無効 / `app/` の場所 | パネルで PHP 8.3 を選択。`AEGIS_APP_DIR` を確認。`debug` を一時的に `true` にして本文を見る（終わったら戻す） |
 | health が `503 degraded`、または 500（`error_log` に「データベースの保存先を確保できません」） | DB に書けない | `aegis-data/` の権限と所有者を確認。作れない環境では `aegis-config.php` の `db_path` に書ける場所を指定する |
 | 507 | 保存量の上限 | `max_vault_bytes` を上げる（ディスク容量に注意） |
-| 429 | レート制限 | `Retry-After` 秒待つ。自分しか使わないなら `rate_limit_*` を調整 |
+| 429 | レート制限 | `Retry-After` 秒待つ。自分しか使わないなら `rate_limit_*` を調整。新規作成だけ `scope: vault_create` で別枠（既定 10/時） |
+| HTTP から HTTPS に転送されない | `.htaccess` が効かない（`AllowOverride`）／`mod_rewrite` 無効 | パネルの「常時 SSL」を ON にする |
+| リダイレクトがループする（`ERR_TOO_MANY_REDIRECTS`） | 前段が `X-Forwarded-Proto` を渡さず、Apache の `%{HTTPS}` も `off` になっている | `.htaccess` の HTTPS 強制のブロックを外し、パネルの「常時 SSL」だけで運用する |
 | 更新が反映されない | Xserver の Nginx キャッシュ（7 日） | `?v=2` を付けて確認。`assets/` はハッシュ名なので影響なし |
 | 常時 SSL で「無効な URL」 | SSL 反映前にリダイレクトした | パネルで SSL を有効化してからリダイレクトを設定 |
 
@@ -219,6 +239,9 @@ Apache 固有の `.htaccess` の挙動は `php -S` では再現できないた�
 
 - `uptime` は「DB を最初に作った時刻からの経過秒数」です（PHP に常駐プロセスがないため）。
 - `X-Real-IP` は読みません（Node 版と同じ。`X-Forwarded-For` のみ、`trust_proxy` のときだけ）。
+- 新規ボルトの作成上限（既定 10/時/IP）は PHP 版だけの追加です（Node 版は PUT 20/分のみ）。
+- `db_path` に相対パスを書くと、これまでどおりサイト直下（公開領域内）に DB を作りますが、
+  その場合 `error_log` に警告を出します（動きは変えていません）。絶対パスを推奨します。
 - サーバー間で共有するレート制限は SQLite の 1 ファイルで賄うため、アクセスが集中する用途には向きません（個人〜小規模向け）。
-- この環境での動作確認は PHP 8.4.8 のビルトインサーバーです。Xserver 実機（PHP 8.3.36 / Apache）での
+- この環境での動作確認は PHP 8.4 のビルトインサーバーです。Xserver 実機（PHP 8.3.36 / Apache）での
   最終確認は §5 のチェックリストで行ってください。

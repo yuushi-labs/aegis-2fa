@@ -131,8 +131,10 @@ DEK ──AES-256-GCM (IV 12B, AAD "aegis-data-v1:<revision>")──► data (ci
 - セキュリティヘッダ: CSP、`X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、
   `Referrer-Policy: no-referrer`、`Cross-Origin-Opener-Policy: same-origin`、
   `Cross-Origin-Resource-Policy: same-origin`、`Permissions-Policy`（カメラのみ self）。
-- HTTPS 運用時は HSTS（`AEGIS_HTTPS=true`）。
+- HTTPS 運用時は HSTS（`AEGIS_HTTPS=true`）。Xserver（PHP 版）は `.htaccess` が HTTP を HTTPS へ 301 リダイレクトする
+  （`X-Forwarded-Proto` も見るので、Nginx が TLS を終端する構成でもループしない）。
 - レート制限: 読み取り 60 req/min、書き込み 20 req/min（IP 単位、`429` + `Retry-After`）。
+  PHP 版（Xserver）は、未認証でも作れる新規ボルトの作成だけを別バケット（既定 10 回/時/IP）で制限する。
   `TRUST_PROXY=true` のときは `X-Forwarded-For` を**右端から** `TRUST_PROXY_HOPS` 番目の
   値で識別する（左端はクライアントが偽装できるため採用しない）。`X-Real-IP` は読まない。
   前段のプロキシが `X-Forwarded-For` を設定または上書きする構成が前提。
@@ -207,6 +209,19 @@ OpenHands 上で `security-audit` スキル（Cloudflare の `security-audit-ski
 | Low: runtime イメージに devDependencies（678 MB） | 修正（301 MB、CI で非同梱を検証） |
 | Low: 復号失敗がすべて「パスワード誤り」／解錠回数がメモリのみ／`accounts` の項目検証が最小限 | 未対応（上記「保証しないこと」に明記） |
 | Info: CI アクションが可変タグ参照 | 未対応（Dependabot で追従） |
+
+### 2026-11-21 の Xserver（PHP 版）診断
+
+`deploy/xserver/` の配信物を PHP 8.4 のビルトインサーバー上で動かして診断しました（Critical / High の実装欠陥は無し）。
+「本番の HTTP→HTTPS リダイレクト未設定」を High（条件付き）、「匿名でボルトを無制限に作成できる」を Medium として修正しました。
+
+| 指摘 | 対応 |
+| --- | --- |
+| High: HTTP（平文）でアプリが配信され、HTTPS へ転送されない | 修正（`.htaccess` で 301。`X-Forwarded-Proto` も見て無限リダイレクトを防ぐ） |
+| Medium: 匿名でボルトを無制限に作成でき、保存上限まで埋めると全員の書き込みが 507 | 修正（新規作成だけ別バケット 10/時/IP。既存ボルトの同期は数えない） |
+| Low: `.htaccess` の `FilesMatch` が `db-journal`・`bak`・`.php[.~]` などを塞いでいない | 修正 |
+| Low: `db_path` に相対パスを書くと公開領域内に DB を作る | `error_log` に警告を出す（配置の既定は変えない） |
+| Info: `X-Powered-By: PHP/<version>` の削除が `.htaccess` 頼み | 修正（`bootstrap.php` でも `header_remove`） |
 
 ### 外部監査を依頼する場合の前提
 
