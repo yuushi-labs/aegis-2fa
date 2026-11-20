@@ -23,6 +23,8 @@ final class Config
         public readonly int $rateLimitReadMax,
         public readonly int $rateLimitWriteMax,
         public readonly int $rateLimitWindowSeconds,
+        public readonly int $rateLimitCreateMax,
+        public readonly int $rateLimitCreateWindowSeconds,
         public readonly bool $debug,
         public readonly string $version,
     ) {
@@ -62,6 +64,11 @@ final class Config
             rateLimitReadMax: self::positiveInt($values['rate_limit_read_max'] ?? 0, 60),
             rateLimitWriteMax: self::positiveInt($values['rate_limit_write_max'] ?? 0, 20),
             rateLimitWindowSeconds: self::positiveInt($values['rate_limit_window_seconds'] ?? 0, 60),
+            rateLimitCreateMax: self::positiveInt($values['rate_limit_create_max'] ?? 0, 10),
+            rateLimitCreateWindowSeconds: self::positiveInt(
+                $values['rate_limit_create_window_seconds'] ?? 0,
+                3600,
+            ),
             debug: (bool) ($values['debug'] ?? false),
             version: is_string($version) ? $version : '1.0.0',
         );
@@ -111,6 +118,8 @@ final class Config
             'AEGIS_RATE_LIMIT_READ_MAX' => 'rate_limit_read_max',
             'AEGIS_RATE_LIMIT_WRITE_MAX' => 'rate_limit_write_max',
             'AEGIS_RATE_LIMIT_WINDOW' => 'rate_limit_window_seconds',
+            'AEGIS_RATE_LIMIT_CREATE_MAX' => 'rate_limit_create_max',
+            'AEGIS_RATE_LIMIT_CREATE_WINDOW' => 'rate_limit_create_window_seconds',
             'AEGIS_DEBUG' => 'debug',
             'AEGIS_VERSION' => 'version',
         ];

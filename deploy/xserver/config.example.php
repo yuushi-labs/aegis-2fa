@@ -21,6 +21,11 @@ return [
     'trust_proxy' => false,
     'trust_proxy_hops' => 1,
 
+    // レート制限。新規ボルトの作成だけは別枠（既定 10 回/時）。
+    'rate_limit' => true,
+    // 'rate_limit_create_max' => 10,
+    // 'rate_limit_create_window_seconds' => 3600,
+
     // HSTS。null で HTTPS を自動判定（Xserver の SSL なら自動で有効）。
     'https' => null,
 

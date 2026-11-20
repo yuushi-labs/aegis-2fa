@@ -128,7 +128,17 @@ else
   FAILED=1
 fi
 
-# 5) 保存量の上限（上限を小さくして 507 を実際に踏む）
+# 5) レート制限: 新規作成は別の厳しいバケット（上限を 2 に下げて 429 を実際に踏む）
+P6=$(( PORT_BASE + 5 ))
+if start_server rate-create "$P6" AEGIS_DB_PATH="$TMP/rate-create.db" AEGIS_RATE_LIMIT_CREATE_MAX=2; then
+  run_php rate-limit.php \
+    AEGIS_TEST_BASE_URL="http://127.0.0.1:$P6" \
+    AEGIS_TEST_SCENARIO=create || FAILED=1
+else
+  FAILED=1
+fi
+
+# 6) 保存量の上限（上限を小さくして 507 を実際に踏む）
 P5=$(( PORT_BASE + 4 ))
 if start_server storage "$P5" AEGIS_DB_PATH="$TMP/storage.db" AEGIS_MAX_VAULT_BYTES=8192; then
   run_php storage-limit.php \

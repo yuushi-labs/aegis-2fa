@@ -33,6 +33,10 @@ return [
     'rate_limit_read_max' => 60,
     'rate_limit_write_max' => 20,
     'rate_limit_window_seconds' => 60,
+    // 新規ボルトの作成だけの別バケット（未認証で無制限に作れると、総量上限まで
+    // 埋められて全員の書き込みが 507 になるため）。既存ボルトの同期更新は数えない。
+    'rate_limit_create_max' => 10,
+    'rate_limit_create_window_seconds' => 3600,
     // 500 の本文に例外メッセージを含めるか。本番では false のまま。
     'debug' => false,
 ];

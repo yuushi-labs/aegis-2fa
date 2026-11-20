@@ -89,10 +89,13 @@ final class Application
             throw $databaseError ?? new RuntimeException('データベースを開けません');
         }
 
-        // 3) レート制限（/api/vault/* は 60 req/min、PUT は 20 req/min）
+        // 3) レート制限（/api/vault/* は 60 req/min、PUT は 20 req/min、新規作成は 10 req/hour）
         $rateHeaders = [];
+        $createLimiter = null;
+        $clientIp = '';
         if ($isVaultPath && $config->rateLimit) {
             $ip = RateLimiter::clientIp($request, $config);
+            $clientIp = $ip;
             $windowMs = $config->rateLimitWindowSeconds * 1000;
 
             $readLimiter = new RateLimiter($database->pdo(), 'vault', $windowMs, $config->rateLimitReadMax);
@@ -123,6 +126,16 @@ final class Application
                 }
                 $rateHeaders['X-RateLimit-Limit'] = (string) $write['limit'];
                 $rateHeaders['X-RateLimit-Remaining'] = (string) $write['remaining'];
+
+                // 新規作成だけの別バケット（既定 10 回/時/IP）。
+                // 「新規かどうか」はトークンの検証後、putVault のトランザクション内で
+                // 判定する（無効な本文や既存ボルトの更新で枠を消費しない）。
+                $createLimiter = new RateLimiter(
+                    $database->pdo(),
+                    'vault-create',
+                    $config->rateLimitCreateWindowSeconds * 1000,
+                    $config->rateLimitCreateMax,
+                );
             }
         }
 
@@ -164,7 +177,16 @@ final class Application
             $id = $matches[1];
             $response = match ($request->method) {
                 'GET' => self::getVault($repository, $id, $request),
-                'PUT' => self::putVault($database, $repository, $id, $request, $rawBody, $config->maxVaultBytes),
+                'PUT' => self::putVault(
+                    $database,
+                    $repository,
+                    $id,
+                    $request,
+                    $rawBody,
+                    $config->maxVaultBytes,
+                    $createLimiter,
+                    $clientIp,
+                ),
                 'DELETE' => self::deleteVault($repository, $id, $request),
                 default => Response::error('not_found', 404),
             };
@@ -209,6 +231,8 @@ final class Application
         Request $request,
         string $rawBody,
         int $maxVaultBytes,
+        ?RateLimiter $createLimiter,
+        string $clientIp,
     ): Response {
         if (preg_match(self::VAULT_ID_PATTERN, $id) !== 1) {
             return Response::error('invalid_vault_id', 400);
@@ -263,10 +287,28 @@ final class Application
                 $nextRevision,
                 $now,
                 $maxVaultBytes,
+                $createLimiter,
+                $clientIp,
             ): Response {
                 $existing = $repository->find($id);
 
                 if ($existing === null) {
+                    // 束縛されていない新規ボルトの作成は、通常の PUT（20/分）とは別に
+                    // 厳しいバケット（既定 10/時/IP）で制限する。正規ユーザーの同期は
+                    // 既存ボルトへの更新なので、このバケットを消費しない。
+                    if ($createLimiter !== null) {
+                        $create = $createLimiter->hit($clientIp);
+                        if (!$create['allowed']) {
+                            return Response::error('rate_limited', 429, [
+                                'retryAfter' => $create['retryAfter'],
+                                'scope' => 'vault_create',
+                            ])->withHeaders([
+                                'Retry-After' => (string) $create['retryAfter'],
+                                'X-RateLimit-Limit' => (string) $create['limit'],
+                                'X-RateLimit-Remaining' => '0',
+                            ]);
+                        }
+                    }
                     if ($repository->storedBytes() + $incomingBytes > $maxVaultBytes) {
                         return Response::error('storage_limit', 507);
                     }

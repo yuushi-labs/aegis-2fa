@@ -6,6 +6,7 @@
  *   untrusted … 既定（TRUST_PROXY なし）のサーバー。X-Forwarded-For を変えても回避できない。
  *   trusted   … TRUST_PROXY=true のサーバー。転送ヘッダの値ごとに数える。
  *   put       … 書き込み（PUT）が 20 req/min で制限される。
+ *   create    … 新規作成だけの別バケット（既定 10/時）が効き、既存の更新は妨げない。
  *
  * どのシナリオも 1 つのサーバーを専有する（バケットは IP 単位なので、別シナリオと共有できない）。
  */
@@ -96,6 +97,78 @@ switch ($scenario) {
         $client->check('21 回目は 429', ($responses[20]['status'] ?? 0) === 429, 'status=' . ($responses[20]['status'] ?? 0));
         $client->check('PUT の X-RateLimit-Limit は 20', ($responses[0]['headers']['x-ratelimit-limit'] ?? null) === '20');
         $client->check('429 に Retry-After が付く', (int) ($responses[20]['headers']['retry-after'] ?? 0) >= 1);
+        break;
+
+    case 'create':
+        // 新規作成だけの別バケット（サーバーは CREATE_MAX=2 / ウィンドウ既定 3600 秒）。
+        $first = test_token();
+        $firstId = test_vault_id($first);
+        $create = $client->request(
+            'PUT',
+            '/api/vault/' . $firstId,
+            ['Authorization' => test_bearer($first), 'Content-Type' => 'application/json'],
+            test_put_body(test_envelope(1), 0),
+        );
+        $client->check('1 件目の新規作成は 200', ($create['status'] ?? 0) === 200, 'status=' . ($create['status'] ?? 0));
+
+        $brokenToken = test_token();
+        $invalid = $client->request(
+            'PUT',
+            '/api/vault/' . test_vault_id($brokenToken),
+            ['Authorization' => test_bearer($brokenToken), 'Content-Type' => 'application/json'],
+            '{not json',
+        );
+        $client->check('本文が不正な PUT は 400（作成の枠を消費しない）', ($invalid['status'] ?? 0) === 400, 'status=' . ($invalid['status'] ?? 0));
+
+        $second = test_token();
+        $created = $client->request(
+            'PUT',
+            '/api/vault/' . test_vault_id($second),
+            ['Authorization' => test_bearer($second), 'Content-Type' => 'application/json'],
+            test_put_body(test_envelope(1), 0),
+        );
+        $client->check('2 件目の新規作成は 200（上限内）', ($created['status'] ?? 0) === 200, 'status=' . ($created['status'] ?? 0));
+
+        $third = test_token();
+        $thirdId = test_vault_id($third);
+        $limited = $client->request(
+            'PUT',
+            '/api/vault/' . $thirdId,
+            ['Authorization' => test_bearer($third), 'Content-Type' => 'application/json'],
+            test_put_body(test_envelope(1), 0),
+        );
+        $client->check('上限を超える 3 件目は 429', ($limited['status'] ?? 0) === 429, 'status=' . ($limited['status'] ?? 0));
+        $client->check('429 の error は rate_limited', ($limited['json']['error'] ?? null) === 'rate_limited');
+        $client->check('429 の scope は vault_create', ($limited['json']['scope'] ?? null) === 'vault_create');
+        $client->check(
+            '429 に Retry-After が付く（1 以上）',
+            (int) ($limited['headers']['retry-after'] ?? 0) >= 1,
+            (string) ($limited['headers']['retry-after'] ?? 'none'),
+        );
+        $client->check(
+            '本文の retryAfter とヘッダが一致する',
+            ($limited['json']['retryAfter'] ?? null) === (int) ($limited['headers']['retry-after'] ?? -1),
+        );
+        $client->check(
+            '429 の X-RateLimit-Limit は作成の上限（2）',
+            ($limited['headers']['x-ratelimit-limit'] ?? null) === '2',
+            (string) ($limited['headers']['x-ratelimit-limit'] ?? 'none'),
+        );
+
+        $notCreated = $client->request('GET', '/api/vault/' . $thirdId . '/meta', ['Authorization' => test_bearer($third)]);
+        $client->check('429 のボルトは作られていない（404）', ($notCreated['status'] ?? 0) === 404, 'status=' . ($notCreated['status'] ?? 0));
+
+        $update = $client->request(
+            'PUT',
+            '/api/vault/' . $firstId,
+            ['Authorization' => test_bearer($first), 'Content-Type' => 'application/json'],
+            test_put_body(test_envelope(2), 1),
+        );
+        $client->check(
+            '枠を使い切っても既存ボルトの更新は通る（200）',
+            ($update['status'] ?? 0) === 200,
+            'status=' . ($update['status'] ?? 0),
+        );
         break;
 
     default:
