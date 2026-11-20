@@ -3,10 +3,11 @@
  */
 
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import type { VaultEnvelope } from '../../shared/types';
+import type { PasskeyRecord, VaultEnvelope } from '../../shared/types';
 
 export const DB_NAME = 'aegis-2fa';
-export const DB_VERSION = 1;
+/** v2 でパスキー（WebAuthn PRF）の登録情報ストアを追加した。 */
+export const DB_VERSION = 2;
 
 type StoredVault = {
   id: 'vault';
@@ -40,6 +41,10 @@ interface AegisSchema extends DBSchema {
     key: string;
     value: StoredSettings;
   };
+  passkeys: {
+    key: string;
+    value: PasskeyRecord;
+  };
 }
 
 let dbPromise: Promise<IDBPDatabase<AegisSchema>> | null = null;
@@ -50,6 +55,7 @@ function getDb(): Promise<IDBPDatabase<AegisSchema>> {
       if (!db.objectStoreNames.contains('vault')) db.createObjectStore('vault', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('secrets')) db.createObjectStore('secrets', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('passkeys')) db.createObjectStore('passkeys', { keyPath: 'id' });
     },
   });
   return dbPromise;
@@ -88,8 +94,41 @@ export async function updateSyncedRevision(revision: number | null): Promise<voi
 
 export async function deleteVault(): Promise<void> {
   const db = await getDb();
-  await db.delete('vault', 'vault');
-  await db.delete('secrets', 'token');
+  // パスキーの登録はボルトに属するので、ボルトごと消す。
+  const tx = db.transaction(['vault', 'secrets', 'passkeys'], 'readwrite');
+  await tx.objectStore('vault').delete('vault');
+  await tx.objectStore('secrets').delete('token');
+  await tx.objectStore('passkeys').clear();
+  await tx.done;
+}
+
+export async function readPasskeys(): Promise<PasskeyRecord[]> {
+  const db = await getDb();
+  return await db.getAll('passkeys');
+}
+
+export async function putPasskey(record: PasskeyRecord): Promise<void> {
+  const db = await getDb();
+  await db.put('passkeys', record);
+}
+
+export async function deletePasskey(id: string): Promise<void> {
+  const db = await getDb();
+  await db.delete('passkeys', id);
+}
+
+/** 保存済みのパスキー登録を丸ごと置き換える（ボルト切り替え時の棚卸しに使う）。 */
+export async function replacePasskeys(records: readonly PasskeyRecord[]): Promise<void> {
+  const db = await getDb();
+  const tx = db.transaction('passkeys', 'readwrite');
+  await tx.store.clear();
+  for (const record of records) await tx.store.put(record);
+  await tx.done;
+}
+
+export async function deleteAllPasskeys(): Promise<void> {
+  const db = await getDb();
+  await db.clear('passkeys');
 }
 
 export async function readToken(): Promise<string | null> {
