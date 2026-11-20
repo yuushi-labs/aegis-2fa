@@ -8,7 +8,7 @@ import { useI18n, useToast } from '../lib/hooks';
 import { type AccountDraft } from '../lib/accountDraft';
 import { avatarTone } from '../lib/format';
 import { ISSUER_SUGGESTIONS, matchedIssuerSuggestion } from '../lib/issuerSuggestions';
-import { detectSecretUri, draftFromOtpauthUri } from '../lib/secretUri';
+import { detectSecretUri, draftFromOtpauthUri, type DetectedSecretUri } from '../lib/secretUri';
 import { Avatar } from './Avatar';
 import { Code } from './Code';
 
@@ -84,30 +84,45 @@ export function AccountForm({
   }
 
   /**
+   * 検出した URI を呼び出し側へ渡す（または URI をこの場で分解する）。
+   * 引き受けた（true）ときは秘密鍵欄へ URI の文字列を残さない。
+   */
+  function consumeUri(detected: DetectedSecretUri): boolean {
+    if (onUriPaste !== undefined) return onUriPaste(detected.uri);
+    if (detected.kind === 'migration') {
+      toast(t('add.pasteMigration'), 'warning');
+      return true;
+    }
+    try {
+      onChange(draftFromOtpauthUri(detected.uri));
+      toast(t('add.pasteApplied'), 'success');
+      return true;
+    } catch {
+      // 解釈できない URI は秘密鍵として扱い、Base32 エラーを出す。
+      return false;
+    }
+  }
+
+  /**
+   * 貼り付けは入力途中と区別する。欄に前の（壊れた）URI が残っていても、
+   * 貼り付けた URI はそのまま解析する。引き受けたら既定の貼り付けを止める。
+   */
+  function handleSecretPaste(event: React.ClipboardEvent<HTMLInputElement>): void {
+    const detected = detectSecretUri(event.clipboardData.getData('text'));
+    if (detected === null) return;
+    if (consumeUri(detected)) event.preventDefault();
+  }
+
+  /**
    * 秘密鍵欄への入力。URI が貼られた場合は Base32 として扱わず、フォーム全体へ展開する。
    * 編集画面で黙って他の項目を上書きしないよう、呼び出し側の `onUriPaste` を優先する。
    * URI を手で打っている途中（otpauth:// → otpauth://t …）で毎回反応しないよう、
-   * 直前の値がすでに URI だったときは何もしない。
+   * 直前の値がすでに URI だったときは何もしない（貼り直しは onPaste が扱う）。
    */
   function handleSecretInput(raw: string): void {
     const detected = detectSecretUri(raw);
     const alreadyUri = detectSecretUri(value.secret) !== null;
-    if (detected !== null && !alreadyUri) {
-      if (onUriPaste !== undefined) {
-        if (onUriPaste(detected.uri)) return;
-      } else if (detected.kind === 'otpauth') {
-        try {
-          onChange(draftFromOtpauthUri(detected.uri));
-          toast(t('add.pasteApplied'), 'success');
-          return;
-        } catch {
-          // 解釈できない URI は下で秘密鍵として扱い、Base32 エラーを出す。
-        }
-      } else {
-        toast(t('add.pasteMigration'), 'warning');
-        return;
-      }
-    }
+    if (detected !== null && !alreadyUri && consumeUri(detected)) return;
     patch({ secret: raw });
   }
 
@@ -197,6 +212,7 @@ export function AccountForm({
           type="text"
           value={value.secret}
           onChange={(event) => handleSecretInput(event.target.value)}
+          onPaste={handleSecretPaste}
           placeholder="JBSWY3DPEHPK3PXP"
           autoComplete="off"
           autoCapitalize="characters"

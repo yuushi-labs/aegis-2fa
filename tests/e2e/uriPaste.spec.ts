@@ -65,6 +65,24 @@ test.describe('秘密鍵欄への otpauth URI 貼り付け', () => {
     await expect(page.getByLabel('サービス名', { exact: true })).toHaveValue('');
     await expect(page.getByTestId('save-account')).toBeDisabled();
   });
+
+  test('壊れた URI が残っていても、貼り直した URI は解析する', async ({ page }) => {
+    await createVault(page, { sync: false });
+    await page.getByRole('link', { name: '追加', exact: true }).click();
+    await page.getByTestId('secret-input').fill('otpauth://totp/a?issuer=x');
+    await expect(page.getByRole('alert')).toContainText('Base32');
+
+    // 欄を空にしなくても、貼り付けイベントなら新しい URI を解析する。
+    await page.getByTestId('secret-input').evaluate((element, uri) => {
+      const data = new DataTransfer();
+      data.setData('text/plain', uri);
+      element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+    }, URI);
+
+    await expect(page.getByLabel('サービス名', { exact: true })).toHaveValue('GitHub');
+    await expect(page.getByTestId('secret-input')).toHaveValue(RFC_SECRET);
+    await expect(page.getByRole('alert')).toHaveCount(0);
+  });
 });
 
 test.describe('サービス名のクイック候補', () => {
