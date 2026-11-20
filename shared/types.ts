@@ -6,6 +6,14 @@ export type OtpAlgorithm = 'SHA1' | 'SHA256' | 'SHA512';
 
 export type AccountType = 'totp' | 'hotp';
 
+/** 使い捨てバックアップコード（使用済みを 1 件ずつ管理する）。 */
+export type RecoveryCode = {
+  /** uuid v4 */
+  id: string;
+  code: string;
+  used: boolean;
+};
+
 export type Account = {
   /** uuid v4 */
   id: string;
@@ -26,6 +34,19 @@ export type Account = {
   order: number;
   createdAt: string;
   updatedAt: string;
+  /** サービスごとのメモ（暗号化ペイロード内だけに置く） */
+  notes?: string;
+  /** バックアップコード（暗号化ペイロード内だけに置く） */
+  recoveryCodes?: RecoveryCode[];
+  /**
+   * ゴミ箱へ移動した時刻（ISO 8601）。無ければ有効なアカウント。
+   * 値があるあいだは通常の一覧・検索・コード生成の対象外にする。
+   */
+  deletedAt?: string;
+  /** コードをコピー等した回数（「よく使う順」の並べ替えにだけ使う） */
+  useCount?: number;
+  /** 最後にコードを使った時刻（ISO 8601） */
+  lastUsedAt?: string;
 };
 
 /** 削除の記録。同期マージで削除済みアカウントが復活しないようにする。 */
@@ -39,6 +60,27 @@ export type VaultData = {
   accounts: Account[];
   /** 削除記録（古いバックアップには無いため任意） */
   tombstones?: Tombstone[];
+  /** 同期している端末の一覧（古いバックアップには無いため任意） */
+  devices?: SyncDevice[];
+};
+
+/**
+ * 同期している端末の記録。端末 ID は端末（ブラウザ）がローカルで作り、
+ * 名前は利用者が変えられる。lastSyncedAt は push した時刻。
+ */
+export type SyncDevice = {
+  id: string;
+  name: string;
+  /** 'Android' / 'iOS' / 'macOS' / 'Windows' / 'Linux' などの推定値 */
+  platform: string;
+  lastSyncedAt: string;
+};
+
+/** 1 つのブラウザ内に置くボルト（プロファイル）。マスターパスワードごとに独立する。 */
+export type VaultProfile = {
+  id: string;
+  name: string;
+  createdAt: string;
 };
 
 export type VaultKdf = {
@@ -125,3 +167,13 @@ export const MIN_PASSWORD_LENGTH = 12;
 export const MAX_PERIOD = 300;
 export const MIN_PERIOD = 1;
 export const MAX_CLOCK_SKEW = 2;
+/** ゴミ箱に置いておく日数。過ぎたら完全削除する。 */
+export const TRASH_RETENTION_DAYS = 30;
+/** プロファイル名の上限 */
+export const MAX_PROFILE_NAME_LENGTH = 32;
+/** 既定（既存の単一ボルトを引き継ぐ）プロファイルの ID。 */
+export const DEFAULT_PROFILE_ID = 'main';
+/** バックアップコード 1 件の長さの上限（貼り付けの取りこぼしを防ぐ） */
+export const MAX_RECOVERY_CODE_LENGTH = 128;
+export const MAX_RECOVERY_CODES = 50;
+export const MAX_NOTES_LENGTH = 2_000;
