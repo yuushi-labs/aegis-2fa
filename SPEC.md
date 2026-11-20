@@ -26,7 +26,7 @@
 
 リポジトリは pnpm workspace を使わない単一パッケージでよい。`src/` にクライアント、`server/` に API、`shared/` に両者共通の純粋関数（TOTP/HOTP/Base32/otpauth パーサ/暗号）を置く。
 
-API の代替実装として、Node を使えない共用サーバー（Xserver など）向けに **PHP 8.1 以上 + SQLite + `.htaccess`** 版を `deploy/xserver/` に同梱する。エンドポイント・ステータスコード・JSON・制限値は本仕様の §2.7 と同一で、DB スキーマも Node 版と共通（`vaults` テーブル）。セットアップは [deploy/xserver/README.md](deploy/xserver/README.md)。
+API の代替実装として、Node を使えない共用サーバー（Xserver など）向けに **PHP 8.1 以上 + SQLite + `.htaccess`** 版を `deploy/xserver/` に同梱する。エンドポイント・ステータスコード・JSON・制限値は本仕様の §2.8 と同一で、DB スキーマも Node 版と共通（`vaults` テーブル）。セットアップは [deploy/xserver/README.md](deploy/xserver/README.md)。
 
 ```
 .
@@ -155,7 +155,8 @@ type Account = {
 ### 2.5 ロック / セッション
 
 - 初回起動: ウェルカム → マスターパスワード設定（12 文字以上、強度メーター、確認入力）→ ボルト作成。パスワードは保存しない。忘れた場合の復旧は不可である旨を明示。
-- アンロック: パスワード入力、`Enter` で解錠、オートフォーカス。
+- アンロック: パスワード入力、`Enter` で解錠、オートフォーカス。登録済みのパスキー / セキュリティキーがあれば
+  「パスキー / セキュリティキーで解除」ボタンも出す（§2.6）。
 - 自動ロック: 無操作 5 分（1/5/15/30 分/なし）。`visibilitychange` で「タブを離れたら即ロック」オプション。
 - **自動ロック「なし」のセッション継続**: 「なし」を選んでいる間は、同じタブの再読み込みでアンロック状態を復帰する。
   復帰に使うのは DEK（データ鍵）だけで、**マスターパスワードは決して保存しない**。
@@ -168,7 +169,59 @@ type Account = {
 - ロック時は秘密鍵・コードをメモリから破棄（参照を null にし、タイマー停止）。
 - 画面キャプチャ抑止は不可なので、スクショ注意の一文をロック画面に出す。
 
-### 2.6 UI / UX
+### 2.6 パスキー / セキュリティキーによる解除（WebAuthn PRF）
+
+マスターパスワードに加えて、**パスキー / セキュリティキー（WebAuthn PRF 拡張）** で解錠できる。
+ゼロ知識の設計は変えない（サーバーに認証用テーブルもチャレンジ検証も持たない）。
+
+```
+認証器の PRF 出力 (32B) ──HKDF-SHA-256(salt = PRF salt, info="aegis-passkey-kek-v1")──► パスキー KEK
+パスキー KEK ── AES-256-GCM wrap (AAD "aegis-passkey-v1") ──► wrappedDek（端末の IndexedDB に保存）
+```
+
+- **登録**（アンロック中のみ）: `navigator.credentials.create` に
+  `extensions: { prf: { eval: { first: salt } } }` を渡す（`salt` は 32B ランダム、`rp.id` は省略＝配信元の実効ドメイン）。
+  返る `getClientExtensionResults().prf.enabled` が `true` でなければ登録を中断する（PRF 非対応の認証器）。
+  PRF 出力が `create` で返らない実装では、同じ認証器へ `eval` 付きの `get` を 1 回行って取得する。
+- 取得した PRF 出力から KEK を導出し、**既存の DEK をラップ**して `wrappedDek` とする。DEK は作り直さない
+  （データの再暗号化が不要で、マスターパスワードも引き続き使える）。
+- 同じボルトのパスキーは **PRF salt を共有する**（1 回の `get` で複数の認証器をまとめて提示し、
+  利用者がどれを選んでも同じ KEK になるようにする）。
+- 登録情報は端末の IndexedDB（`passkeys` ストア、DB v2）だけに保存する。サーバーには送らない・同期しない。
+
+```ts
+type PasskeyRecord = {
+  v: 1;
+  id: string;            // credentialId（base64）
+  name: string;          // 表示名（未入力なら既定名）
+  createdAt: string;     // ISO 8601
+  prfSalt: string;       // base64、32B
+  wrappedDek: { iv: string; ciphertext: string };  // AAD は aegis-passkey-v1
+  vaultFingerprint: string;  // 登録時の封筒の指紋（パスワード変更で変わる）
+  verifier: string;          // 登録時の封筒の verifier（DEK の同一性）
+  transports?: string[];     // 認証器の申告値（allowCredentials のヒント）
+};
+```
+
+- **解除**（ロック画面）: 今の封筒の `verifier` と一致する登録が 1 件以上あるときだけ
+  「パスキー / セキュリティキーで解除」ボタンを出す。`navigator.credentials.get` の
+  `allowCredentials` に全登録を渡し、選ばれた認証器の PRF 出力から KEK → DEK を得て、
+  封筒の `verifier` と AAD（`aegis-data-v1:<revision>`）を確かめながらデータを復号する。
+  成功時はパスワード解錠と同じ経路でアンロックし、`autoLockMinutes === 0` なら DEK を
+  `sessionStorage` に預ける（§2.5）。キャンセル・失敗時はメッセージを出し、
+  マスターパスワードでの解錠はそのまま使える。
+- **整合性**: 封筒の `verifier` が一致しない登録は、初期化・解錠・ボルト置換・同期接続・
+  別ボルトのバックアップ取り込みのたびに削除する（旧ボルトの登録で誤動作させない）。
+  パスワード変更は DEK を変えないので、登録はそのまま使え、保存している封筒の指紋だけを付け替える。
+  `wipe`（ボルト削除）では登録もすべて消す。
+- **制約**:
+  - PRF 拡張に対応した認証器とブラウザが必要（非対応なら登録時に日本語・英語で明示して中断）。
+  - WebAuthn はセキュアコンテキストが前提。HTTPS（と localhost）で使う。IP アドレスのオリジンでは
+    `rpId` が無効になり `SecurityError` になるため、登録・解除できない旨を表示する。
+  - マスターパスワードの代替復旧手段ではない。認証器を失ってもパスワードで解錠できる。
+  - 登録情報は端末ごと。別端末では（同じパスキーを同期していても）その端末で登録し直す必要がある。
+
+### 2.7 UI / UX
 
 - デザイン: **温かみのある、人間が作ったような落ち着いた UI**。AI テンプレート風の紫グラデ・絵文字多用・過剰なグラスモーフィズムは禁止。
   - 基調: アイボリー/生成り（ライト）とチャコール（ダーク）。アクセントは深いティール＋差し色のテラコッタ。
@@ -192,7 +245,7 @@ type Account = {
 - アクセシビリティ: すべての操作要素に見出し/ラベル、`aria-live` でコード更新を読み上げ（既定 off）、コントラスト比 4.5:1 以上。
 - PWA: `manifest.webmanifest`（name/short_name/theme_color/icons 192/512 maskable）、Service Worker でアプリシェルのみキャッシュ（API は network-first、`/api/*` をキャッシュしない）。オフラインでもアンロック済みならコード生成可。
 
-### 2.7 サーバー API
+### 2.8 サーバー API
 
 | Method | Path | 説明 |
 |---|---|---|
@@ -229,6 +282,8 @@ type Account = {
 - migration: 手組みの Protobuf バイト列（TOTP 2 件 + HOTP 1 件 + 未知 enum 1 件）をデコードし、件数・フィールド・スキップが正しいこと。base64url パディング無しでも通ること。
 - crypto: PBKDF2 派生→暗号化→復号の往復、誤パスワードで失敗、暗号文 1 バイト改変で失敗、IV が毎回異なる、verifier 判定。
 - マージ: id 単位 union で `updatedAt` 優先。
+- passkey: PRF 出力→HKDF→KEK の導出が決定的であること、salt 不一致・暗号文改ざんで `PasskeyMismatchError`、
+  レコードの形の検査、封筒の verifier による紐づけ（別ボルトの登録を落とす）、指紋の付け替え。
 
 ### 3.2 統合（Vitest + Hono `app.request`）
 - PUT→GET→meta→DELETE の一連、revision 不一致で 409、トークン不一致 404、body 過大 413、`id` 形式不正 400、レート制限 429、ヘッダ（CSP 等）付与、`/api/health` 200。
@@ -247,6 +302,10 @@ type Account = {
 10. 自動ロック「なし」: リロードしても解錠が続き、手動ロック・0 以外への変更・ボルト削除で戻る。
 11. 同期 QR: 設定画面の同期 QR 画像／`?sync=` の URL の QR を読み取り、別コンテキストから接続して同じアカウントを開ける。
 12. 360px / 390px 幅で一覧・追加・詳細・設定・同期が横にはみ出さず、行のボタンが画面内に収まる。
+13. パスキー / セキュリティキー（CDP の仮想オーセンティケータ、`hasPrf: true`）を登録 → リロード →
+    ロック画面の解除ボタンで解錠 → 設定画面で削除 → 解除ボタンが消えてパスワードで解錠、まで通る。
+    WebAuthn の `rpId` はドメインである必要があるため、この検証だけ `http://localhost:<port>` で実行する。
+14. PRF 非対応の認証器（`hasPrf: false`）では登録を中断し、理由を画面に出す（一覧にも解除ボタンにも残らない）。
 
 E2E は `pnpm build && pnpm start`（一時 DB）に対して `playwright.config.ts` の `webServer` で実行。`reuseExistingServer: !process.env.CI`。
 
@@ -283,6 +342,7 @@ E2E は `pnpm build && pnpm start`（一時 DB）に対して `playwright.config
 - [ ] サーバー DB・API ペイロード・ログに平文の secret / パスワードが存在しない（テストで証明）
 - [ ] CSP ほかセキュリティヘッダが全レスポンスに付与される（テストで担保）
 - [ ] Docker イメージがビルドでき、起動して `/api/health` が 200、SPA が表示される
+- [ ] パスキー / セキュリティキー（PRF）で解除でき、登録情報は端末内だけに保存される（E2E で担保）
 - [ ] ライト/ダーク、375px 幅で破綻しない
 - [ ] README / SECURITY / DEPLOY / ARCHITECTURE が揃っている
 - [ ] `main` への PR で CI が全緑、CodeRabbit の指摘が解消済み
