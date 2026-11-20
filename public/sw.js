@@ -2,10 +2,16 @@
  * アプリシェルのみをキャッシュする Service Worker。
  * - ナビゲーション / アセット: stale-while-revalidate（オフラインでも起動できる）
  * - /api/*: 一切キャッシュしない（ゼロ知識の暗号文を端末の SW キャッシュに残さない）
+ *
+ * 配置先（/ でも /aegis/ でも）は registration.scope から求める。
  */
 
+const SCOPE = new URL(self.registration.scope).pathname;
+const BASE = SCOPE.endsWith('/') ? SCOPE : `${SCOPE}/`;
+const INDEX = `${BASE}index.html`;
+const API_PREFIX = `${BASE}api/`;
 const CACHE = 'aegis-shell-v1';
-const SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg'];
+const SHELL = [BASE, INDEX, `${BASE}manifest.webmanifest`, `${BASE}icon.svg`];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -31,7 +37,7 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
-  if (url.pathname.startsWith('/api/')) return;
+  if (url.pathname.startsWith(API_PREFIX)) return;
 
   // SPA のナビゲーションはネットワーク優先（新しいビルドを拾う）、失敗時のみキャッシュ。
   if (request.mode === 'navigate') {
@@ -41,11 +47,11 @@ self.addEventListener('fetch', (event) => {
           // エラー応答（5xx 等）で正常なシェルを上書きしない。
           if (response.ok && response.type === 'basic') {
             const copy = response.clone();
-            void caches.open(CACHE).then((cache) => cache.put('/index.html', copy));
+            void caches.open(CACHE).then((cache) => cache.put(INDEX, copy));
           }
           return response;
         })
-        .catch(() => caches.match('/index.html').then((cached) => cached ?? Response.error())),
+        .catch(() => caches.match(INDEX).then((cached) => cached ?? Response.error())),
     );
     return;
   }
