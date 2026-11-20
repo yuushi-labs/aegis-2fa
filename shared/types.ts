@@ -72,6 +72,34 @@ export type VaultRecord = {
   revision: number;
 };
 
+/**
+ * パスキー / セキュリティキーによる解除の登録情報。
+ * 端末の IndexedDB にだけ保存し、サーバーへは送らない（同期もしない）。
+ */
+export type PasskeyRecord = {
+  /** レコード形式のバージョン */
+  v: 1;
+  /** credentialId（base64）。WebAuthn の rawId */
+  id: string;
+  /** 表示名（未入力なら既定名） */
+  name: string;
+  /** 登録日時（ISO 8601） */
+  createdAt: string;
+  /**
+   * PRF の eval に渡す salt（base64、32B）。同じボルトのパスキーは同じ値を使う
+   * （1 回の get でどの認証器を選んでも同じ KEK になるようにするため）。
+   */
+  prfSalt: string;
+  /** このパスキー由来の KEK でラップした DEK（AAD は aegis-passkey-v1） */
+  wrappedDek: VaultCipher;
+  /** 登録時の封筒の指紋（パスワード変更では変わるが DEK が同じなら有効） */
+  vaultFingerprint: string;
+  /** 登録時の封筒の verifier（DEK の同一性。別ボルトの登録を検出する） */
+  verifier: string;
+  /** 認証器が申告した transports（allowCredentials のヒント） */
+  transports?: string[];
+};
+
 export type SyncStatus = 'local-only' | 'synced' | 'pending' | 'error' | 'conflict';
 
 export const DEFAULT_ACCOUNT: Omit<Account, 'id' | 'secret' | 'createdAt' | 'updatedAt'> = {
