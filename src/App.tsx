@@ -99,12 +99,14 @@ export function App() {
   }, [syncState, toast, t]);
 
   // アンマウント時（タブを閉じる）にロックする。
+  // ただし自動ロック「なし」のときは、再読み込みでアンロックを維持するためにロックしない
+  // （セッション継続用の鍵はタブを閉じると消えるので、開きっぱなしにはならない）。
   useEffect(() => {
     const onPageHide = (): void => {
       const state = useVaultStore.getState();
       if (state.status !== 'unlocked') return;
       state.flushSync();
-      lock();
+      if (state.settings.autoLockMinutes !== 0) lock();
     };
     window.addEventListener('pagehide', onPageHide);
     return () => window.removeEventListener('pagehide', onPageHide);

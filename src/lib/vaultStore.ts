@@ -32,6 +32,7 @@ import {
   writeVault,
 } from './storage';
 import { DEFAULT_SETTINGS, normalizeSettings, type Settings } from './settings';
+import { clearSessionDek, readSessionDek, saveSessionDek } from './sessionKey';
 import { SyncConflictError, SyncHttpError, SyncNotFoundError, createSyncClient } from './syncClient';
 
 export type VaultStatus = 'loading' | 'uninitialized' | 'locked' | 'unlocked';
@@ -373,28 +374,55 @@ export const useVaultStore = create<VaultStore>((set, get) => {
       ]);
       const normalized = normalizeSettings(settings);
       if (stored === null) {
+        clearSessionDek();
         set({ status: 'uninitialized', settings: normalized, token, vaultId: null });
         return;
       }
       const syncedRevision = stored.syncedRevision;
       const pending =
         token !== null && (syncedRevision === null || syncedRevision !== stored.envelope.revision);
-      set({
-        status: 'locked',
+      const base = {
         envelope: stored.envelope,
         settings: normalized,
         token,
         vaultId: token === null ? null : await deriveVaultId(token),
         syncedRevision: token === null ? null : syncedRevision,
-        syncState: token === null ? 'local-only' : pending ? 'pending' : 'synced',
+        syncState: (token === null ? 'local-only' : pending ? 'pending' : 'synced') as SyncState,
         lastSyncedAt: token === null ? null : stored.savedAt,
-      });
+      };
+      // 自動ロック「なし」のときだけ、同じタブの再読み込みでアンロック状態を復帰する
+      // （預けた DEK はタブを閉じる・手動ロック・設定変更で消える）。
+      if (normalized.autoLockMinutes === 0) {
+        const dek = readSessionDek(stored.envelope);
+        if (dek !== null) {
+          try {
+            const data = parseVaultData(await decryptVaultDataWithDek(stored.envelope, dek));
+            unlockSession += 1;
+            set({
+              ...base,
+              status: 'unlocked',
+              dek,
+              accounts: sortAccounts(data.accounts),
+              tombstones: data.tombstones ?? [],
+            });
+            void refreshRemote();
+            if (pending) scheduleSync();
+            return;
+          } catch {
+            // 復号できなければ（封筒が壊れている等）通常どおりロック画面にする。
+            clearSessionDek();
+          }
+        }
+      }
+      set({ ...base, status: 'locked' });
       // 未同期の変更が残っている場合は、ロック画面のままでも送信を試みる。
       if (pending) scheduleSync();
     },
 
     async createVault(password, options) {
       if (password.length < MIN_PASSWORD_LENGTH) throw new Error('password_too_short');
+      // 作り直したボルトに、前のボルトのセッション DEK を引き継がない。
+      clearSessionDek();
       lifecycleGeneration += 1;
       const token = options.sync ? generateSyncToken() : null;
       const dek = await generateDek();
@@ -458,6 +486,8 @@ export const useVaultStore = create<VaultStore>((set, get) => {
             failedAttempts: 0,
             cooldownUntil: 0,
           });
+          // 自動ロック「なし」なら、このタブを開いている間は再読み込みで復帰できるようにする。
+          if (get().settings.autoLockMinutes === 0) saveSessionDek(target, unlocked.dek);
           void refreshRemote();
           return { ok: true };
         } catch (error) {
@@ -475,15 +505,27 @@ export const useVaultStore = create<VaultStore>((set, get) => {
 
     lock() {
       unlockSession += 1;
+      // 手動ロックは、自動ロック「なし」のセッション継続も必ず打ち切る。
+      clearSessionDek();
       // 2 秒デバウンス内の変更を取りこぼさない（syncNow は DEK を必要としない）。
       flushSync();
       set({ status: 'locked', dek: null, accounts: [], tombstones: [], conflict: null });
     },
 
     async updateSettings(patch) {
-      const settings = { ...get().settings, ...patch };
+      const previous = get().settings;
+      const settings = { ...previous, ...patch };
       set({ settings });
       await writeSettings(settings);
+      if (settings.autoLockMinutes !== previous.autoLockMinutes) {
+        // 「なし」にしたら今のセッションを引き継ぎ、それ以外に変えたら即座に打ち切る。
+        const { envelope, dek } = get();
+        if (settings.autoLockMinutes === 0 && envelope !== null && dek !== null) {
+          saveSessionDek(envelope, dek);
+        } else {
+          clearSessionDek();
+        }
+      }
     },
 
     async saveAccounts(accounts) {
@@ -528,6 +570,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
     async replaceVault(envelope, token) {
       lifecycleGeneration += 1;
       unlockSession += 1;
+      clearSessionDek();
       await writeVault(envelope, token === null ? null : 0);
       if (token === null) await deleteToken();
       else await writeToken(token);
@@ -555,6 +598,8 @@ export const useVaultStore = create<VaultStore>((set, get) => {
       if (get().envelope !== before || generation !== lifecycleGeneration) throw new VaultChangedError();
       lifecycleGeneration += 1;
       unlockSession += 1;
+      // 別のボルトへ切り替えたら、前のボルトのセッションは使わない。
+      clearSessionDek();
       // 置き換え前に、以前のボルト用の同期タイマーを止める。
       if (syncTimer !== null) {
         clearTimeout(syncTimer);
@@ -627,6 +672,8 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         if (generation !== lifecycleGeneration || get().envelope !== envelope) return false;
         await writeVault(updated, get().syncedRevision);
         set({ envelope: updated, syncState: token === null ? 'local-only' : 'pending' });
+        // 再ラップで封筒の指紋が変わったので、セッション継続用の DEK を今の封筒で預け直す。
+        if (get().settings.autoLockMinutes === 0) saveSessionDek(updated, dek);
         if (token !== null) scheduleSync();
         return true;
       });
@@ -758,6 +805,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         await unlockVaultEnvelope(envelope, password);
         // 検証中に接続（attachSync）や初期化（wipe）でボルトが変わったら置き換えない。
         if (get().envelope !== beforeReplace) throw new VaultChangedError();
+        clearSessionDek();
         const token = get().token;
         await writeVault(envelope, token === null ? null : 0);
         set({
@@ -803,6 +851,8 @@ export const useVaultStore = create<VaultStore>((set, get) => {
     },
 
     async wipe() {
+      // 消したボルトの DEK は残さない（「自動ロック：なし」のセッションも打ち切る）。
+      clearSessionDek();
       // 進行中の保存が削除後に書き戻さないよう、先に世代を進める。
       const { vaultId, token } = get();
       const generation = lifecycleGeneration + 1;

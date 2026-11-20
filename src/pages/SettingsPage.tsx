@@ -218,6 +218,7 @@ export function SettingsPage() {
               onChange={(event) =>
                 void updateSettings({ autoLockMinutes: Number.parseInt(event.target.value, 10) as AutoLockMinutes })
               }
+              aria-describedby="auto-lock-hint"
               data-testid="auto-lock-select"
             >
               {AUTO_LOCK_OPTIONS.map((minutes) => (
@@ -226,6 +227,9 @@ export function SettingsPage() {
                 </option>
               ))}
             </select>
+            <p id="auto-lock-hint" className="field-hint">
+              {settings.autoLockMinutes === 0 ? t('settings.autoLockNeverHint') : t('settings.autoLockHint')}
+            </p>
           </div>
 
           <label className="flex cursor-pointer items-center justify-between gap-3">
