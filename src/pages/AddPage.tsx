@@ -52,7 +52,7 @@ export function AddPage() {
         counter: accountDraft.counter,
       });
       setTab('manual');
-      toast(t('add.parse'), 'success');
+      toast(t('add.pasteApplied'), 'success');
       return true;
     } catch {
       return false;
@@ -142,7 +142,7 @@ export function AddPage() {
               <p className="field-hint">{t('add.uriHint')}</p>
             </div>
             <hr className="rule mb-4" />
-            <AccountForm value={draft} onChange={setDraft} idPrefix="add" />
+            <AccountForm value={draft} onChange={setDraft} idPrefix="add" onUriPaste={applyUri} />
             <div className="mt-5 flex items-center justify-end gap-2">
               <button type="button" className="btn btn-secondary" onClick={() => navigate('/')}>
                 {t('common.cancel')}

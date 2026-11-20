@@ -115,6 +115,8 @@ const ja = {
   'add.previewEmpty': '秘密鍵を入れると現在のコードを確認できます',
   'add.duplicate': '同じアカウントが既にあります',
   'add.duplicate.confirm': '重複していますが追加しますか？',
+  'add.pasteApplied': '貼り付けた URI からフォームに入れました',
+  'add.pasteMigration': '移行 URI は「一括移行」タブで読み込んでください',
 
   'qr.start': 'カメラを起動',
   'qr.stop': 'カメラを停止',
@@ -148,6 +150,8 @@ const ja = {
   'detail.qr.warning': 'この QR には秘密鍵が含まれます。人に見せないでください。',
   'detail.qr.download': 'PNG を保存',
   'detail.advanced': '詳細設定',
+  'detail.uriPasteConfirm':
+    '貼り付けた URI の内容で、入力中の項目（サービス名・アカウント名・秘密鍵・詳細設定）を上書きしますか？',
 
   'settings.title': '設定',
   'settings.security': 'セキュリティ',
@@ -365,6 +369,8 @@ const en: Record<MessageKey, string> = {
   'add.previewEmpty': 'Enter a secret to preview the current code',
   'add.duplicate': 'This account already exists',
   'add.duplicate.confirm': 'It looks like a duplicate. Add it anyway?',
+  'add.pasteApplied': 'Filled the form from the pasted URI',
+  'add.pasteMigration': 'Read a migration URI in the “Bulk import” tab',
 
   'qr.start': 'Start camera',
   'qr.stop': 'Stop camera',
@@ -398,6 +404,8 @@ const en: Record<MessageKey, string> = {
   'detail.qr.warning': 'This QR contains the secret. Do not show it to anyone.',
   'detail.qr.download': 'Save PNG',
   'detail.advanced': 'Advanced',
+  'detail.uriPasteConfirm':
+    'Replace the fields you have entered (service, account name, secret, advanced options) with the pasted URI?',
 
   'settings.title': 'Settings',
   'settings.security': 'Security',

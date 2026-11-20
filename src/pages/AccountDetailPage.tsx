@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { buildOtpauthUri } from '../../shared/otpauth';
+import { buildOtpauthUri, isMigrationUri } from '../../shared/otpauth';
 import { AccountForm } from '../components/AccountForm';
 import { accountToDraft, draftToAccount, type AccountDraft } from '../lib/accountDraft';
+import { draftFromOtpauthUri } from '../lib/secretUri';
 import { Modal } from '../components/Modal';
 import { useI18n, useNow, useToast } from '../lib/hooks';
 import { useVaultStore } from '../lib/vaultStore';
@@ -88,6 +89,28 @@ export function AccountDetailPage() {
 
   const canSave = draft.secret.trim() !== '' && (draft.issuer.trim() !== '' || draft.label.trim() !== '');
 
+  /**
+   * 秘密鍵欄に otpauth URI が貼られたときの処理。
+   * 編集中の入力内容を黙って消さないよう、上書きしてよいか確認してから反映する。
+   */
+  function handleUriPaste(uri: string): boolean {
+    if (isMigrationUri(uri)) {
+      toast(t('add.pasteMigration'), 'warning');
+      return true;
+    }
+    let next: AccountDraft;
+    try {
+      next = draftFromOtpauthUri(uri);
+    } catch {
+      toast(t('add.invalidUri'), 'error');
+      return true;
+    }
+    if (!window.confirm(t('detail.uriPasteConfirm'))) return true;
+    setDraft(next);
+    toast(t('add.pasteApplied'), 'success');
+    return true;
+  }
+
   async function handleSave(): Promise<void> {
     if (account === null || draft === null) return;
     const updated = draftToAccount(draft, account, account.id, new Date().toISOString());
@@ -156,7 +179,7 @@ export function AccountDetailPage() {
       </div>
 
       <div className="card mt-5 p-5">
-        <AccountForm value={draft} onChange={setDraft} showAdvancedByDefault idPrefix="edit" />
+        <AccountForm value={draft} onChange={setDraft} showAdvancedByDefault idPrefix="edit" onUriPaste={handleUriPaste} />
         <hr className="rule my-4" />
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" className="btn btn-primary" onClick={() => void handleSave()} disabled={!canSave} data-testid="save-changes">

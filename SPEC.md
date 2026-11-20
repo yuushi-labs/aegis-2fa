@@ -91,6 +91,7 @@ type Account = {
 1. **otpauth URI**: `otpauth://totp/Issuer:account?secret=...&issuer=...&algorithm=SHA1&digits=6&period=30` と `otpauth://hotp/...&counter=N` のパースと生成（往復で意味が変わらない）。
    - `secret` は Base32（大文字小文字・空白・`=` パディング許容）。不正なら明示エラー。
    - issuer は label の `Issuer:account` とクエリの `issuer` の両対応（クエリ優先、無ければ label から）。
+   - 手入力フォームの秘密鍵欄に `otpauth://` を貼った場合も同じパース結果でフォーム全体（issuer / label / secret / type / algorithm / digits / period / counter）を埋め、トーストで知らせる。`otpauth-migration://` を貼った場合は一括移行タブへ切り替えて読み込む。編集画面では入力中の値を上書きしてよいか確認してから反映する。
 2. **QR 読み取り**: カメラ（`getUserMedia`、背面優先）で連続スキャン。`BarcodeDetector` 未対応ブラウザは `jsqr` にフォールバック。画像ファイルアップロードからのデコードも可。読み取り結果が otpauth URI ならアカウント追加、`otpauth-migration://` なら一括インポート画面へ。
 3. **QR エクスポート**: 個別アカウントの otpauth URI を QR 表示（ダウンロード PNG 可）。全アカウントの一括 QR（Google Authenticator 移行形式）も生成（下記）。
 4. **Google Authenticator 移行形式**（`otpauth-migration://offline?data=<base64url>`）:

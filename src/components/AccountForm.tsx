@@ -4,8 +4,9 @@ import { MAX_PERIOD, MIN_PERIOD } from '../../shared/types';
 import { decodeBase32, isValidBase32 } from '../../shared/base32';
 import { generateHOTP } from '../../shared/hotp';
 import { generateTOTP } from '../../shared/totp';
-import { useI18n } from '../lib/hooks';
+import { useI18n, useToast } from '../lib/hooks';
 import { type AccountDraft } from '../lib/accountDraft';
+import { detectSecretUri, draftFromOtpauthUri } from '../lib/secretUri';
 import { Code } from './Code';
 
 export type AccountFormProps = {
@@ -14,10 +15,24 @@ export type AccountFormProps = {
   /** 詳細設定を最初から開く */
   showAdvancedByDefault?: boolean;
   idPrefix?: string;
+  /**
+   * 秘密鍵欄に `otpauth://` / `otpauth-migration://` が貼られたときの処理。
+   * true を返すと URI を消費した（フォームへ反映済み、または移行タブへ案内済み）とみなし、
+   * 秘密鍵欄は書き換えない。false を返すと貼られた文字列をそのまま秘密鍵欄に入れる。
+   * 省略時は otpauth URI をこの場で分解して反映し、移行 URI は案内だけ出す。
+   */
+  onUriPaste?: (uri: string) => boolean;
 };
 
-export function AccountForm({ value, onChange, showAdvancedByDefault = false, idPrefix = 'acct' }: AccountFormProps) {
+export function AccountForm({
+  value,
+  onChange,
+  showAdvancedByDefault = false,
+  idPrefix = 'acct',
+  onUriPaste,
+}: AccountFormProps) {
   const { t } = useI18n();
+  const toast = useToast();
   const [advanced, setAdvanced] = useState(showAdvancedByDefault);
   const [preview, setPreview] = useState<string>('');
   const [previewError, setPreviewError] = useState(false);
@@ -63,6 +78,34 @@ export function AccountForm({ value, onChange, showAdvancedByDefault = false, id
 
   function patch(next: Partial<AccountDraft>): void {
     onChange({ ...value, ...next });
+  }
+
+  /**
+   * 秘密鍵欄への入力。URI が貼られた場合は Base32 として扱わず、フォーム全体へ展開する。
+   * 編集画面で黙って他の項目を上書きしないよう、呼び出し側の `onUriPaste` を優先する。
+   * URI を手で打っている途中（otpauth:// → otpauth://t …）で毎回反応しないよう、
+   * 直前の値がすでに URI だったときは何もしない。
+   */
+  function handleSecretInput(raw: string): void {
+    const detected = detectSecretUri(raw);
+    const alreadyUri = detectSecretUri(value.secret) !== null;
+    if (detected !== null && !alreadyUri) {
+      if (onUriPaste !== undefined) {
+        if (onUriPaste(detected.uri)) return;
+      } else if (detected.kind === 'otpauth') {
+        try {
+          onChange(draftFromOtpauthUri(detected.uri));
+          toast(t('add.pasteApplied'), 'success');
+          return;
+        } catch {
+          // 解釈できない URI は下で秘密鍵として扱い、Base32 エラーを出す。
+        }
+      } else {
+        toast(t('add.pasteMigration'), 'warning');
+        return;
+      }
+    }
+    patch({ secret: raw });
   }
 
   return (
@@ -123,7 +166,7 @@ export function AccountForm({ value, onChange, showAdvancedByDefault = false, id
           id={`${idPrefix}-secret`}
           type="text"
           value={value.secret}
-          onChange={(event) => patch({ secret: event.target.value })}
+          onChange={(event) => handleSecretInput(event.target.value)}
           placeholder="JBSWY3DPEHPK3PXP"
           autoComplete="off"
           autoCapitalize="characters"
