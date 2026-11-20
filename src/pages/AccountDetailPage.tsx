@@ -165,15 +165,15 @@ export function AccountDetailPage() {
         ← {t('common.back')}
       </button>
 
-      <div className="mt-2 flex items-center gap-3">
+      <div className="mt-2 flex flex-wrap items-center gap-3">
         <Avatar issuer={account.issuer} label={account.label} size={44} />
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h1 className="truncate text-[1.3rem]">{account.issuer !== '' ? account.issuer : account.label}</h1>
           <p className="truncate text-[0.8rem]" style={{ color: 'var(--text-muted)' }}>
             {account.label}
           </p>
         </div>
-        <div className="ml-auto">
+        <div className="ml-auto shrink-0">
           <Code code={code} size="lg" />
         </div>
       </div>
@@ -182,18 +182,40 @@ export function AccountDetailPage() {
         <AccountForm value={draft} onChange={setDraft} showAdvancedByDefault idPrefix="edit" onUriPaste={handleUriPaste} />
         <hr className="rule my-4" />
         <div className="flex flex-wrap items-center gap-2">
-          <button type="button" className="btn btn-primary" onClick={() => void handleSave()} disabled={!canSave} data-testid="save-changes">
+          <button
+            type="button"
+            className="btn btn-primary w-full sm:w-auto"
+            onClick={() => void handleSave()}
+            disabled={!canSave}
+            data-testid="save-changes"
+          >
             {t('common.save')}
           </button>
-          <button type="button" className="btn btn-secondary" onClick={() => setQrOpen(true)}>
+          <button type="button" className="btn btn-secondary flex-1 sm:flex-none" onClick={() => setQrOpen(true)}>
             {t('detail.showQr')}
           </button>
-          <button type="button" className="btn btn-secondary" onClick={() => void handleCopyUri()}>
+          <button type="button" className="btn btn-secondary flex-1 sm:flex-none" onClick={() => void handleCopyUri()}>
             {t('detail.copyUri')}
           </button>
-          <button type="button" className="btn btn-danger ml-auto" onClick={() => setDeleteOpen(true)}>
+        </div>
+
+        {/*
+          削除は取り返しがつかないので、保存ボタンに並べず、説明を添えて一段下に置く。
+          スマホでは横幅いっぱいにして、迷わず押せる位置にする。
+        */}
+        <hr className="rule my-4" />
+        <div className="flex flex-col gap-2 sm:flex-row-reverse sm:items-center sm:justify-between">
+          <button
+            type="button"
+            className="btn btn-danger w-full sm:w-auto"
+            onClick={() => setDeleteOpen(true)}
+            data-testid="delete-account-detail"
+          >
             {t('detail.delete')}
           </button>
+          <p className="text-[0.76rem] leading-relaxed" style={{ color: 'var(--text-faint)' }}>
+            {t('detail.deleteHint')}
+          </p>
         </div>
       </div>
 

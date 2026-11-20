@@ -5,7 +5,8 @@ import { generateTOTPPair } from '../../shared/totp';
 import { decodeBase32 } from '../../shared/base32';
 import { Avatar } from './Avatar';
 import { Code, ProgressRing } from './Code';
-import { useI18n } from '../lib/hooks';
+import { Modal } from './Modal';
+import { useI18n, useToast } from '../lib/hooks';
 import { useVaultStore } from '../lib/vaultStore';
 import { copyText, scheduleClipboardClear } from '../lib/clipboard';
 
@@ -44,12 +45,15 @@ export function AccountRow({
   dropTarget = false,
 }: AccountRowProps) {
   const { t } = useI18n();
+  const toast = useToast();
   const settings = useVaultStore((state) => state.settings);
   const upsertAccount = useVaultStore((state) => state.upsertAccount);
+  const removeAccount = useVaultStore((state) => state.removeAccount);
   const [code, setCode] = useState<string>('—');
   const [nextCode, setNextCode] = useState<string>('');
   const [remaining, setRemaining] = useState<number>(account.period);
   const [copied, setCopied] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const step = useMemo(() => {
@@ -115,6 +119,17 @@ export function AccountRow({
     await upsertAccount({ ...account, pinned: !account.pinned, updatedAt: nowIso });
   }
 
+  async function handleDelete(): Promise<void> {
+    setDeleteOpen(false);
+    try {
+      await removeAccount(account.id);
+    } catch {
+      toast(t('common.error'), 'error');
+      return;
+    }
+    toast(t('detail.deleted'), 'success');
+  }
+
   const progress = account.type === 'totp' ? remaining / account.period : 0;
   const title = account.issuer !== '' ? account.issuer : account.label;
   const subtitle = account.issuer !== '' ? account.label : '';
@@ -149,7 +164,7 @@ export function AccountRow({
             onOpen();
           }
         }}
-        className="card flex w-full cursor-default items-center gap-3 px-3.5 py-3 text-left transition-colors"
+        className="card flex w-full cursor-default flex-wrap items-center gap-x-3 gap-y-1.5 px-3.5 py-3 text-left transition-colors"
         style={{
           borderColor: selected ? 'var(--accent)' : 'var(--border)',
           background: selected ? 'var(--accent-soft)' : 'var(--surface-raised)',
@@ -174,7 +189,7 @@ export function AccountRow({
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex shrink-0 items-center gap-2.5">
           {account.type === 'totp' && (
             <div className="flex flex-col items-center gap-0.5">
               <ProgressRing progress={progress} />
@@ -198,7 +213,16 @@ export function AccountRow({
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-0.5">
+        {/*
+          操作列はスマホでは行の下に回す（横幅 360px でもコードと重ならない）。
+          sm 以上では今までどおり同じ行の右端に並ぶ。
+        */}
+        <div
+          className="flex w-full flex-wrap items-center justify-end gap-1 border-t pt-1 sm:w-auto sm:border-t-0 sm:pt-0"
+          style={{ borderColor: 'var(--border)' }}
+          onClick={(event) => event.stopPropagation()}
+          onDoubleClick={(event) => event.stopPropagation()}
+        >
           {account.type === 'hotp' && (
             <button
               type="button"
@@ -248,8 +272,63 @@ export function AccountRow({
               <path d="M7.4 1L11 4.6l-1.6.4-1.9 1.9.4 2.4-1 1L4.2 8.1 1.4 10.9l-.9-.9L3.3 7.2.9 4.8l1-1 2.4.4 1.9-1.9L7.4 1z" strokeLinejoin="round" />
             </svg>
           </button>
+          <button
+            type="button"
+            className="btn btn-ghost text-[0.76rem]"
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpen();
+            }}
+            aria-label={`${t('list.edit')}: ${title}`}
+            title={t('list.edit')}
+            data-testid="edit-account"
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" fill="none">
+              <path d="M11.2 2.4l2.4 2.4-7.6 7.6-2.8.4.4-2.8 7.6-7.6z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+            </svg>
+            {t('list.edit')}
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost text-[0.76rem]"
+            onClick={(event) => {
+              event.stopPropagation();
+              setDeleteOpen(true);
+            }}
+            aria-label={`${t('list.delete')}: ${title}`}
+            title={t('list.delete')}
+            data-testid="delete-account"
+            style={{ color: 'var(--danger)' }}
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" fill="none">
+              <path d="M3 4.5h10M6.2 4.5V3.2h3.6v1.3M4.4 4.5l.6 8.2h6l.6-8.2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            {t('list.delete')}
+          </button>
         </div>
       </div>
+
+      <Modal
+        open={deleteOpen}
+        title={t('detail.delete')}
+        onClose={() => setDeleteOpen(false)}
+        width="sm"
+        footer={
+          <>
+            <button type="button" className="btn btn-secondary" onClick={() => setDeleteOpen(false)}>
+              {t('common.cancel')}
+            </button>
+            <button type="button" className="btn btn-danger" onClick={() => void handleDelete()} data-testid="confirm-delete-account">
+              {t('common.delete')}
+            </button>
+          </>
+        }
+      >
+        <p className="text-[0.88rem]">{t('list.deleteConfirm', { title })}</p>
+        <p className="mt-2 text-[0.78rem]" style={{ color: 'var(--clay)' }}>
+          {t('detail.deleteHint')}
+        </p>
+      </Modal>
     </li>
   );
 }
