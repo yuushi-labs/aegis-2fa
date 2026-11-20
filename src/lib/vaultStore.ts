@@ -667,7 +667,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
     flushSync,
 
     async initialize() {
-      const [, settings] = await Promise.all([null, readSettings<unknown>()]);
+      const settings = await readSettings<unknown>();
       const normalized = normalizeSettings(settings);
       set({ settings: normalized });
       const { activeId } = await ensureProfiles();

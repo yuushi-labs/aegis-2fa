@@ -9,7 +9,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bytesToBase64 } from '../../shared/encoding';
 import { envelopeFingerprint } from '../../src/lib/sessionKey';
-import type { Account, PasskeyRecord, Tombstone, VaultEnvelope, VaultProfile } from '../../shared/types';
+import type {
+  Account,
+  PasskeyRecord,
+  SyncDevice,
+  Tombstone,
+  VaultEnvelope,
+  VaultProfile,
+} from '../../shared/types';
 import type * as CryptoModule from '../../shared/crypto';
 import type * as VaultStoreModule from '../../src/lib/vaultStore';
 
@@ -394,7 +401,11 @@ async function settle(ms = 25): Promise<void> {
 
 async function decrypted(envelope: VaultEnvelope, crypto: Modules['crypto'], password = PASSWORD) {
   const unlocked = await crypto.unlockVaultEnvelope(envelope, password);
-  return JSON.parse(unlocked.plaintext) as { accounts: Account[]; tombstones: Tombstone[] };
+  return JSON.parse(unlocked.plaintext) as {
+    accounts: Account[];
+    tombstones: Tombstone[];
+    devices?: SyncDevice[];
+  };
 }
 
 beforeEach(() => {
