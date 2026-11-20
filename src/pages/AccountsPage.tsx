@@ -7,7 +7,8 @@ import { decodeBase32 } from '../../shared/base32';
 import { AccountRow } from '../components/AccountRow';
 import { copyText, scheduleClipboardClear } from '../lib/clipboard';
 import { useDebounced, useI18n, useNow, useToast } from '../lib/hooks';
-import { sortAccounts, useVaultStore } from '../lib/vaultStore';
+import { sortAccounts, useVaultStore, type SortMode } from '../lib/vaultStore';
+import { SORT_MODE_OPTIONS } from '../lib/settings';
 
 export function AccountsPage() {
   const { t } = useI18n();
@@ -16,8 +17,10 @@ export function AccountsPage() {
   const accounts = useVaultStore((state) => state.accounts);
   const upsertAccount = useVaultStore((state) => state.upsertAccount);
   const reorderAccounts = useVaultStore((state) => state.reorderAccounts);
+  const recordUsage = useVaultStore((state) => state.recordUsage);
   const lock = useVaultStore((state) => state.lock);
   const settings = useVaultStore((state) => state.settings);
+  const updateSettings = useVaultStore((state) => state.updateSettings);
   const now = useNow(1000);
 
   const [query, setQuery] = useState('');
@@ -29,7 +32,10 @@ export function AccountsPage() {
   const [hotpBusyId, setHotpBusyId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  const sorted = useMemo(() => sortAccounts(accounts), [accounts]);
+  // ゴミ箱のアカウントは通常の一覧・検索・コード生成から外す。
+  const active = useMemo(() => accounts.filter((account) => account.deletedAt === undefined), [accounts]);
+  const trashedCount = accounts.length - active.length;
+  const sorted = useMemo(() => sortAccounts(active, settings.sortMode), [active, settings.sortMode]);
   const filtered = useMemo(() => {
     const needle = debouncedQuery.trim().toLowerCase();
     if (needle === '') return sorted;
@@ -86,6 +92,8 @@ export function AccountsPage() {
           if (code === null) return;
           const ok = await copyText(code);
           if (ok) {
+            // 「よく使う順」のために使用回数を記録する（保存は短いキューで直列化される）。
+            void recordUsage(target.id);
             void scheduleClipboardClear(code, settings.clearClipboard).then((outcome) => {
               if (outcome === 'failed') toast(t('common.clipboardClearFailed'), 'warning');
             });
@@ -124,7 +132,7 @@ export function AccountsPage() {
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [filtered, selectedId, navigate, lock, settings.clearClipboard, t, toast, currentCodeFor]);
+  }, [filtered, selectedId, navigate, lock, settings.clearClipboard, t, toast, currentCodeFor, recordUsage]);
 
   async function handleCopyResult(ok: boolean): Promise<void> {
     toast(ok ? t('common.copied') : t('common.copyFailed'), ok ? 'success' : 'error');
@@ -174,11 +182,47 @@ export function AccountsPage() {
         <div>
           <h1 className="text-[1.35rem]">{t('list.title')}</h1>
           <p className="text-[0.76rem]" style={{ color: 'var(--text-faint)' }}>
-            {t('list.count', { count: accounts.length })}
+            {t('list.count', { count: active.length })}
           </p>
         </div>
         <Link to="/add" className="btn btn-primary text-[0.84rem]">
           {t('nav.add')}
+        </Link>
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[0.72rem]" style={{ color: 'var(--text-faint)' }}>
+          {t('list.sort')}
+        </p>
+        <div
+          className="flex gap-1"
+          role="group"
+          aria-label={t('list.sort')}
+          data-testid="sort-switch"
+        >
+          {SORT_MODE_OPTIONS.map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              className={`btn text-[0.74rem] ${settings.sortMode === mode ? 'btn-secondary' : 'btn-ghost'}`}
+              style={settings.sortMode === mode ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : undefined}
+              aria-pressed={settings.sortMode === mode}
+              onClick={() => void updateSettings({ sortMode: mode as SortMode })}
+              data-testid={`sort-${mode}`}
+            >
+              {t(`list.sort.${mode}` as never)}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-2 flex items-center justify-end">
+        <Link
+          to="/trash"
+          className="link text-[0.76rem]"
+          data-testid="trash-link"
+        >
+          {t('list.trashLink', { count: trashedCount })}
         </Link>
       </div>
 
@@ -207,7 +251,7 @@ export function AccountsPage() {
         />
       </div>
 
-      {accounts.length === 0 ? (
+      {active.length === 0 ? (
         <div className="card mt-6 px-5 py-10 text-center">
           <p className="font-serif text-[1.05rem]">{t('list.empty.title')}</p>
           <p className="mx-auto mt-1.5 max-w-xs text-[0.84rem] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
@@ -232,9 +276,10 @@ export function AccountsPage() {
               onSelect={() => setSelectedId(account.id)}
               onOpen={() => navigate(`/account/${account.id}`)}
               onCopyResult={(ok) => void handleCopyResult(ok)}
+              onUsed={() => void recordUsage(account.id)}
               onClipboardClearFailed={() => toast(t('common.clipboardClearFailed'), 'warning')}
               onIncrementHotp={() => void incrementHotp(account)}
-              draggable
+              draggable={settings.sortMode === 'manual'}
               dragging={dragId === account.id}
               dropTarget={dragOverId === account.id && dragId !== account.id}
               onDragStart={() => setDragId(account.id)}

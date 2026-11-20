@@ -10,6 +10,8 @@
  */
 
 import { TRASH_RETENTION_DAYS } from './types';
+
+export { TRASH_RETENTION_DAYS };
 import type { Account, Tombstone, VaultData } from './types';
 
 const DAY_MS = 24 * 60 * 60 * 1000;

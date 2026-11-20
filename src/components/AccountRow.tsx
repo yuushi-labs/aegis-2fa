@@ -20,6 +20,8 @@ export type AccountRowProps = {
   /** 自動クリアに失敗した（クリップボードにコードが残っている）ときの通知 */
   onClipboardClearFailed: () => void;
   onIncrementHotp: () => void;
+  /** コードを使った（「よく使う順」の記録用） */
+  onUsed?: () => void;
   draggable?: boolean;
   onDragStart?: () => void;
   onDragOver?: (event: React.DragEvent) => void;
@@ -37,6 +39,7 @@ export function AccountRow({
   onCopyResult,
   onClipboardClearFailed,
   onIncrementHotp,
+  onUsed,
   draggable = false,
   onDragStart,
   onDragOver,
@@ -105,6 +108,7 @@ export function AccountRow({
     const ok = await copyText(code);
     onCopyResult(ok);
     if (ok) {
+      onUsed?.();
       void scheduleClipboardClear(code, settings.clearClipboard).then((outcome) => {
         if (outcome === 'failed') onClipboardClearFailed();
       });
@@ -131,6 +135,8 @@ export function AccountRow({
   }
 
   const progress = account.type === 'totp' ? remaining / account.period : 0;
+  const hasNotes = (account.notes ?? '') !== '';
+  const unusedCodes = (account.recoveryCodes ?? []).filter((entry) => !entry.used).length;
   const title = account.issuer !== '' ? account.issuer : account.label;
   const subtitle = account.issuer !== '' ? account.label : '';
 
@@ -187,6 +193,20 @@ export function AccountRow({
           <p className="truncate text-[0.78rem]" style={{ color: 'var(--text-muted)' }}>
             {subtitle !== '' ? subtitle : account.type.toUpperCase()}
           </p>
+          {(hasNotes || unusedCodes > 0) && (
+            <p className="mt-0.5 flex items-center gap-1.5 text-[0.68rem]" style={{ color: 'var(--text-faint)' }} data-testid="row-badges">
+              {hasNotes && (
+                <span title={account.notes} data-testid="row-notes">
+                  ✎ {t('list.notes')}
+                </span>
+              )}
+              {unusedCodes > 0 && (
+                <span title={t('codes.title')} data-testid="row-codes">
+                  ⌗ {t('list.codes', { count: unusedCodes })}
+                </span>
+              )}
+            </p>
+          )}
         </div>
 
         <div className="flex shrink-0 items-center gap-2.5">
@@ -324,7 +344,7 @@ export function AccountRow({
           </>
         }
       >
-        <p className="text-[0.88rem]">{t('list.deleteConfirm', { title })}</p>
+        <p className="text-[0.88rem]">{t('list.deleteToTrashConfirm', { title })}</p>
         <p className="mt-2 text-[0.78rem]" style={{ color: 'var(--clay)' }}>
           {t('detail.deleteHint')}
         </p>

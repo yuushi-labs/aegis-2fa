@@ -4,6 +4,8 @@ import type { Account } from '../../shared/types';
 import { isMigrationUri, isOtpauthUri, parseOtpauthUri, toAccountDraft } from '../../shared/otpauth';
 import { MigrationError, migrationEntryToAccount, parseMigrationUri } from '../../shared/migration';
 import { findDuplicates } from '../../shared/merge';
+import { findAccountDuplicates, type DuplicateMatch } from '../../shared/duplicates';
+import { Modal } from '../components/Modal';
 import { AccountForm } from '../components/AccountForm';
 import { EMPTY_DRAFT, draftToAccount, type AccountDraft } from '../lib/accountDraft';
 import { useI18n, useToast } from '../lib/hooks';
@@ -41,7 +43,8 @@ export function AddPage() {
       if (!isOtpauthUri(uri)) return false;
       const params = parseOtpauthUri(uri);
       const accountDraft = toAccountDraft(params);
-      setDraft({
+      setDraft((current) => ({
+        ...current,
         type: accountDraft.type,
         issuer: accountDraft.issuer,
         label: accountDraft.label,
@@ -50,7 +53,7 @@ export function AddPage() {
         digits: accountDraft.digits,
         period: accountDraft.period,
         counter: accountDraft.counter,
-      });
+      }));
       setTab('manual');
       toast(t('add.pasteApplied'), 'success');
       return true;
@@ -60,14 +63,11 @@ export function AddPage() {
   }
 
   const [migrationUri, setMigrationUri] = useState('');
+  /** 重複が見つかったときに出す確認（どのアカウントと重なっているかを見せる）。 */
+  const [duplicateMatches, setDuplicateMatches] = useState<DuplicateMatch[] | null>(null);
 
-  async function handleSave(): Promise<void> {
-    if (saving) return;
-    const nowIso = new Date().toISOString();
-    const account = draftToAccount(draft, null, makeAccountId(), nowIso);
-    if (account.secret === '' || (account.issuer === '' && account.label === '')) return;
-    const duplicates = findDuplicates(accounts, [account]);
-    if (duplicates.size > 0 && !window.confirm(t('add.duplicate.confirm'))) return;
+  /** 実際に保存する（重複確認のあとにも呼ぶ）。 */
+  async function commitSave(account: Account): Promise<void> {
     setSaving(true);
     try {
       await upsertAccount(account);
@@ -76,6 +76,24 @@ export function AddPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function handleSave(): Promise<void> {
+    if (saving) return;
+    const nowIso = new Date().toISOString();
+    const account = draftToAccount(draft, null, makeAccountId(), nowIso);
+    if (account.secret === '' || (account.issuer === '' && account.label === '')) return;
+    const matches = findAccountDuplicates(accounts, account);
+    if (matches.length > 0) {
+      setDuplicateMatches(matches);
+      return;
+    }
+    await commitSave(account);
+  }
+
+  function titleOf(match: DuplicateMatch): string {
+    const { issuer, label } = match.account;
+    return issuer !== '' ? (label !== '' ? `${issuer} · ${label}` : issuer) : label;
   }
 
   const canSave =
@@ -180,6 +198,54 @@ export function AddPage() {
           <MigrationPanel initialUri={migrationUri} onDone={() => navigate('/')} />
         )}
       </div>
+
+      <Modal
+        open={duplicateMatches !== null}
+        title={t('add.duplicate.title')}
+        onClose={() => setDuplicateMatches(null)}
+        width="sm"
+        footer={
+          <>
+            <button type="button" className="btn btn-secondary" onClick={() => setDuplicateMatches(null)}>
+              {t('add.duplicate.cancel')}
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              data-testid="duplicate-continue"
+              onClick={() => {
+                const nowIso = new Date().toISOString();
+                const account = draftToAccount(draft, null, makeAccountId(), nowIso);
+                setDuplicateMatches(null);
+                void commitSave(account);
+              }}
+            >
+              {t('add.duplicate.continue')}
+            </button>
+          </>
+        }
+      >
+        <p className="text-[0.88rem] leading-relaxed">{t('add.duplicate.lead')}</p>
+        <ul className="mt-3 flex flex-col gap-1.5" data-testid="duplicate-list">
+          {(duplicateMatches ?? []).slice(0, 5).map((match) => (
+            <li
+              key={match.account.id}
+              className="rounded-md px-2.5 py-1.5 text-[0.8rem]"
+              style={{ background: 'var(--surface-sunken)' }}
+            >
+              <span className="block truncate">{titleOf(match)}</span>
+              <span className="text-[0.72rem]" style={{ color: 'var(--text-faint)' }}>
+                {match.reasons.map((reason) => t(`add.duplicate.${reason}` as never)).join(' / ')}
+              </span>
+            </li>
+          ))}
+        </ul>
+        {(duplicateMatches?.length ?? 0) > 5 && (
+          <p className="mt-2 text-[0.74rem]" style={{ color: 'var(--text-faint)' }}>
+            {t('add.duplicate.more', { count: (duplicateMatches?.length ?? 0) - 5 })}
+          </p>
+        )}
+      </Modal>
     </main>
   );
 }
@@ -248,6 +314,7 @@ function MigrationPanel({ initialUri, onDone }: { initialUri: string; onDone: ()
         if (!includeDuplicates && duplicateIndexes.has(index)) return;
         const account = draftToAccount(
           {
+            ...EMPTY_DRAFT,
             type: entryDraft.type,
             issuer: entryDraft.issuer,
             label: entryDraft.label,

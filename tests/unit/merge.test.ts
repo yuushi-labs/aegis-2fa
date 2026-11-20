@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { accountFingerprint, findDuplicates, mergeTombstones, mergeVaultData } from '../../shared/merge';
+import {
+  accountFingerprint,
+  findDuplicates,
+  mergeDevices,
+  mergeTombstones,
+  mergeVaultData,
+} from '../../shared/merge';
 import type { Account, VaultData } from '../../shared/types';
 
 function makeAccount(overrides: Partial<Account> & { id: string }): Account {
@@ -158,5 +164,55 @@ describe('同期マージ', () => {
       ],
     );
     expect([...duplicates]).toEqual([1]);
+  });
+
+  it('ゴミ箱のアカウントは 30 日を過ぎるとマージで完全削除される', () => {
+    const now = Date.parse('2026-11-20T00:00:00.000Z');
+    const old = new Date(now - 40 * 24 * 60 * 60 * 1000).toISOString();
+    const fresh = new Date(now - 5 * 24 * 60 * 60 * 1000).toISOString();
+    const base: VaultData = {
+      accounts: [
+        makeAccount({ id: 'stale', deletedAt: old, updatedAt: old }),
+        makeAccount({ id: 'fresh', deletedAt: fresh, updatedAt: fresh }),
+      ],
+    };
+    const result = mergeVaultData(base, { accounts: [] }, { now });
+    expect(result.data.accounts.map((a) => a.id)).toEqual(['fresh']);
+    expect(result.data.tombstones).toEqual([{ id: 'stale', deletedAt: old }]);
+    expect(result.deleted).toBe(1);
+  });
+
+  it('端末一覧は id 単位で、lastSyncedAt が新しい方を採る', () => {
+    const base: VaultData = {
+      accounts: [],
+      devices: [
+        { id: 'phone', name: 'Pixel', platform: 'Android', lastSyncedAt: '2026-01-01T00:00:00.000Z' },
+        { id: 'pc', name: 'Desktop', platform: 'Windows', lastSyncedAt: '2026-01-02T00:00:00.000Z' },
+      ],
+    };
+    const incoming: VaultData = {
+      accounts: [],
+      devices: [
+        { id: 'phone', name: 'Pixel 8', platform: 'Android', lastSyncedAt: '2026-03-01T00:00:00.000Z' },
+        { id: 'tablet', name: 'iPad', platform: 'iOS', lastSyncedAt: '2026-02-01T00:00:00.000Z' },
+      ],
+    };
+    const result = mergeVaultData(base, incoming);
+    expect(result.data.devices?.map((device) => [device.id, device.name])).toEqual([
+      ['pc', 'Desktop'],
+      ['phone', 'Pixel 8'],
+      ['tablet', 'iPad'],
+    ]);
+  });
+
+  it('端末一覧のマージは入力順に依存しない', () => {
+    const older = [
+      { id: 'a', name: 'old', platform: 'iOS', lastSyncedAt: '2026-01-01T00:00:00.000Z' },
+    ];
+    const newer = [
+      { id: 'a', name: 'new', platform: 'iOS', lastSyncedAt: '2026-02-01T00:00:00.000Z' },
+    ];
+    expect(mergeDevices(older, newer)).toEqual(mergeDevices(newer, older));
+    expect(mergeDevices(older, newer)[0]?.name).toBe('new');
   });
 });

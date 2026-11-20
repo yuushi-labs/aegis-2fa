@@ -1635,3 +1635,65 @@ describe('ボルトストア: パスキー / セキュリティキー', () => {
     expect(store.getState().passkeys.map((record) => record.name)).toEqual(['Pixel']);
   });
 });
+
+describe('ボルトストア: ゴミ箱・使用回数・同期端末', () => {
+  it('ゴミ箱へ移したアカウントは復元できる', async () => {
+    const { store, crypto } = await unlockedStore({ accounts: [account('a')] });
+    await store.getState().removeAccount('a');
+    expect(store.getState().accounts[0]?.deletedAt).toBe('2026-02-01T00:00:00.000Z');
+
+    await store.getState().restoreAccount('a');
+    const persisted = await decrypted(H.vault!.envelope, crypto);
+    expect(persisted.accounts[0]?.deletedAt).toBeUndefined();
+  });
+
+  it('30 日を過ぎたゴミ箱は解錠時に完全削除される', async () => {
+    const deletedAt = '2025-12-01T00:00:00.000Z';
+    const { store, crypto } = await unlockedStore({
+      accounts: [account('keep'), account('old', { deletedAt, updatedAt: deletedAt })],
+    });
+    await settle(30);
+    const persisted = await decrypted(H.vault!.envelope, crypto);
+    expect(persisted.accounts.map((item) => item.id)).toEqual(['keep']);
+    expect(persisted.tombstones).toEqual([{ id: 'old', deletedAt }]);
+    expect(store.getState().accounts.map((item) => item.id)).toEqual(['keep']);
+  });
+
+  it('ゴミ箱を空にすると全部 tombstone になり、復活しない', async () => {
+    const { store, crypto } = await unlockedStore({
+      accounts: [
+        account('keep'),
+        account('t1', { deletedAt: '2026-01-20T00:00:00.000Z' }),
+        account('t2', { deletedAt: '2026-01-21T00:00:00.000Z' }),
+      ],
+    });
+    await store.getState().emptyTrash();
+    const persisted = await decrypted(H.vault!.envelope, crypto);
+    expect(persisted.accounts.map((item) => item.id)).toEqual(['keep']);
+    expect(persisted.tombstones.map((item) => item.id).sort()).toEqual(['t1', 't2']);
+  });
+
+  it('使用回数を記録するが updatedAt は変えない（同期を騒がせない）', async () => {
+    const { store, crypto } = await unlockedStore({ accounts: [account('a')] });
+    await store.getState().recordUsage('a');
+    await store.getState().recordUsage('a');
+    const persisted = await decrypted(H.vault!.envelope, crypto);
+    expect(persisted.accounts[0]?.useCount).toBe(2);
+    expect(persisted.accounts[0]?.lastUsedAt).toBe('2026-02-01T00:00:00.000Z');
+    expect(persisted.accounts[0]?.updatedAt).toBe('2026-01-01T00:00:00.000Z');
+  });
+
+  it('端末名の変更と、端末一覧からの削除ができる', async () => {
+    const { store, crypto } = await unlockedStore({ accounts: [] });
+    await store.getState().renameDevice('My phone');
+    expect(store.getState().deviceName).toBe('My phone');
+    const afterRename = await decrypted(H.vault!.envelope, crypto);
+    expect(afterRename.devices?.some((device) => device.name === 'My phone')).toBe(true);
+
+    const self = store.getState().deviceId;
+    // 自端末は消せない代わりに、他の端末の記録は消せる。
+    await store.getState().forgetDevice('other-device');
+    expect(store.getState().devices.some((device) => device.id === 'other-device')).toBe(false);
+    expect(store.getState().devices.some((device) => device.id === self)).toBe(true);
+  });
+});
