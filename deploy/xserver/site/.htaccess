@@ -77,10 +77,10 @@ AddDefaultCharset UTF-8
 # 直接アクセスさせないもの
 #   app/ と storage/ は各ディレクトリの .htaccess でも 403 にしている。
 #   DB を公開ディレクトリの外に置く運用が最も安全（README 参照）。
-# ---------------------------------------------------------------------------
 #   DB・ジャーナル・バックアップ・エディタの一時ファイルまで塞ぐ。
 #   `.php[.~]` は config.php.bak / config.php~ のような「PHP として実行されず
 #   中身がそのまま配信される」名前を塞ぐためのもの（末尾が .php の本体は対象外）。
+# ---------------------------------------------------------------------------
 <IfModule mod_authz_core.c>
   <FilesMatch "\.(db|db-wal|db-shm|db-journal|sqlite|sqlite3|sql|log|ini|md|lock|bak|old|orig|save|swp|tmp|dist)$">
     Require all denied
