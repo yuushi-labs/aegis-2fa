@@ -193,10 +193,12 @@ test.describe('複数ボルト（プロファイル）', () => {
     // ヘッダーからメインへ戻すと、メインのボルトはロックされている。
     await page.getByTestId('profile-switch').selectOption({ label: 'メイン' });
     await expect(page.getByRole('heading', { name: 'ロック中' })).toBeVisible();
-    // 2 つ目のパスワードでは開かない。
+    // 2 つ目のパスワードでは開かない（試行が終わるのをエラー表示で待つ）。
     await page.getByLabel('マスターパスワード', { exact: true }).fill(secondPassword);
     await page.getByRole('button', { name: '解錠する' }).click();
+    await expect(page.locator('#lock-error')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'ロック中' })).toBeVisible();
+
     await page.getByLabel('マスターパスワード', { exact: true }).fill(PASSWORD);
     await page.getByRole('button', { name: '解錠する' }).click();
     await page.getByRole('link', { name: 'Aegis' }).click();
