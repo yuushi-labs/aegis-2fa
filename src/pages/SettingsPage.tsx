@@ -1,13 +1,14 @@
 import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MIN_PASSWORD_LENGTH } from '../../shared/types';
-import type { VaultEnvelope } from '../../shared/types';
+import type { VaultEnvelope, PasskeyRecord } from '../../shared/types';
 import { encodeMigrationPayload, partitionMigratableAccounts } from '../../shared/migration';
 import { CryptoError, WrongPasswordError } from '../../shared/crypto';
 import { formatSyncCode } from '../../shared/sync';
 import { AUTO_LOCK_OPTIONS, type AutoLockMinutes, type ThemeMode } from '../lib/settings';
 import { useI18n, useToast } from '../lib/hooks';
 import { useVaultStore, VaultChangedError, VaultLockedError } from '../lib/vaultStore';
+import { isPasskeyAvailable } from '../lib/passkeys';
 import { Modal } from '../components/Modal';
 import { copyText, scheduleClipboardClear } from '../lib/clipboard';
 import { downloadBlob, formatTime, timestampForFilename } from '../lib/format';
@@ -43,6 +44,9 @@ export function SettingsPage() {
   const importEnvelope = useVaultStore((state) => state.importEnvelope);
   const wipe = useVaultStore((state) => state.wipe);
   const lock = useVaultStore((state) => state.lock);
+  const passkeys = useVaultStore((state) => state.passkeys);
+  const registerPasskey = useVaultStore((state) => state.registerPasskey);
+  const removePasskey = useVaultStore((state) => state.removePasskey);
 
   const [revealToken, setRevealToken] = useState(false);
   const [syncQrOpen, setSyncQrOpen] = useState(false);
@@ -60,6 +64,12 @@ export function SettingsPage() {
   const [importPassword, setImportPassword] = useState('');
   const [pendingImport, setPendingImport] = useState<VaultEnvelope | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const [passkeyName, setPasskeyName] = useState('');
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
+  const [passkeyError, setPasskeyError] = useState<string | null>(null);
+  const [passkeyToDelete, setPasskeyToDelete] = useState<PasskeyRecord | null>(null);
+  const passkeysAvailable = isPasskeyAvailable();
 
   // QR は描画時に生成する（モーダルが開いている間だけ）。
   const syncQr = useQrDataUrl(
@@ -93,6 +103,42 @@ export function SettingsPage() {
     } finally {
       setPasswordBusy(false);
     }
+  }
+
+  async function handleRegisterPasskey(event: React.FormEvent): Promise<void> {
+    event.preventDefault();
+    if (passkeyBusy) return;
+    setPasskeyBusy(true);
+    setPasskeyError(null);
+    try {
+      const result = await registerPasskey(passkeyName.trim() === '' ? t('settings.passkeys.defaultName') : passkeyName);
+      if (result.ok) {
+        toast(t('settings.passkeys.registered'), 'success');
+        setPasskeyName('');
+        return;
+      }
+      // キャンセルは利用者の操作なのでエラー色にしない。
+      if (result.reason === 'cancelled') {
+        toast(t('settings.passkeys.cancelled'), 'warning');
+        return;
+      }
+      setPasskeyError(
+        result.reason === 'prf_unsupported'
+          ? t('settings.passkeys.prfUnsupported')
+          : result.reason === 'unavailable'
+            ? t('settings.passkeys.unavailable')
+            : t('settings.passkeys.failed'),
+      );
+    } finally {
+      setPasskeyBusy(false);
+    }
+  }
+
+  async function handleDeletePasskey(): Promise<void> {
+    if (passkeyToDelete === null) return;
+    await removePasskey(passkeyToDelete.id);
+    setPasskeyToDelete(null);
+    toast(t('settings.passkeys.removed'), 'success');
   }
 
   async function handleBackupFile(file: File): Promise<void> {
@@ -313,6 +359,87 @@ export function SettingsPage() {
               {t('common.save')}
             </button>
           </form>
+        </Section>
+
+        <Section title={t('settings.passkeys')}>
+          <p className="field-hint">{t('settings.passkeys.lead')}</p>
+          {passkeys.length === 0 ? (
+            <p className="text-[0.86rem]" style={{ color: 'var(--text-muted)' }} data-testid="passkeys-empty">
+              {t('settings.passkeys.empty')}
+            </p>
+          ) : (
+            <>
+              <p className="text-[0.78rem]" style={{ color: 'var(--text-faint)' }} data-testid="passkey-count">
+                {t('settings.passkeys.count', { count: passkeys.length })}
+              </p>
+              <ul className="flex flex-col" data-testid="passkey-list">
+                {passkeys.map((record) => (
+                  <li
+                    key={record.id}
+                    className="flex items-center justify-between gap-3 border-t py-2 first:border-t-0"
+                    style={{ borderColor: 'var(--border)' }}
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-[0.9rem]" data-testid="passkey-name">
+                        {record.name}
+                      </p>
+                      <p className="text-[0.74rem]" style={{ color: 'var(--text-faint)' }}>
+                        {t('settings.passkeys.registeredAt')}: {formatTime(record.createdAt, language)}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-ghost shrink-0 text-[0.78rem]"
+                      onClick={() => setPasskeyToDelete(record)}
+                      data-testid="passkey-delete"
+                    >
+                      {t('settings.passkeys.delete')}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+
+          {passkeysAvailable ? (
+            <form onSubmit={(event) => void handleRegisterPasskey(event)} className="flex flex-col gap-3">
+              <div>
+                <label className="field-label" htmlFor="passkey-name">
+                  {t('settings.passkeys.name')}
+                </label>
+                <input
+                  id="passkey-name"
+                  type="text"
+                  maxLength={64}
+                  autoComplete="off"
+                  placeholder={t('settings.passkeys.namePlaceholder')}
+                  value={passkeyName}
+                  onChange={(event) => setPasskeyName(event.target.value)}
+                  data-testid="passkey-name-input"
+                />
+              </div>
+              {passkeyError !== null && (
+                <p className="field-error" role="alert" data-testid="passkey-register-error">
+                  {passkeyError}
+                </p>
+              )}
+              <button
+                type="submit"
+                className="btn btn-secondary self-start"
+                disabled={passkeyBusy}
+                data-testid="passkey-register"
+              >
+                {passkeyBusy ? t('settings.passkeys.registering') : t('settings.passkeys.register')}
+              </button>
+            </form>
+          ) : (
+            <p className="field-hint" data-testid="passkey-unavailable">
+              {t('settings.passkeys.unavailable')}
+            </p>
+          )}
+          <p className="field-hint" style={{ color: 'var(--clay)' }}>
+            {t('settings.passkeys.warning')}
+          </p>
         </Section>
 
         <Section title={t('settings.display')}>
@@ -597,6 +724,25 @@ export function SettingsPage() {
         ) : (
           migrationQrText !== null && <p className="text-[0.82rem]">{t('common.loading')}</p>
         )}
+      </Modal>
+
+      <Modal
+        open={passkeyToDelete !== null}
+        title={t('settings.passkeys.delete')}
+        onClose={() => setPasskeyToDelete(null)}
+        width="sm"
+        footer={
+          <>
+            <button type="button" className="btn btn-secondary" onClick={() => setPasskeyToDelete(null)}>
+              {t('common.cancel')}
+            </button>
+            <button type="button" className="btn btn-danger" onClick={() => void handleDeletePasskey()}>
+              {t('common.delete')}
+            </button>
+          </>
+        }
+      >
+        <p className="text-[0.88rem] leading-relaxed">{t('settings.passkeys.deleteConfirm')}</p>
       </Modal>
 
       <Modal
