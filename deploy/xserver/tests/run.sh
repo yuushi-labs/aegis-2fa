@@ -84,8 +84,9 @@ run_php() { # script [ENV=value ...]
 echo "site=$SITE base=${BASE:-/} ports=$PORT_BASE.."
 FAILED=0
 
-# 0) 設定の解決（サーバー不要）
+# 0) 設定の解決と .htaccess の静的検査（サーバー不要）
 run_php config.php || FAILED=1
+run_php htaccess.php || FAILED=1
 
 # 1) 機能テスト（レート制限だけ無効にしたサーバー）
 P1=$PORT_BASE
