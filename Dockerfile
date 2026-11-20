@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ---- build: 全依存（devDependencies 込み）で SPA とサーバーをビルドする ----
-FROM node:22-bookworm-slim AS build
+FROM node:26-bookworm-slim AS build
 WORKDIR /app
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
@@ -16,7 +16,7 @@ COPY . .
 RUN pnpm build
 
 # ---- prod-deps: 本番依存だけを入れる（devDependencies は持ち込まない） ----
-FROM node:22-bookworm-slim AS prod-deps
+FROM node:26-bookworm-slim AS prod-deps
 WORKDIR /app
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
@@ -31,7 +31,7 @@ RUN pnpm install --frozen-lockfile --prod
 RUN pnpm store prune && rm -rf /root/.cache /root/.npm
 
 # ---- runtime: 本番依存 + ビルド成果物のみ ----
-FROM node:22-bookworm-slim AS runtime
+FROM node:26-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=3000 \
