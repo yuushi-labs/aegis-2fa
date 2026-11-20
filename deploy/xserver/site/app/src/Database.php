@@ -25,32 +25,41 @@ final class Database
     {
         if ($path !== ':memory:') {
             $dir = dirname($path);
-            if (!is_dir($dir) && !@mkdir($dir, 0700, true) && !is_dir($dir)) {
+            if (!is_dir($dir) && !mkdir($dir, 0700, true) && !is_dir($dir)) {
                 throw new RuntimeException('データベースの保存先を作成できません');
             }
         }
 
-        $pdo = new PDO('sqlite:' . $path, null, null, [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_EMULATE_PREPARES => false,
-        ]);
-        $pdo->exec('PRAGMA foreign_keys = ON');
-        $pdo->exec('PRAGMA busy_timeout = 5000');
+        // SQLite は新しいファイルを 0644 で作る。-wal / -shm も含めて作成時から 0600 に
+        // するため、作成処理の間だけ umask を絞る（ディレクトリが 0755 でも他ユーザーから読めない）。
+        $previousUmask = $path === ':memory:' ? null : umask(0077);
+        try {
+            $pdo = new PDO('sqlite:' . $path, null, null, [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                PDO::ATTR_EMULATE_PREPARES => false,
+            ]);
+            $pdo->exec('PRAGMA foreign_keys = ON');
+            $pdo->exec('PRAGMA busy_timeout = 5000');
 
-        // WAL は DB ごとの設定なので、切り替わっていないときだけ書き込む
-        // （毎回 PRAGMA journal_mode=WAL を投げると書き込みロックを取りにいく）。
-        $mode = strtolower((string) $pdo->query('PRAGMA journal_mode')->fetchColumn());
-        if ($mode !== 'wal' && $path !== ':memory:') {
-            $pdo->exec('PRAGMA journal_mode = WAL');
+            // WAL は DB ごとの設定なので、切り替わっていないときだけ書き込む
+            // （毎回 PRAGMA journal_mode=WAL を投げると書き込みロックを取りにいく）。
+            $mode = strtolower((string) $pdo->query('PRAGMA journal_mode')->fetchColumn());
+            if ($mode !== 'wal' && $path !== ':memory:') {
+                $pdo->exec('PRAGMA journal_mode = WAL');
+            }
+
+            $database = new self($pdo, $path);
+            $database->migrate();
+        } finally {
+            if ($previousUmask !== null) {
+                umask($previousUmask);
+            }
         }
 
-        $database = new self($pdo, $path);
-        $database->migrate();
-
-        if ($path !== ':memory:') {
-            // 他のテナントから読めないようにする（ディレクトリは 0700）。
-            @chmod($path, 0600);
+        if ($path !== ':memory:' && is_file($path)) {
+            // 既存の DB ファイル（作られていた場合）の権限も絞っておく。
+            chmod($path, 0600);
         }
 
         return $database;

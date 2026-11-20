@@ -17,6 +17,9 @@ use PDO;
 
 final class RateLimiter
 {
+    /** RETURNING 句（SQLite 3.35 以降）が使えるか。同じ SQLite を使うので 1 回だけ調べる。 */
+    private static ?bool $returningSupported = null;
+
     public function __construct(
         private readonly PDO $pdo,
         private readonly string $name,
@@ -26,6 +29,8 @@ final class RateLimiter
     }
 
     /**
+     * 1 リクエスト分を加算し、そのリクエスト自身の加算結果で判定する。
+     *
      * @return array{allowed: bool, limit: int, remaining: int, retryAfter: int}
      */
     public function hit(string $ip): array
@@ -34,17 +39,28 @@ final class RateLimiter
         $resetAt = $now + $this->windowMs;
         $key = $this->name . ':' . $ip;
 
-        $upsert = $this->pdo->prepare(
-            'INSERT INTO rate_limits (key, count, reset_at) VALUES (?, 1, ?)'
+        $upsertSql = 'INSERT INTO rate_limits (key, count, reset_at) VALUES (?, 1, ?)'
             . ' ON CONFLICT(key) DO UPDATE SET'
             . ' count = CASE WHEN rate_limits.reset_at <= ? THEN 1 ELSE rate_limits.count + 1 END,'
-            . ' reset_at = CASE WHEN rate_limits.reset_at <= ? THEN ? ELSE rate_limits.reset_at END',
-        );
-        $upsert->execute([$key, $resetAt, $now, $now, $resetAt]);
+            . ' reset_at = CASE WHEN rate_limits.reset_at <= ? THEN ? ELSE rate_limits.reset_at END';
+        $parameters = [$key, $resetAt, $now, $now, $resetAt];
 
-        $select = $this->pdo->prepare('SELECT count, reset_at FROM rate_limits WHERE key = ?');
-        $select->execute([$key]);
-        $row = $select->fetch();
+        $row = null;
+        if ($this->supportsReturning()) {
+            // 加算と結果の取得が 1 文で完結するので、他の要求の加算に影響されない。
+            $statement = $this->pdo->prepare($upsertSql . ' RETURNING count, reset_at');
+            $statement->execute($parameters);
+            $fetched = $statement->fetch();
+            $statement->closeCursor();
+            $row = is_array($fetched) ? $fetched : null;
+        } else {
+            // SQLite 3.35 未満向けの 2 段階（加算と取得の間に他の要求が入り得る）。
+            $this->pdo->prepare($upsertSql)->execute($parameters);
+            $select = $this->pdo->prepare('SELECT count, reset_at FROM rate_limits WHERE key = ?');
+            $select->execute([$key]);
+            $fetched = $select->fetch();
+            $row = is_array($fetched) ? $fetched : null;
+        }
 
         $count = is_array($row) ? (int) $row['count'] : 1;
         $bucketResetAt = is_array($row) ? (int) $row['reset_at'] : $resetAt;
@@ -68,6 +84,16 @@ final class RateLimiter
             'remaining' => max(0, $this->max - $count),
             'retryAfter' => 0,
         ];
+    }
+
+    /** RETURNING 句が使える SQLite か（3.35 以降）。 */
+    private function supportsReturning(): bool
+    {
+        if (self::$returningSupported === null) {
+            $version = (string) $this->pdo->query('select sqlite_version()')->fetchColumn();
+            self::$returningSupported = version_compare($version, '3.35.0', '>=');
+        }
+        return self::$returningSupported;
     }
 
     /** レート制限のキーにするクライアント IP。 */

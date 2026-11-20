@@ -14,9 +14,10 @@ declare(strict_types=1);
 
 return [
     // SQLite ファイル。
-    // null にすると「公開ディレクトリの外（DOCUMENT_ROOT の親）/aegis-data/aegis.db」を
-    // 使い、そこへ書けなければ storage/aegis.db（.htaccess で 403 保護）へフォールバックする。
-    // 絶対パスを書けばその場所を使う。
+    // null にすると「公開ディレクトリの外（DOCUMENT_ROOT の親）/aegis-data/<サイト名>.db」を使う。
+    // そこへ書けない場合は起動時にエラーになるので、db_path を明示する。
+    // 公開領域内を指定する場合（storage/ など）は、Nginx が静的ファイルを直接配信する構成では
+    // .htaccess の 403 が効かないことに注意する（README 参照）。絶対パスで書く。
     'db_path' => null,
     // 保存できる暗号文の総量（バイト）。超過する書き込みは 507。
     'max_vault_bytes' => 268435456,

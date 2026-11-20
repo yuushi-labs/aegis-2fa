@@ -273,11 +273,50 @@ final class Validation
             return 0;
         }
         if (function_exists('mb_convert_encoding')) {
-            $utf16 = @mb_convert_encoding($value, 'UTF-16LE', 'UTF-8');
-            if (is_string($utf16)) {
+            $utf16 = mb_convert_encoding($value, 'UTF-16LE', 'UTF-8');
+            if (is_string($utf16) && $utf16 !== '') {
                 return intdiv(strlen($utf16), 2);
             }
         }
-        return strlen($value);
+        // mbstring が無い / 不正な UTF-8 の場合は自前で数える（バイト数ではない）。
+        return self::utf16Length($value);
+    }
+
+    /** UTF-8 の文字列を UTF-16 の符号単位で数える（BMP 外の文字は 2 単位）。 */
+    private static function utf16Length(string $value): int
+    {
+        $length = 0;
+        $bytes = strlen($value);
+        $offset = 0;
+
+        while ($offset < $bytes) {
+            $byte = ord($value[$offset]);
+            if ($byte < 0x80) {
+                $offset += 1;
+                $length += 1;
+                continue;
+            }
+            if (($byte & 0xE0) === 0xC0) {
+                $offset += 2;
+                $length += 1;
+                continue;
+            }
+            if (($byte & 0xF0) === 0xE0) {
+                $offset += 3;
+                $length += 1;
+                continue;
+            }
+            if (($byte & 0xF8) === 0xF0) {
+                // U+10000 以上はサロゲートペアで 2 単位。
+                $offset += 4;
+                $length += 2;
+                continue;
+            }
+            // 不正なバイトは 1 単位として数える（ここへ来るのは json_decode が通した値のみ）。
+            $offset += 1;
+            $length += 1;
+        }
+
+        return $length;
     }
 }

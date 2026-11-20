@@ -132,8 +132,12 @@ final class Config
     }
 
     /**
-     * DB の場所。公開ディレクトリの外に置けるならそこへ、無理なら
-     * storage/（.htaccess で 403 保護）へフォールバックする。
+     * DB の場所。既定では公開ディレクトリの**外**に作る。
+     *
+     * Xserver は Nginx が静的ファイルを直接配信することがあり、その場合 `.htaccess` の 403 は
+     * 効かない。DB を公開ディレクトリ内（storage/ など）に自動で置くと、暗号文と token_hash が
+     * `GET /<site>/storage/aegis.db` で読めてしまう構成になり得るので、自動配置は公開領域外に限る。
+     * そこへ書けない場合は、黙って公開領域内に逃げずに設定エラーで止める（db_path を明示させる）。
      */
     private static function resolveDbPath(mixed $configured, string $appDir): string
     {
@@ -159,7 +163,11 @@ final class Config
             }
         }
 
-        return $siteRoot . '/storage/aegis.db';
+        throw new \RuntimeException(
+            'データベースの保存先を確保できません。公開ディレクトリの外（例: ' . dirname($siteRoot, 1)
+            . '/aegis-data/aegis.db）を aegis-config.php の db_path に指定してください。'
+            . ' 詳しくは deploy/xserver/README.md の「設定」を参照してください。',
+        );
     }
 
     private static function ensureWritableDir(string $dir): bool
