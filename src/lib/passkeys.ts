@@ -163,7 +163,9 @@ export async function createPasskeyCredential(options: {
   const credentialId = bytesToBase64(new Uint8Array(publicKey.rawId));
 
   const prf = readPrf(publicKey);
-  if (prf.enabled !== true) throw new PasskeyPrfUnsupportedError();
+  // PRF 非対応なら登録を中断する。`enabled` を返さない実装もあるので、
+  // 実際に PRF 出力が返っていれば対応しているとみなす。
+  if (prf.enabled !== true && prf.first === null) throw new PasskeyPrfUnsupportedError();
   let prfOutput = prf.first;
   if (prfOutput === null) {
     // create では PRF の結果を返さない実装があるので、同じ認証器に eval 付きで get する。

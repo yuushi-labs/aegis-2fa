@@ -1536,6 +1536,27 @@ describe('ボルトストア: パスキー / セキュリティキー', () => {
     expect(store.getState().status).toBe('unlocked');
   });
 
+  it('自動ロック「なし」なら、パスキーで解除した DEK をセッション継続用に預ける', async () => {
+    const { store } = await unlockedStore({ accounts: [account('a')] });
+    await store.getState().updateSettings({ autoLockMinutes: 0 });
+    await store.getState().registerPasskey('Pixel');
+    // sessionStorage はこのテスト環境（node）には無いので、保存先だけ差し替える。
+    const items = new Map<string, string>();
+    vi.stubGlobal('sessionStorage', {
+      getItem: (key: string) => items.get(key) ?? null,
+      setItem: (key: string, value: string) => void items.set(key, value),
+      removeItem: (key: string) => void items.delete(key),
+    });
+    store.getState().lock();
+    expect(items.size).toBe(0);
+    expect(await store.getState().unlockWithPasskey()).toEqual({ ok: true });
+    // マスターパスワードは保存せず、DEK と封筒の指紋だけを預ける。
+    const stored = items.get('aegis.session.dek.v1') ?? '';
+    expect(stored).not.toBe('');
+    expect(stored).not.toContain(PASSWORD);
+    expect(JSON.parse(stored)).toMatchObject({ v: 1 });
+  });
+
   it('ボルトを消すと登録も消える', async () => {
     const { store } = await unlockedStore();
     await store.getState().registerPasskey('Pixel');
