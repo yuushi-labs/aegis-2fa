@@ -469,3 +469,141 @@ img {
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
 }
+
+/* ---------------------------------------------------------------------------
+ * 緊急バックアップ印刷シート
+ * 画面では読みやすく、印刷では白地に黒の罫線だけで出す。
+ * ------------------------------------------------------------------------- */
+
+.print-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.print-account {
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 10px 12px;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.print-account-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px dashed var(--border);
+}
+
+.print-index {
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
+
+.print-service {
+  flex: 1;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.print-type {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+.print-account-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.print-fields {
+  flex: 1;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.print-label {
+  margin-right: 4px;
+  font-size: 0.7rem;
+  color: var(--text-faint);
+}
+
+.print-secret {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  word-break: break-all;
+}
+
+.print-notes {
+  white-space: pre-wrap;
+}
+
+.print-codes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin: 2px 0 0;
+  padding: 0 0 0 1em;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+}
+
+.print-qr {
+  width: 104px;
+  height: 104px;
+  image-rendering: pixelated;
+}
+
+@media print {
+  @page {
+    margin: 12mm;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  /* 印刷では操作系・アプリの枠・通知を出さない。 */
+  .no-print,
+  .app-header,
+  .app-footer,
+  [role='status'] {
+    display: none !important;
+  }
+
+  .print-sheet {
+    max-width: none;
+    padding: 0;
+  }
+
+  .print-account {
+    border-color: #8a8a8a;
+  }
+
+  .print-list {
+    gap: 8px;
+  }
+
+  .print-label,
+  .print-index,
+  .print-type {
+    color: #444 !important;
+  }
+
+  .card {
+    border-color: #999 !important;
+    box-shadow: none !important;
+  }
+}
