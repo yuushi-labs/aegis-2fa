@@ -9,7 +9,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bytesToBase64 } from '../../shared/encoding';
 import { envelopeFingerprint } from '../../src/lib/sessionKey';
-import type { Account, PasskeyRecord, Tombstone, VaultEnvelope } from '../../shared/types';
+import type { Account, PasskeyRecord, Tombstone, VaultEnvelope, VaultProfile } from '../../shared/types';
 import type * as CryptoModule from '../../shared/crypto';
 import type * as VaultStoreModule from '../../src/lib/vaultStore';
 
@@ -87,6 +87,9 @@ const H = vi.hoisted(() => {
   const harness = {
     vault: null as StoredVault | null,
     token: null as string | null,
+    /** プロファイル（テストでは 1 つだけ使う単一ボルトの代替） */
+    profiles: [] as VaultProfile[],
+    activeProfileId: 'main' as string | null,
     settings: null as unknown,
     writes: [] as VaultEnvelope[],
     deletions: 0,
@@ -148,10 +151,32 @@ const H = vi.hoisted(() => {
 
 vi.mock('../../src/lib/storage', () => ({
   DB_NAME: 'aegis-test',
-  DB_VERSION: 1,
+  DB_VERSION: 3,
+  DEFAULT_PROFILE_ID: 'main',
   resetStorageCache: () => undefined,
-  readVault: async () => (H.vault === null ? null : { ...H.vault, envelope: structuredClone(H.vault.envelope) }),
-  writeVault: async (envelope: VaultEnvelope, syncedRevision: number | null) => {
+  listProfiles: async () =>
+    H.profiles.length === 0
+      ? [{ id: 'main', name: 'メイン', createdAt: '2026-01-01T00:00:00.000Z' }]
+      : structuredClone(H.profiles),
+  readProfile: async (id: string) => H.profiles.find((profile) => profile.id === id) ?? null,
+  putProfile: async (profile: VaultProfile) => {
+    H.profiles = [...H.profiles.filter((item) => item.id !== profile.id), structuredClone(profile)];
+  },
+  deleteProfileRecord: async (id: string) => {
+    H.profiles = H.profiles.filter((profile) => profile.id !== id);
+    if (H.activeProfileId === id) {
+      H.vault = null;
+      H.token = null;
+      H.passkeys.records = [];
+    }
+  },
+  readActiveProfileId: async () => H.activeProfileId,
+  writeActiveProfileId: async (id: string) => {
+    H.activeProfileId = id;
+  },
+  readVault: async (_profileId?: string) =>
+    H.vault === null ? null : { ...H.vault, envelope: structuredClone(H.vault.envelope) },
+  writeVault: async (_profileId: string, envelope: VaultEnvelope, syncedRevision: number | null) => {
     H.writes.push(structuredClone(envelope));
     H.vault = {
       envelope: structuredClone(envelope),
@@ -159,37 +184,37 @@ vi.mock('../../src/lib/storage', () => ({
       savedAt: new Date().toISOString(),
     };
   },
-  updateSyncedRevision: async (revision: number | null) => {
+  updateSyncedRevision: async (_profileId: string, revision: number | null) => {
     if (H.vault !== null) H.vault = { ...H.vault, syncedRevision: revision };
   },
-  deleteVault: async () => {
+  deleteVault: async (_profileId?: string) => {
     H.deletions += 1;
     H.vault = null;
     H.token = null;
     H.passkeys.records = [];
   },
-  readToken: async () => H.token,
-  writeToken: async (token: string) => {
+  readToken: async (_profileId?: string) => H.token,
+  writeToken: async (_profileId: string, token: string) => {
     H.token = token;
   },
-  deleteToken: async () => {
+  deleteToken: async (_profileId?: string) => {
     H.token = null;
   },
   readSettings: async <T,>() => H.settings as T | null,
   writeSettings: async (value: unknown) => {
     H.settings = value;
   },
-  readPasskeys: async () => structuredClone(H.passkeys.records),
-  putPasskey: async (record: { id: string; [key: string]: unknown }) => {
+  readPasskeys: async (_profileId?: string) => structuredClone(H.passkeys.records),
+  putPasskey: async (_profileId: string, record: { id: string; [key: string]: unknown }) => {
     H.passkeys.records = [...H.passkeys.records.filter((item) => item.id !== record.id), structuredClone(record)];
   },
-  deletePasskey: async (id: string) => {
+  deletePasskey: async (id: string, _profileId?: string) => {
     H.passkeys.records = H.passkeys.records.filter((item) => item.id !== id);
   },
-  replacePasskeys: async (records: Array<{ id: string; [key: string]: unknown }>) => {
+  replacePasskeys: async (_profileId: string, records: Array<{ id: string; [key: string]: unknown }>) => {
     H.passkeys.records = structuredClone(records);
   },
-  deleteAllPasskeys: async () => {
+  deleteAllPasskeys: async (_profileId?: string) => {
     H.passkeys.records = [];
   },
 }));
@@ -377,6 +402,8 @@ beforeEach(() => {
   vi.setSystemTime(new Date('2026-02-01T00:00:00.000Z'));
   H.vault = null;
   H.token = null;
+  H.profiles = [];
+  H.activeProfileId = 'main';
   H.settings = null;
   H.writes = [];
   H.deletions = 0;
@@ -501,6 +528,7 @@ describe('ボルトストア: initialize', () => {
       clearClipboard: false,
       announceCodes: false,
       language: 'auto',
+      sortMode: 'manual',
     });
   });
 });
@@ -668,11 +696,25 @@ describe('ボルトストア: 保存の直列化と世代管理', () => {
     expect(store.getState().accounts).toHaveLength(3);
   });
 
-  it('削除はアカウントを取り除き tombstone を残す', async () => {
+  it('ふつうの削除はゴミ箱へ移し、tombstone はまだ作らない', async () => {
     const { store, crypto } = await unlockedStore({
       accounts: [account('keep'), account('drop')],
     });
     await store.getState().removeAccount('drop');
+    const persisted = await decrypted(H.vault!.envelope, crypto);
+    // 行は残る（復元できる）が、deletedAt が付いて通常の一覧から外れる。
+    expect(persisted.accounts.map((item) => item.id)).toEqual(['keep', 'drop']);
+    expect(persisted.accounts.find((item) => item.id === 'drop')?.deletedAt).toBe(
+      '2026-02-01T00:00:00.000Z',
+    );
+    expect(persisted.tombstones).toHaveLength(0);
+  });
+
+  it('完全削除はアカウントを取り除き tombstone を残す', async () => {
+    const { store, crypto } = await unlockedStore({
+      accounts: [account('keep'), account('drop')],
+    });
+    await store.getState().purgeAccount('drop');
     const persisted = await decrypted(H.vault!.envelope, crypto);
     expect(persisted.accounts.map((item) => item.id)).toEqual(['keep']);
     expect(persisted.tombstones).toHaveLength(1);

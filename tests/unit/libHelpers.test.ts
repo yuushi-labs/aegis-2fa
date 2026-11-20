@@ -116,6 +116,7 @@ describe('設定の正規化', () => {
       clearClipboard: true,
       announceCodes: false,
       language: 'auto',
+      sortMode: 'manual',
     });
   });
 
@@ -138,8 +139,11 @@ describe('設定の正規化', () => {
       clearClipboard: false,
       announceCodes: true,
       language: 'en',
+      sortMode: 'manual',
     });
     expect(normalizeSettings({ autoLockMinutes: 0 }).autoLockMinutes).toBe(0);
+    expect(normalizeSettings({ sortMode: 'usage' }).sortMode).toBe('usage');
+    expect(normalizeSettings({ sortMode: 'bogus' }).sortMode).toBe('manual');
     expect(normalizeSettings({ clockSkew: 1.6 }).clockSkew).toBe(2);
   });
 });
