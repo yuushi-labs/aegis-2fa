@@ -18,6 +18,9 @@ Aegis 2FA は **静的 SPA + 単一 Node プロセス + SQLite ファイル** �
 
 秘密情報の環境変数はありません。サーバーは復号鍵を一切持たないためです。
 
+PHP 版（Xserver など共用サーバー）は環境変数の代わりに公開ディレクトリ外の
+`aegis-config.php` で同じ項目を設定します（[deploy/xserver/README.md](../deploy/xserver/README.md)）。
+
 ## Docker Compose（最短）
 
 ```bash
@@ -108,6 +111,27 @@ sudo systemctl enable --now aegis
 
 Caddy が TLS を終端するので、アプリ側は HTTP のままで構いません。
 `AEGIS_HTTPS=true` を設定すると HSTS ヘッダが付きます。
+
+## Xserver（共用サーバー・PHP 8.3 + SQLite）
+
+Node を使えない共用レンタルサーバー向けに、同じ API を PHP で提供する構成を同梱しています。
+Composer も Node も不要で、ビルドしたファイルをアップロードするだけで動きます。
+
+```bash
+pnpm build:xserver                  # deploy/xserver/build/aegis/ を生成（既定 base=/aegis/）
+pnpm build:xserver -- --base=/      # ドメイン直下に置く場合
+pnpm test:xserver                   # php -S 上で API 互換テスト
+```
+
+- 出力された `deploy/xserver/build/aegis/` の中身を `public_html/aegis/` へアップロード
+- `.htaccess` が `/api/*` を PHP へ、それ以外を `index.html`（SPA）へ流す
+- DB は公開ディレクトリの外（`aegis-config.php` の `db_path`）を推奨。未設定なら
+  `DOCUMENT_ROOT` の親の `aegis-data/` に自動で作り、書けなければ `storage/`（403 保護）へ
+- スキーマは Node 版と同一なので、Node 版が作った DB をそのまま使える
+- レート制限・保存上限・body 上限・`409 corrupt_vault`・セキュリティヘッダも Node 版と同じ
+
+セットアップ、設定項目、動作確認チェックリスト、トラブルシューティングは
+[deploy/xserver/README.md](../deploy/xserver/README.md) にまとめています。
 
 ## バックアップ
 

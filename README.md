@@ -96,6 +96,7 @@ shared/   純粋ロジック（base32 / hotp / totp / otpauth / migration / cryp
 server/   Hono + SQLite(Drizzle)。暗号文の保存と配信のみ
 src/      React 19 + Vite + Tailwind 4 のクライアント
 tests/    unit（Vitest）/ integration（Hono app.request）/ e2e（Playwright）
+deploy/xserver/  PHP + SQLite 版バックエンド（共用サーバー向け。Composer 不要）
 ```
 
 データフローと競合解決は [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
@@ -108,6 +109,8 @@ pnpm typecheck    # tsc --noEmit（client + server）
 pnpm test         # Vitest（unit + integration）
 pnpm build        # SPA + サーバー
 pnpm test:e2e     # Playwright（要 pnpm build）
+pnpm build:xserver   # Xserver 用の配信物（deploy/xserver/build/aegis/）
+pnpm test:xserver    # PHP 版 API の互換テスト（php -S 上で実行）
 ```
 
 ## テスト
@@ -129,6 +132,8 @@ smoke test（`/api/health`・devDependencies 非同梱の検証）を push と p
 ## デプロイ
 
 Docker Compose / Fly.io / Render / VPS + Caddy の手順は [docs/DEPLOY.md](docs/DEPLOY.md)。
+Node を使えない共用サーバー（Xserver など）向けの PHP + SQLite 版は
+[deploy/xserver/README.md](deploy/xserver/README.md)。
 
 ## ライセンス
 

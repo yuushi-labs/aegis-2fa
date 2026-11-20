@@ -26,6 +26,8 @@
 
 リポジトリは pnpm workspace を使わない単一パッケージでよい。`src/` にクライアント、`server/` に API、`shared/` に両者共通の純粋関数（TOTP/HOTP/Base32/otpauth パーサ/暗号）を置く。
 
+API の代替実装として、Node を使えない共用サーバー（Xserver など）向けに **PHP 8.1 以上 + SQLite + `.htaccess`** 版を `deploy/xserver/` に同梱する。エンドポイント・ステータスコード・JSON・制限値は本仕様の §2.7 と同一で、DB スキーマも Node 版と共通（`vaults` テーブル）。セットアップは [deploy/xserver/README.md](deploy/xserver/README.md)。
+
 ```
 .
 ├── index.html
