@@ -67,6 +67,34 @@ test.describe('秘密鍵欄への otpauth URI 貼り付け', () => {
   });
 });
 
+test.describe('サービス名のクイック候補', () => {
+  test('候補を押すとサービス名が入り、選択状態になる', async ({ page }) => {
+    await createVault(page, { sync: false });
+    await page.getByRole('link', { name: '追加', exact: true }).click();
+
+    const suggestions = page.getByTestId('add-issuer-suggestions');
+    await expect(suggestions).toBeVisible();
+    await suggestions.getByRole('button', { name: 'Discord' }).click();
+    await expect(page.getByLabel('サービス名', { exact: true })).toHaveValue('Discord');
+    await expect(suggestions.getByRole('button', { name: 'Discord' })).toHaveAttribute('aria-pressed', 'true');
+
+    // 手入力した名前が候補に一致すれば選択状態になる（大小文字は無視）。
+    await page.getByLabel('サービス名', { exact: true }).fill('github');
+    await expect(suggestions.getByRole('button', { name: 'GitHub' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(suggestions.getByRole('button', { name: 'Discord' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  test('編集画面でも候補からサービス名を変えられる', async ({ page }) => {
+    await createVault(page, { sync: false });
+    await addManualAccount(page, { issuer: 'Example', label: 'me@example.com', secret: RFC_SECRET });
+
+    await page.getByTestId('account-row').filter({ hasText: 'Example' }).dblclick();
+    await expect(page.getByRole('heading', { name: 'アカウントを編集' })).toBeVisible();
+    await page.getByTestId('edit-issuer-suggestions').getByRole('button', { name: 'Notion' }).click();
+    await expect(page.getByLabel('サービス名', { exact: true })).toHaveValue('Notion');
+  });
+});
+
 test.describe('編集画面での URI 貼り付け', () => {
   test('確認してから入力中の項目を上書きする', async ({ page }) => {
     await createVault(page, { sync: false });

@@ -345,6 +345,35 @@
     color: var(--danger);
   }
 
+  /* サービス名のクイック候補。押すと issuer が入る小さなピル。 */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface-sunken);
+    color: var(--text-muted);
+    padding: 0.2rem 0.6rem;
+    font-size: 0.76rem;
+    font-weight: 500;
+    line-height: 1.6;
+    cursor: pointer;
+    transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+  }
+
+  .chip:hover {
+    background: var(--surface-raised);
+    border-color: var(--border-strong);
+    color: var(--text);
+  }
+
+  .chip[aria-pressed='true'] {
+    background: var(--accent-soft);
+    border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+    color: var(--accent);
+  }
+
   .rule {
     height: 1px;
     background: var(--border);

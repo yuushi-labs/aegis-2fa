@@ -115,6 +115,7 @@ const ja = {
   'add.previewEmpty': '秘密鍵を入れると現在のコードを確認できます',
   'add.duplicate': '同じアカウントが既にあります',
   'add.duplicate.confirm': '重複していますが追加しますか？',
+  'add.issuerSuggestions': 'よく使うサービス',
   'add.pasteApplied': '貼り付けた URI からフォームに入れました',
   'add.pasteMigration': '移行 URI は「一括移行」タブで読み込んでください',
 
@@ -369,6 +370,7 @@ const en: Record<MessageKey, string> = {
   'add.previewEmpty': 'Enter a secret to preview the current code',
   'add.duplicate': 'This account already exists',
   'add.duplicate.confirm': 'It looks like a duplicate. Add it anyway?',
+  'add.issuerSuggestions': 'Common services',
   'add.pasteApplied': 'Filled the form from the pasted URI',
   'add.pasteMigration': 'Read a migration URI in the “Bulk import” tab',
 

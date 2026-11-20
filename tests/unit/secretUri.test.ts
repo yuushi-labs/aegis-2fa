@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { detectSecretUri, draftFromOtpauthUri } from '../../src/lib/secretUri';
 import { EMPTY_DRAFT } from '../../src/lib/accountDraft';
+import { ISSUER_SUGGESTIONS, matchedIssuerSuggestion } from '../../src/lib/issuerSuggestions';
 
 describe('シークレット欄の URI 検出', () => {
   it('otpauth URI を検出して前後の空白を落とす', () => {
@@ -73,5 +74,21 @@ describe('otpauth URI からフォーム下書きへの展開', () => {
     expect(() => draftFromOtpauthUri('otpauth://totp/a?issuer=x')).toThrow();
     expect(() => draftFromOtpauthUri('otpauth://steam/a?secret=JBSWY3DPEHPK3PXP')).toThrow();
     expect(() => draftFromOtpauthUri('not a uri')).toThrow();
+  });
+});
+
+describe('サービス名のクイック候補', () => {
+  it('重複のない固定リストになっている', () => {
+    expect(new Set(ISSUER_SUGGESTIONS).size).toBe(ISSUER_SUGGESTIONS.length);
+    expect(ISSUER_SUGGESTIONS.length).toBeGreaterThan(0);
+    for (const name of ISSUER_SUGGESTIONS) expect(name.trim()).not.toBe('');
+  });
+
+  it('前後の空白と大小文字を無視して一致を返す', () => {
+    expect(matchedIssuerSuggestion('GitHub')).toBe('GitHub');
+    expect(matchedIssuerSuggestion('  github ')).toBe('GitHub');
+    expect(matchedIssuerSuggestion('x')).toBe('X');
+    expect(matchedIssuerSuggestion('GitLab')).toBeNull();
+    expect(matchedIssuerSuggestion('')).toBeNull();
   });
 });

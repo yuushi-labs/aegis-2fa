@@ -164,6 +164,7 @@ type Account = {
   - モーション: 150–200ms の控えめなトランジション。`prefers-reduced-motion` 尊重。
 - 主要画面: ロック / 初回設定 / アカウント一覧（検索・ピン留め・ドラッグ並び替え） / アカウント追加（手入力・QR・画像・一括移行） / アカウント詳細編集 / 設定（セキュリティ・同期・表示・エクスポート） / 同期コード入力。
 - 一覧の行: アイコン（issuer から決定的な色のイニシャルアバター。外部 favicon 取得はしない＝アカウント情報の外部漏洩防止）、issuer、label、コード、残り時間リング、コピーボタン、ピン。
+- アカウント追加／編集のサービス名欄には、よく使うサービス（Google / GitHub / Discord / X / Amazon / Microsoft / Apple / Steam / Cloudflare / Notion）のクイック候補を並べ、ワンタップで入力できる。候補は端末内の固定リストで、外部から取得しない。
 - キーボード: `/` で検索フォーカス、`Esc` でモーダル閉、`L` でロック、`C` で選択中コードをコピー。フォーカスリング常時表示。
 - アクセシビリティ: すべての操作要素に見出し/ラベル、`aria-live` でコード更新を読み上げ（既定 off）、コントラスト比 4.5:1 以上。
 - PWA: `manifest.webmanifest`（name/short_name/theme_color/icons 192/512 maskable）、Service Worker でアプリシェルのみキャッシュ（API は network-first、`/api/*` をキャッシュしない）。オフラインでもアンロック済みならコード生成可。

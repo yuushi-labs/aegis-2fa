@@ -6,7 +6,10 @@ import { generateHOTP } from '../../shared/hotp';
 import { generateTOTP } from '../../shared/totp';
 import { useI18n, useToast } from '../lib/hooks';
 import { type AccountDraft } from '../lib/accountDraft';
+import { avatarTone } from '../lib/format';
+import { ISSUER_SUGGESTIONS, matchedIssuerSuggestion } from '../lib/issuerSuggestions';
 import { detectSecretUri, draftFromOtpauthUri } from '../lib/secretUri';
+import { Avatar } from './Avatar';
 import { Code } from './Code';
 
 export type AccountFormProps = {
@@ -132,15 +135,42 @@ export function AccountForm({
           <label className="field-label" htmlFor={`${idPrefix}-issuer`}>
             {t('add.issuer')}
           </label>
-          <input
-            id={`${idPrefix}-issuer`}
-            type="text"
-            value={value.issuer}
-            onChange={(event) => patch({ issuer: event.target.value })}
-            placeholder="GitHub"
-            autoComplete="off"
-            spellCheck={false}
-          />
+          <div className="flex items-center gap-2">
+            <Avatar issuer={value.issuer} label={value.label} size={36} />
+            <input
+              id={`${idPrefix}-issuer`}
+              type="text"
+              value={value.issuer}
+              onChange={(event) => patch({ issuer: event.target.value })}
+              placeholder="GitHub"
+              autoComplete="off"
+              spellCheck={false}
+              className="min-w-0 flex-1"
+            />
+          </div>
+          <div
+            className="mt-2 flex flex-wrap items-center gap-1.5"
+            role="group"
+            aria-label={t('add.issuerSuggestions')}
+            data-testid={`${idPrefix}-issuer-suggestions`}
+          >
+            {ISSUER_SUGGESTIONS.map((name) => (
+              <button
+                key={name}
+                type="button"
+                className="chip"
+                aria-pressed={matchedIssuerSuggestion(value.issuer) === name}
+                onClick={() => patch({ issuer: name })}
+              >
+                <span
+                  aria-hidden="true"
+                  className="h-1.5 w-1.5 shrink-0 rounded-full"
+                  style={{ background: avatarTone(name, '').color }}
+                />
+                {name}
+              </button>
+            ))}
+          </div>
         </div>
         <div>
           <label className="field-label" htmlFor={`${idPrefix}-label`}>
