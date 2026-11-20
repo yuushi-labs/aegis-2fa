@@ -158,6 +158,15 @@ final class Config
                 return $path;
             }
             if (!str_starts_with($path, '/')) {
+                // 相対パスはサイト直下（公開ディレクトリ内）に置かれる。.htaccess の 403 は
+                // Apache には効くが、Nginx が静的ファイルを直接配信する構成では効かず、
+                // DB が読まれ得る。動きは変えずに警告だけ出す（黙って危険な場所へ逃げない）。
+                error_log(
+                    '[aegis] 警告: db_path が相対パスです（' . $path . '）。'
+                    . '公開ディレクトリ内（' . $siteRoot . '/' . $path . '）に DB が作られます。'
+                    . ' 公開ディレクトリの外の絶対パス（例: ' . dirname($siteRoot, 1)
+                    . '/aegis-data/aegis.db）を指定してください。',
+                );
                 $path = $siteRoot . '/' . $path;
             }
             return $path;

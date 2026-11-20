@@ -25,6 +25,9 @@ ini_set('display_errors', '0');
 ini_set('log_errors', '1');
 error_reporting(E_ALL);
 
+// PHP のバージョンを応答ヘッダに載せない（.htaccess の Header unset が効かない構成でも防ぐ）。
+header_remove('X-Powered-By');
+
 require_once __DIR__ . '/src/Request.php';
 require_once __DIR__ . '/src/Response.php';
 require_once __DIR__ . '/src/Config.php';
