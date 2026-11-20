@@ -9,8 +9,9 @@ Aegis 2FA は **静的 SPA + 単一 Node プロセス + SQLite ファイル** �
 | --- | --- | --- |
 | `PORT` | `3000` | 待ち受けポート |
 | `DATABASE_PATH` | `./data/aegis.db` | SQLite ファイル。親ディレクトリは自動作成 |
-| `TRUST_PROXY` | `false` | `true` で `X-Forwarded-For` を信頼（リバースプロキシ配下で必須）。前段が `X-Forwarded-For` を設定／上書きすること（`X-Real-IP` は読みません） |
+| `TRUST_PROXY` | `false` | `true` で `X-Forwarded-For` を信頼（リバースプロキシ配下で必須）。**`PORT` への直接接続をファイアウォール等で遮断すること**（直接届くとヘッダを偽装できる）。前段は `X-Forwarded-For` を上書きし、`X-Real-IP` は読みません |
 | `TRUST_PROXY_HOPS` | `1` | 信頼するプロキシの段数。`X-Forwarded-For` を**右端から**数えた位置をクライアント IP とみなす（CDN + LB のように 2 段なら `2`） |
+| | | 多段の場合、最初のプロキシがクライアントの `X-Forwarded-For` を置き換え、後続のプロキシが接続元 IP を履歴へ追加する構成にすること（全利用者が同じキーにまとまって制限を共有しないため） |
 | `MAX_VAULT_BYTES` | `268435456`（256 MiB） | 保存できる暗号文の総量。超過する書き込みは `507`（`/data` の枯渇防止） |
 | `AEGIS_HTTPS` | `false` | `true` で HSTS を付与（TLS 終端が前段にある場合に有効化） |
 | `CORS_ORIGIN` | 未設定 | 別オリジンから API を使う場合のみ。通常は未設定のまま |

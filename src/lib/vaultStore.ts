@@ -113,8 +113,8 @@ let syncTimer: ReturnType<typeof setTimeout> | null = null;
 /** 保存処理の直列化キュー。後から始まった保存が先の変更を取りこぼさない。 */
 let writeQueue: Promise<unknown> = Promise.resolve();
 
-/** 進行中の同期送信（DELETE より後に書き込みが確定しないよう wipe が待つ）。 */
-let syncInFlight: Promise<void> | null = null;
+/** 同期送信の直列化チェーン（待機中の呼び出しも含めて順に実行する）。 */
+let syncChain: Promise<void> = Promise.resolve();
 
 /**
  * ボルトの世代。作成・置換・接続・削除で進む。
@@ -265,6 +265,9 @@ export const useVaultStore = create<VaultStore>((set, get) => {
   async function runSync(): Promise<void> {
     const { token, vaultId, envelope } = get();
     if (token === null || vaultId === null || envelope === null) return;
+    // 待機中にボルトが置き換わった／消えたら、状態も保存先も触らない。
+    const generation = lifecycleGeneration;
+    const isCurrent = (): boolean => generation === lifecycleGeneration && get().vaultId === vaultId;
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
       set({ syncState: 'pending', syncError: 'offline' });
       return;
@@ -274,7 +277,9 @@ export const useVaultStore = create<VaultStore>((set, get) => {
     const base = get().syncedRevision ?? 0;
     try {
       await syncClient.put(vaultId, token, sent, base);
+      if (!isCurrent()) return;
       await updateSyncedRevision(sent.revision);
+      if (!isCurrent()) return;
       set({ syncedRevision: sent.revision });
       const latest = get().envelope;
       if (latest !== null && latest.revision > sent.revision) {
@@ -288,6 +293,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
       if (error instanceof SyncConflictError) {
         try {
           const remote = await syncClient.get(vaultId, token);
+          if (!isCurrent()) return;
           // 応答だけ失われた PUT を「競合」と誤認しない（サーバーが同じ封筒を持っている）。
           const sameEnvelope =
             remote.revision === sent.revision &&
@@ -295,6 +301,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
             remote.envelope.data.ciphertext === sent.data.ciphertext;
           if (sameEnvelope) {
             await updateSyncedRevision(remote.revision);
+            if (!isCurrent()) return;
             set({ syncedRevision: remote.revision, syncState: 'synced', syncError: null });
             return;
           }
@@ -310,7 +317,9 @@ export const useVaultStore = create<VaultStore>((set, get) => {
       if (error instanceof SyncNotFoundError) {
         try {
           await syncClient.put(vaultId, token, sent, 0);
+          if (!isCurrent()) return;
           await updateSyncedRevision(sent.revision);
+          if (!isCurrent()) return;
           set({ syncedRevision: sent.revision, syncError: null });
           const latest = get().envelope;
           if (latest !== null && latest.revision > sent.revision) {
@@ -624,15 +633,16 @@ export const useVaultStore = create<VaultStore>((set, get) => {
     },
 
     async syncNow() {
-      // 進行中の送信があれば終わるまで待つ（同じ revision を二重送信しない）。
-      if (syncInFlight !== null) await syncInFlight;
-      const started = runSync();
-      syncInFlight = started;
-      try {
-        await started;
-      } finally {
-        if (syncInFlight === started) syncInFlight = null;
-      }
+      // 送信は 1 本ずつ順に実行する（待機中の呼び出しも同じチェーンに並ぶ）。
+      const generation = lifecycleGeneration;
+      const vaultId = get().vaultId;
+      const run = syncChain.then(async () => {
+        // 待機中にボルトが置き換わった／消えたら、この送信は行わない。
+        if (generation !== lifecycleGeneration || get().vaultId !== vaultId) return;
+        await runSync();
+      });
+      syncChain = run.catch(() => undefined);
+      await run;
     },
 
     async refreshRemote() {
@@ -804,7 +814,8 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         clearTimeout(syncTimer);
         syncTimer = null;
       }
-      if (syncInFlight !== null) await syncInFlight;
+      // 待機中の送信を含むチェーンが終わるのを待つ（世代を進めたので何も送らない）。
+      await syncChain;
       if (generation === lifecycleGeneration && syncTimer !== null) {
         clearTimeout(syncTimer);
         syncTimer = null;
