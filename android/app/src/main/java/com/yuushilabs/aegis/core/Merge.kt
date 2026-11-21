@@ -65,6 +65,35 @@ object VaultMerge {
         return compareTimestamps(tombstone.deletedAt, account.updatedAt) >= 0
     }
 
+    /**
+     * パスキーのメタ情報を id 単位に統合する（Web 版 shared/merge.ts と同じ意味）。
+     *
+     * - 同じ id は createdAt が新しい方（表示名の付け替え）を採る。
+     * - 削除（deletedAt）は取り消さない。
+     */
+    fun mergePasskeyInfos(vararg lists: List<PasskeyInfo>?): List<PasskeyInfo> {
+        val byId = LinkedHashMap<String, PasskeyInfo>()
+        for (list in lists) {
+            for (info in list.orEmpty()) {
+                if (info.id.isEmpty()) continue
+                val current = byId[info.id]
+                if (current == null) {
+                    byId[info.id] = info
+                    continue
+                }
+                val newer = if (compareTimestamps(info.createdAt, current.createdAt) > 0) info else current
+                val deletedAt = when {
+                    current.deletedAt == null -> info.deletedAt
+                    info.deletedAt == null -> current.deletedAt
+                    compareTimestamps(info.deletedAt, current.deletedAt) > 0 -> info.deletedAt
+                    else -> current.deletedAt
+                }
+                byId[info.id] = newer.copy(deletedAt = deletedAt)
+            }
+        }
+        return byId.values.sortedBy { it.id }
+    }
+
     fun mergeDevices(vararg lists: List<SyncDevice>?): List<SyncDevice> {
         val byId = LinkedHashMap<String, SyncDevice>()
         for (list in lists) {
@@ -126,11 +155,13 @@ object VaultMerge {
 
         val accounts = VaultJson.manualSort(byId.values.toList())
         val devices = mergeDevices(base.devices, incoming.devices)
+        val passkeyInfos = mergePasskeyInfos(base.passkeyInfos, incoming.passkeyInfos)
         return MergeResult(
             data = VaultData(
                 accounts = accounts,
                 tombstones = tombstones,
                 devices = if (devices.isEmpty()) null else devices,
+                passkeyInfos = if (passkeyInfos.isEmpty()) null else passkeyInfos,
             ),
             added = added,
             updated = updated,

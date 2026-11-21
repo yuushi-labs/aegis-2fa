@@ -170,6 +170,9 @@ export function LockPage() {
             {t('sync.title')}
           </Link>
         )}
+        <Link to="/privacy" className="link text-[0.8rem]" data-testid="privacy-link">
+          {t('privacy.open')}
+        </Link>
         <button
           type="button"
           className="btn btn-ghost text-[0.76rem]"

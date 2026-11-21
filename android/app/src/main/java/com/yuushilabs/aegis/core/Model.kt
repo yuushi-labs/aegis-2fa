@@ -58,10 +58,27 @@ data class SyncDevice(
     val lastSyncedAt: String = "",
 )
 
+/**
+ * パスキー登録の「名前だけ」の記録（Web 版 shared/types.ts の PasskeyInfo と同じ形）。
+ *
+ * 解除に使う秘密は端末ローカルにだけ置き、ここには表示名と登録端末だけを持つ。
+ * Android 側では表示に使わないが、受け取って書き戻すことで Web 版が入れた
+ * 他端末のパスキーの名前を消さないようにする。
+ */
+data class PasskeyInfo(
+    val id: String = "",
+    val name: String = "",
+    val createdAt: String = "",
+    val deviceId: String? = null,
+    val deviceName: String? = null,
+    val deletedAt: String? = null,
+)
+
 data class VaultData(
     val accounts: List<Account> = emptyList(),
     val tombstones: List<Tombstone>? = null,
     val devices: List<SyncDevice>? = null,
+    val passkeyInfos: List<PasskeyInfo>? = null,
 )
 
 data class VaultKdf(
@@ -194,7 +211,32 @@ object VaultJson {
             accounts = accounts,
             tombstones = tombstones,
             devices = devices,
+            passkeyInfos = readPasskeyInfos(obj),
         )
+    }
+
+    /** パスキーのメタ情報（知らないフィールドは読み飛ばす）。 */
+    private fun readPasskeyInfos(obj: JsonObject): List<PasskeyInfo>? {
+        val raw = obj.get("passkeyInfos") ?: return null
+        if (!raw.isJsonArray) return null
+        val infos = ArrayList<PasskeyInfo>()
+        for (element in raw.asJsonArray) {
+            if (!element.isJsonObject) continue
+            val item = element.asJsonObject
+            val id = item.stringOrNull("id") ?: continue
+            if (id.isEmpty()) continue
+            infos.add(
+                PasskeyInfo(
+                    id = id,
+                    name = item.stringOrNull("name").orEmpty(),
+                    createdAt = item.stringOrNull("createdAt").orEmpty(),
+                    deviceId = item.stringOrNull("deviceId"),
+                    deviceName = item.stringOrNull("deviceName"),
+                    deletedAt = item.stringOrNull("deletedAt"),
+                ),
+            )
+        }
+        return if (infos.isEmpty()) null else infos
     }
 
     /** 1 件分を既定値付きで読む（Gson に任せると欠損フィールドが null になるため）。 */
@@ -240,13 +282,15 @@ object VaultJson {
         )
     }
 
-    /** Web 版と同じ並びと省略（devices は空なら書かない）。 */
+    /** Web 版と同じ並びと省略（devices / passkeyInfos は空なら書かない）。 */
     fun serialize(data: VaultData): String {
         val out = JsonObject()
         out.add("accounts", gson.toJsonTree(data.accounts))
         out.add("tombstones", gson.toJsonTree(data.tombstones ?: emptyList<Tombstone>()))
         val devices = data.devices.orEmpty()
         if (devices.isNotEmpty()) out.add("devices", gson.toJsonTree(devices))
+        val passkeyInfos = data.passkeyInfos.orEmpty()
+        if (passkeyInfos.isNotEmpty()) out.add("passkeyInfos", gson.toJsonTree(passkeyInfos))
         return gson.toJson(out)
     }
 

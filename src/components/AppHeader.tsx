@@ -86,6 +86,11 @@ export function AppFooter() {
       <p className="text-[0.72rem] leading-relaxed" style={{ color: 'var(--text-faint)' }}>
         {t('app.tagline')}
       </p>
+      <p className="mt-1.5 text-[0.72rem]">
+        <NavLink to="/privacy" className="link" data-testid="privacy-link">
+          {t('privacy.open')}
+        </NavLink>
+      </p>
     </footer>
   );
 }

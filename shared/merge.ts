@@ -10,7 +10,7 @@
  */
 
 import { purgeExpiredTrash } from './trash';
-import type { Account, SyncDevice, Tombstone, VaultData } from './types';
+import type { Account, PasskeyInfo, SyncDevice, Tombstone, VaultData } from './types';
 
 export type MergeResult = {
   data: VaultData;
@@ -150,11 +150,13 @@ export function mergeVaultData(
   });
 
   const devices = mergeDevices(base.devices, incoming.devices);
+  const passkeyInfos = mergePasskeyInfos(base.passkeyInfos, incoming.passkeyInfos);
   return {
     data: {
       accounts,
       tombstones,
       ...(devices.length === 0 ? {} : { devices }),
+      ...(passkeyInfos.length === 0 ? {} : { passkeyInfos }),
     },
     added,
     updated,
@@ -180,6 +182,58 @@ export function mergeDevices(
           lastSyncedAt: typeof device.lastSyncedAt === 'string' ? device.lastSyncedAt : '',
         });
       }
+    }
+  }
+  return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/**
+ * パスキー登録のメタ情報を id 単位に統合する。
+ *
+ * - 同じ id は createdAt が新しい方を採る（名前の付け替えを反映する）。
+ * - 削除（deletedAt）は取り消さない（古い端末が持っている「生きている」情報で
+ *   消したはずの登録を復活させない）。
+ * - 秘密は含まないので、件数の上限は設けず削除済みの記録も残す（削除の伝播のため）。
+ */
+export function mergePasskeyInfos(
+  ...lists: readonly (readonly PasskeyInfo[] | undefined)[]
+): PasskeyInfo[] {
+  const byId = new Map<string, PasskeyInfo>();
+  for (const list of lists) {
+    for (const info of list ?? []) {
+      if (typeof info?.id !== 'string' || info.id === '') continue;
+      const normalized: PasskeyInfo = {
+        id: info.id,
+        name: typeof info.name === 'string' && info.name !== '' ? info.name : 'Passkey',
+        createdAt: typeof info.createdAt === 'string' ? info.createdAt : '',
+        ...(typeof info.deviceId === 'string' && info.deviceId !== '' ? { deviceId: info.deviceId } : {}),
+        ...(typeof info.deviceName === 'string' && info.deviceName !== ''
+          ? { deviceName: info.deviceName }
+          : {}),
+        ...(typeof info.deletedAt === 'string' && info.deletedAt !== '' ? { deletedAt: info.deletedAt } : {}),
+      };
+      const current = byId.get(info.id);
+      if (current === undefined) {
+        byId.set(info.id, normalized);
+        continue;
+      }
+      const newer = compareTimestamps(normalized.createdAt, current.createdAt) > 0 ? normalized : current;
+      const deletedAt =
+        current.deletedAt === undefined
+          ? normalized.deletedAt
+          : normalized.deletedAt === undefined
+            ? current.deletedAt
+            : compareTimestamps(normalized.deletedAt, current.deletedAt) > 0
+              ? normalized.deletedAt
+              : current.deletedAt;
+      byId.set(info.id, {
+        id: newer.id,
+        name: newer.name,
+        createdAt: newer.createdAt,
+        ...(newer.deviceId === undefined ? {} : { deviceId: newer.deviceId }),
+        ...(newer.deviceName === undefined ? {} : { deviceName: newer.deviceName }),
+        ...(deletedAt === undefined ? {} : { deletedAt }),
+      });
     }
   }
   return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));

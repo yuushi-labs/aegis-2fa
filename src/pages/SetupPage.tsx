@@ -148,6 +148,12 @@ export function SetupPage() {
           {t('sync.submit')}
         </Link>
       </p>
+
+      <p className="mt-3 text-center text-[0.78rem]">
+        <Link to="/privacy" className="link" data-testid="privacy-link">
+          {t('privacy.open')}
+        </Link>
+      </p>
     </main>
   );
 }

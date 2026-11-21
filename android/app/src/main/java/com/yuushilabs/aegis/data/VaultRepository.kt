@@ -95,6 +95,8 @@ class VaultRepository(context: Context) {
     private var accounts: List<Account> = emptyList()
     private var tombstones: List<Tombstone> = emptyList()
     private var devices: List<com.yuushilabs.aegis.core.SyncDevice> = emptyList()
+    /** Web 版が入れたパスキー名の一覧（Android では表示しないが、消さずに書き戻す）。 */
+    private var passkeyInfos: List<com.yuushilabs.aegis.core.PasskeyInfo> = emptyList()
     private var syncTimer: Job? = null
     private var lastActivity: Long = System.currentTimeMillis()
     private var failedUnlocks = 0
@@ -239,6 +241,7 @@ class VaultRepository(context: Context) {
         accounts = VaultJson.manualSort(purged.accounts)
         tombstones = purged.tombstones
         devices = data.devices.orEmpty()
+        passkeyInfos = data.passkeyInfos.orEmpty()
         _state.value = _state.value.copy(
             accounts = accounts,
             devices = devices,
@@ -262,6 +265,7 @@ class VaultRepository(context: Context) {
         accounts = emptyList()
         tombstones = emptyList()
         devices = emptyList()
+        passkeyInfos = emptyList()
         _state.value = _state.value.copy(
             unlocked = false,
             accounts = emptyList(),
@@ -605,6 +609,7 @@ class VaultRepository(context: Context) {
             accounts = accounts,
             tombstones = tombstones,
             devices = if (devices.isEmpty()) null else devices,
+            passkeyInfos = if (passkeyInfos.isEmpty()) null else passkeyInfos,
         )
     }
 
@@ -619,6 +624,7 @@ class VaultRepository(context: Context) {
             accounts = VaultJson.manualSort(data.accounts)
             tombstones = data.tombstones.orEmpty()
             devices = data.devices.orEmpty()
+            passkeyInfos = data.passkeyInfos.orEmpty()
         }
         _state.value = _state.value.copy(
             accounts = accounts,
@@ -673,17 +679,19 @@ class VaultRepository(context: Context) {
         var mergedAccounts = accounts
         var mergedTombstones = tombstones
         var mergedDevices = devices
+        var mergedPasskeyInfos = passkeyInfos
         var added = 0
         var updated = 0
         if (mode == "merge") {
             val remoteData = VaultJson.parse(Crypto.decryptWithDek(conflict.remoteEnvelope, currentDek))
             val result = VaultMerge.merge(
-                VaultData(accounts, mergedTombstones, mergedDevices),
+                VaultData(accounts, mergedTombstones, mergedDevices, passkeyInfos.ifEmpty { null }),
                 remoteData,
             )
             mergedAccounts = result.data.accounts
             mergedTombstones = result.data.tombstones.orEmpty()
             mergedDevices = result.data.devices.orEmpty()
+            mergedPasskeyInfos = result.data.passkeyInfos.orEmpty()
             added = result.added
             updated = result.updated
         }
@@ -693,12 +701,14 @@ class VaultRepository(context: Context) {
             accounts = VaultJson.manualSort(mergedAccounts),
             tombstones = mergedTombstones,
             devices = if (mergedDevices.isEmpty()) null else mergedDevices,
+            passkeyInfos = if (mergedPasskeyInfos.isEmpty()) null else mergedPasskeyInfos,
         )
         val next = Crypto.updateEnvelopeData(currentEnvelope, currentDek, VaultJson.serialize(data), revision)
         envelope = next
         accounts = data.accounts
         tombstones = mergedTombstones
         devices = mergedDevices
+        passkeyInfos = mergedPasskeyInfos
         syncedRevision = conflict.remoteRevision
         activeStoredVault()?.let {
             updateStoredVault(it.copy(envelope = next, syncedRevision = conflict.remoteRevision))
@@ -750,6 +760,7 @@ class VaultRepository(context: Context) {
             accounts = VaultJson.manualSort(data.accounts)
             tombstones = data.tombstones.orEmpty()
             devices = data.devices.orEmpty()
+            passkeyInfos = data.passkeyInfos.orEmpty()
             touch()
             _state.value = _state.value.copy(
                 hasVault = true,
@@ -954,6 +965,7 @@ class VaultRepository(context: Context) {
             accounts = VaultJson.manualSort(accounts),
             tombstones = tombstones,
             devices = if (devices.isEmpty()) null else devices,
+            passkeyInfos = if (passkeyInfos.isEmpty()) null else passkeyInfos,
         )
         val next = Crypto.updateEnvelopeData(
             envelope = currentEnvelope,
@@ -964,6 +976,7 @@ class VaultRepository(context: Context) {
         )
         envelope = next
         accounts = data.accounts
+        passkeyInfos = data.passkeyInfos.orEmpty()
         activeStoredVault()?.let { updateStoredVault(it.copy(envelope = next)) }
         _state.value = _state.value.copy(accounts = accounts, devices = devices)
         scheduleSync()

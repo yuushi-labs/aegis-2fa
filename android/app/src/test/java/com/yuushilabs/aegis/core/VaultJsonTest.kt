@@ -99,6 +99,58 @@ class VaultJsonTest {
     }
 
     @Test
+    fun `passkey infos survive a round trip and unknown fields are ignored`() {
+        val data = VaultData(
+            accounts = emptyList(),
+            tombstones = emptyList(),
+            devices = null,
+            passkeyInfos = listOf(
+                PasskeyInfo(
+                    id = "cred-1",
+                    name = "Pixel の指紋",
+                    createdAt = "2026-11-21T00:00:00.000Z",
+                    deviceId = "phone",
+                    deviceName = "Pixel",
+                    deletedAt = "2026-11-21T01:00:00.000Z",
+                ),
+            ),
+        )
+        val json = VaultJson.serialize(data)
+        // 秘密（包んだ DEK など）は書かない。名前と端末名だけ。
+        assertFalse(json.contains("wrappedDek"))
+        assertFalse(json.contains("prfSalt"))
+        val parsed = VaultJson.parse(json)
+        val info = parsed.passkeyInfos?.single()
+        assertEquals("cred-1", info?.id)
+        assertEquals("Pixel の指紋", info?.name)
+        assertEquals("phone", info?.deviceId)
+        assertEquals("Pixel", info?.deviceName)
+        assertEquals("2026-11-21T01:00:00.000Z", info?.deletedAt)
+        // 再シリアライズしても消えない（Android が push しても Web 版の一覧が失われない）。
+        val again = VaultJson.parse(VaultJson.serialize(parsed))
+        assertEquals(1, again.passkeyInfos?.size)
+        assertEquals("Pixel の指紋", again.passkeyInfos?.single()?.name)
+    }
+
+    @Test
+    fun `web fields unknown to android are skipped without loss of known ones`() {
+        val parsed = VaultJson.parse(
+            """{"accounts":[{"id":"a","secret":"JBSWY3DPEHPK3PXP"}],
+                "passkeyInfos":[{"id":"k1","name":"Mac","createdAt":"2026-11-21T00:00:00.000Z","extra":true},{"name":"no-id"}],
+                "someFutureKey":{"nested":true}}""",
+        )
+        assertEquals(1, parsed.accounts.size)
+        assertEquals(1, parsed.passkeyInfos?.size)
+        assertEquals("Mac", parsed.passkeyInfos?.single()?.name)
+    }
+
+    @Test
+    fun `passkey infos are omitted when empty`() {
+        val json = VaultJson.serialize(VaultData(emptyList(), emptyList(), null, null))
+        assertFalse(json.contains("passkeyInfos"))
+    }
+
+    @Test
     fun `devices are omitted when empty`() {
         val json = VaultJson.serialize(VaultData(emptyList(), emptyList(), null))
         assertFalse(json.contains("devices"))

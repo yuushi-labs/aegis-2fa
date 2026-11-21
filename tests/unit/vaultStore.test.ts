@@ -406,6 +406,7 @@ async function decrypted(envelope: VaultEnvelope, crypto: Modules['crypto'], pas
     accounts: Account[];
     tombstones: Tombstone[];
     devices?: SyncDevice[];
+    passkeyInfos?: Array<{ id: string; name: string; createdAt: string; deletedAt?: string }>;
   };
 }
 
@@ -958,6 +959,202 @@ describe('ボルトストア: 同期', () => {
     expect(put).toHaveBeenCalledTimes(1);
   });
 
+  it('ローカルに未送信の変更が無ければ PUT せず GET して同期済みにする（http_400 の原因を避ける）', async () => {
+    const { store } = await unlockedStore({ accounts: [account('a')], token: TOKEN, syncedRevision: 1 });
+    const put = vi.fn(
+      async (_v: string, _t: string, envelope: VaultEnvelope, _base: number) => ({
+        revision: envelope.revision,
+      }),
+    );
+    const get = vi.fn(async () => ({ envelope: H.vault!.envelope, revision: 1 }));
+    H.server.put = put;
+    H.server.get = get;
+    await store.getState().syncNow();
+    await settle();
+    // revision を進める変更が無いので PUT は送らない（サーバーは 400 で拒否する）。
+    expect(put).not.toHaveBeenCalled();
+    expect(get).toHaveBeenCalled();
+    expect(store.getState().syncState).toBe('synced');
+    expect(store.getState().syncedRevision).toBe(1);
+    expect(store.getState().conflict).toBeNull();
+  });
+
+  it('未送信の変更が無くサーバーだけが進んでいたら、復号してマージし、差分を送る', async () => {
+    const { store, crypto } = await unlockedStore({
+      accounts: [account('a'), account('c')],
+      token: TOKEN,
+      syncedRevision: 1,
+    });
+    const remote = await crypto.createVaultEnvelope({
+      password: PASSWORD,
+      plaintext: JSON.stringify({ accounts: [account('a'), account('b')], tombstones: [] }),
+      revision: 2,
+      iterations: TEST_ITERATIONS,
+      dek: store.getState().dek as Uint8Array,
+    });
+    const puts: Array<{ revision: number; base: number }> = [];
+    H.server.get = async () => ({ envelope: remote, revision: 2 });
+    H.server.put = async (_v: string, _t: string, envelope: VaultEnvelope, base: number) => {
+      puts.push({ revision: envelope.revision, base });
+      return { revision: envelope.revision };
+    };
+    await store.getState().syncNow();
+    await settle();
+    const state = store.getState();
+    // 両端末のアカウントが残る（どちらも失わない）。
+    expect(state.accounts.map((item) => item.id).sort()).toEqual(['a', 'b', 'c']);
+    expect(state.syncState).toBe('synced');
+    expect(state.syncedRevision).toBe(3);
+    expect(state.conflict).toBeNull();
+    expect(puts).toEqual([{ revision: 3, base: 2 }]);
+    // 送った内容もデコードして確かめる。
+    const stored = await decrypted(H.vault!.envelope, crypto);
+    expect(stored.accounts.map((item) => item.id).sort()).toEqual(['a', 'b', 'c']);
+  });
+
+  it('サーバーの内容が手元の上位集合なら、送り直さずにサーバーの封筒を採用する', async () => {
+    const { store, crypto } = await unlockedStore({
+      accounts: [account('a')],
+      token: TOKEN,
+      syncedRevision: 1,
+    });
+    const remote = await crypto.createVaultEnvelope({
+      password: PASSWORD,
+      plaintext: JSON.stringify({ accounts: [account('a'), account('b')], tombstones: [] }),
+      revision: 2,
+      iterations: TEST_ITERATIONS,
+      dek: store.getState().dek as Uint8Array,
+    });
+    const put = vi.fn(
+      async (_v: string, _t: string, envelope: VaultEnvelope, _base: number) => ({
+        revision: envelope.revision,
+      }),
+    );
+    H.server.get = async () => ({ envelope: remote, revision: 2 });
+    H.server.put = put;
+    await store.getState().syncNow();
+    await settle();
+    expect(put).not.toHaveBeenCalled();
+    expect(store.getState().accounts.map((item) => item.id).sort()).toEqual(['a', 'b']);
+    expect(store.getState().envelope).toEqual(remote);
+    expect(store.getState().syncedRevision).toBe(2);
+    expect(store.getState().syncState).toBe('synced');
+  });
+
+  it('ロック中にサーバーだけが進んでいたら、暗号文だけ取り込んで同期済みにする', async () => {
+    const { store, crypto } = await unlockedStore({
+      accounts: [account('a')],
+      token: TOKEN,
+      syncedRevision: 1,
+    });
+    const remote = await crypto.createVaultEnvelope({
+      password: PASSWORD,
+      plaintext: JSON.stringify({ accounts: [account('a'), account('b')], tombstones: [] }),
+      revision: 2,
+      iterations: TEST_ITERATIONS,
+      dek: store.getState().dek as Uint8Array,
+    });
+    const put = vi.fn(
+      async (_v: string, _t: string, envelope: VaultEnvelope, _base: number) => ({
+        revision: envelope.revision,
+      }),
+    );
+    H.server.get = async () => ({ envelope: remote, revision: 2 });
+    H.server.put = put;
+    store.getState().lock();
+    await settle();
+    await store.getState().syncNow();
+    await settle();
+    const state = store.getState();
+    expect(state.status).toBe('locked');
+    expect(state.accounts).toEqual([]);
+    expect(state.envelope).toEqual(remote);
+    expect(state.syncedRevision).toBe(2);
+    expect(state.syncState).toBe('synced');
+    expect(put).not.toHaveBeenCalled();
+    // 取り込んだ暗号文は解錠すれば読める。
+    expect(await store.getState().unlock(PASSWORD)).toEqual({ ok: true });
+    expect(store.getState().accounts.map((item) => item.id).sort()).toEqual(['a', 'b']);
+  });
+
+  it('未送信の変更が無くサーバーにボルトが無ければ、base 0 で作り直す', async () => {
+    const { store } = await unlockedStore({
+      accounts: [account('a')],
+      token: TOKEN,
+      syncedRevision: 1,
+    });
+    const bases: number[] = [];
+    H.server.get = async () => {
+      throw new H.errors.SyncNotFoundError();
+    };
+    H.server.put = async (_v: string, _t: string, envelope: VaultEnvelope, base: number) => {
+      bases.push(base);
+      return { revision: envelope.revision };
+    };
+    await store.getState().syncNow();
+    await settle();
+    expect(bases).toEqual([0]);
+    expect(store.getState().syncState).toBe('synced');
+    expect(store.getState().syncedRevision).toBe(1);
+  });
+
+  it('PUT が 400 revision_must_advance を返したら、取り込み直して合わせる（同じ送信を繰り返さない）', async () => {
+    const { store, crypto } = await unlockedStore({
+      accounts: [account('a')],
+      token: TOKEN,
+      syncedRevision: 1,
+    });
+    // 別端末が revision 3 まで進めていた（手元の送信は base 1 なので拒否される）。
+    const remote = await crypto.createVaultEnvelope({
+      password: PASSWORD,
+      plaintext: JSON.stringify({ accounts: [account('a'), account('b')], tombstones: [] }),
+      revision: 3,
+      iterations: TEST_ITERATIONS,
+      dek: store.getState().dek as Uint8Array,
+    });
+    const puts: number[] = [];
+    let first = true;
+    H.server.put = async (_v: string, _t: string, envelope: VaultEnvelope, base: number) => {
+      if (first) {
+        first = false;
+        throw new H.errors.SyncHttpError(400, { error: 'revision_must_advance' });
+      }
+      puts.push(base);
+      return { revision: envelope.revision };
+    };
+    H.server.get = async () => ({ envelope: remote, revision: 3 });
+    await store.getState().upsertAccount(account('b'));
+    await store.getState().syncNow();
+    await settle();
+    const state = store.getState();
+    // 400 のあとは GET でサーバーの内容を取り込み、新しい基準（3）で 1 回だけ送り直す。
+    expect(puts).toEqual([3]);
+    expect(state.accounts.map((item) => item.id).sort()).toEqual(['a', 'b']);
+    expect(state.syncedRevision).toBe(4);
+    expect(state.syncState).toBe('synced');
+    expect(state.conflict).toBeNull();
+  });
+
+  it('400 が続いても往復を 1 回で止め、エラーとして記録する', async () => {
+    const { store } = await unlockedStore({ accounts: [account('a')], token: TOKEN, syncedRevision: 1 });
+    const puts: number[] = [];
+    H.server.put = async (_v: string, _t: string, _envelope: VaultEnvelope, base: number) => {
+      puts.push(base);
+      throw new H.errors.SyncHttpError(400, { error: 'revision_must_advance' });
+    };
+    H.server.get = async () => ({ envelope: H.vault!.envelope, revision: 1 });
+    await store.getState().upsertAccount(account('b'));
+    await store.getState().syncNow();
+    await settle();
+    // 最初の PUT と、取り込み直したあとの 1 回だけ（同じ送信をくり返さない）。
+    expect(puts).toEqual([1, 1]);
+    expect(store.getState().syncState).toBe('error');
+    expect(store.getState().syncError).toBe('http_400');
+    expect(store.getState().conflict).toBeNull();
+    // 平文は失われない（次の同期で送り直せる）。
+    expect(store.getState().accounts.map((item) => item.id).sort()).toEqual(['a', 'b']);
+  });
+
   it('サーバーが同じ封筒を持っていれば 409 を競合と誤認しない', async () => {
     const { store, crypto } = await unlockedStore({
       accounts: [account('a')],
@@ -1476,6 +1673,8 @@ describe('ボルトストア: パスキー / セキュリティキー', () => {
   it('登録したパスキーでロック中でも解除できる', async () => {
     const { store } = await unlockedStore({ accounts: [account('a')] });
     await store.getState().registerPasskey('Pixel');
+    // 登録は「名前だけの一覧」をボルトへ入れるので revision が進む。
+    const afterRegister = H.vault?.envelope.revision;
     store.getState().lock();
     expect(store.getState().status).toBe('locked');
     // ロック中も解除ボタンを出せるよう、登録は状態に残す。
@@ -1485,7 +1684,8 @@ describe('ボルトストア: パスキー / セキュリティキー', () => {
     expect(result).toEqual({ ok: true });
     expect(store.getState().status).toBe('unlocked');
     expect(store.getState().accounts).toHaveLength(1);
-    expect(H.vault?.envelope.revision).toBe(1);
+    // 解錠だけではボルトを書き換えない。
+    expect(H.vault?.envelope.revision).toBe(afterRegister);
   });
 
   it('2 つ目のパスキーを選んでも解除できる', async () => {
@@ -1645,6 +1845,70 @@ describe('ボルトストア: パスキー / セキュリティキー', () => {
     });
     await store.getState().importEnvelope(backup, 'replace', PASSWORD);
     expect(store.getState().passkeys.map((record) => record.name)).toEqual(['Pixel']);
+  });
+
+  it('登録すると暗号化ボルトに「名前だけ」が入り、解除用の秘密は入らない', async () => {
+    const { store, crypto } = await unlockedStore();
+    await store.getState().registerPasskey('Pixel の指紋');
+    const record = store.getState().passkeys[0] as PasskeyRecord;
+    const infos = store.getState().passkeyInfos;
+    expect(infos).toHaveLength(1);
+    expect(infos[0]?.id).toBe(record.id);
+    expect(infos[0]?.name).toBe('Pixel の指紋');
+    expect(infos[0]?.deviceId).toBe(store.getState().deviceId);
+    expect(infos[0]?.deviceName).toBe(store.getState().deviceName);
+
+    const stored = await decrypted(H.vault!.envelope, crypto);
+    expect(stored.passkeyInfos).toEqual([
+      {
+        id: record.id,
+        name: 'Pixel の指紋',
+        createdAt: record.createdAt,
+        deviceId: store.getState().deviceId,
+        deviceName: store.getState().deviceName,
+      },
+    ]);
+    // 解除用の秘密（包んだ DEK・PRF salt・credentialId 以外）はボルトに入らない。
+    const serialized = JSON.stringify(stored.passkeyInfos);
+    expect(serialized).not.toContain('wrappedDek');
+    expect(serialized).not.toContain(record.prfSalt);
+    expect(serialized).not.toContain('vaultFingerprint');
+  });
+
+  it('削除すると削除の印だけが残り、一覧からは消える（他の端末にも伝わる）', async () => {
+    const { store, crypto } = await unlockedStore();
+    await store.getState().registerPasskey('Pixel');
+    const record = store.getState().passkeys[0] as PasskeyRecord;
+    await store.getState().removePasskey(record.id);
+    expect(store.getState().passkeyInfos).toHaveLength(1);
+    expect(store.getState().passkeyInfos[0]?.deletedAt).toBe('2026-02-01T00:00:00.000Z');
+    const stored = await decrypted(H.vault!.envelope, crypto);
+    expect(stored.passkeyInfos?.[0]?.deletedAt).toBe('2026-02-01T00:00:00.000Z');
+  });
+
+  it('他の端末で登録されたパスキーの名前を、同期したボルトから読める', async () => {
+    const { store, crypto } = await unlockedStore({ token: TOKEN, syncedRevision: 1 });
+    const remoteInfo = {
+      id: 'other-device-credential',
+      name: 'Mac の指紋',
+      createdAt: '2026-01-02T00:00:00.000Z',
+      deviceId: 'device-other',
+      deviceName: 'MacBook',
+    };
+    const remote = await crypto.createVaultEnvelope({
+      password: PASSWORD,
+      dek: store.getState().dek as Uint8Array,
+      plaintext: JSON.stringify({ accounts: [], tombstones: [], passkeyInfos: [remoteInfo] }),
+      revision: 2,
+      iterations: TEST_ITERATIONS,
+    });
+    H.server.get = async () => ({ envelope: remote, revision: 2 });
+    await store.getState().syncNow();
+    await settle();
+    expect(store.getState().passkeyInfos).toEqual([remoteInfo]);
+    // これはこの端末で解除には使えない（ローカルの登録は空のまま）。
+    expect(store.getState().passkeys).toEqual([]);
+    expect(store.getState().syncState).toBe('synced');
   });
 });
 

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { MIN_PASSWORD_LENGTH } from '../../shared/types';
 import type { VaultEnvelope, PasskeyRecord } from '../../shared/types';
 import { encodeMigrationPayload, partitionMigratableAccounts } from '../../shared/migration';
@@ -7,7 +7,7 @@ import { CryptoError, WrongPasswordError } from '../../shared/crypto';
 import { formatSyncCode } from '../../shared/sync';
 import { AppLoginButton } from '../components/AppLoginButton';
 import { AUTO_LOCK_OPTIONS, type AutoLockMinutes, type ThemeMode } from '../lib/settings';
-import { useI18n, useToast } from '../lib/hooks';
+import { useI18n, useToast, type Translate } from '../lib/hooks';
 import { useVaultStore, VaultChangedError, VaultLockedError } from '../lib/vaultStore';
 import { isPasskeyAvailable } from '../lib/passkeys';
 import { Modal } from '../components/Modal';
@@ -15,6 +15,25 @@ import { copyText, scheduleClipboardClear } from '../lib/clipboard';
 import { downloadBlob, formatTime, timestampForFilename } from '../lib/format';
 import { renderQrPng } from '../lib/qr';
 import { useQrDataUrl } from '../lib/useQrDataUrl';
+
+/** 同期エラーの内部コードを、画面に出す文にする（コード自体は出さない）。 */
+function syncErrorLabel(code: string, t: Translate): string {
+  if (code.startsWith('http_')) return t('sync.error.http', { status: code.slice(5) });
+  switch (code) {
+    case 'offline':
+      return t('sync.error.offline');
+    case 'conflict_fetch_failed':
+      return t('sync.error.conflict_fetch_failed');
+    case 'put_failed':
+      return t('sync.error.put_failed');
+    case 'decrypt_failed':
+      return t('sync.error.decrypt_failed');
+    case 'stale_envelope':
+      return t('sync.error.stale_envelope');
+    default:
+      return t('sync.error.network');
+  }
+}
 
 type SectionProps = { title: string; children: React.ReactNode; id?: string };
 
@@ -46,6 +65,8 @@ export function SettingsPage() {
   const wipe = useVaultStore((state) => state.wipe);
   const lock = useVaultStore((state) => state.lock);
   const passkeys = useVaultStore((state) => state.passkeys);
+  const passkeyInfos = useVaultStore((state) => state.passkeyInfos);
+  const syncError = useVaultStore((state) => state.syncError);
   const profiles = useVaultStore((state) => state.profiles);
   const activeProfileId = useVaultStore((state) => state.activeProfileId);
   const createProfile = useVaultStore((state) => state.createProfile);
@@ -90,6 +111,11 @@ export function SettingsPage() {
   const [passkeyError, setPasskeyError] = useState<string | null>(null);
   const [passkeyToDelete, setPasskeyToDelete] = useState<PasskeyRecord | null>(null);
   const passkeysAvailable = isPasskeyAvailable();
+  // この端末の登録（passkeys）と、ほかの端末の登録（passkeyInfos のうち削除されていないもの）。
+  const localPasskeyIds = new Set(passkeys.map((record) => record.id));
+  const otherPasskeyInfos = passkeyInfos.filter(
+    (info) => info.deletedAt === undefined && !localPasskeyIds.has(info.id),
+  );
 
   // QR は描画時に生成する（モーダルが開いている間だけ）。
   const syncQr = useQrDataUrl(
@@ -507,42 +533,84 @@ export function SettingsPage() {
 
         <Section title={t('settings.passkeys')}>
           <p className="field-hint">{t('settings.passkeys.lead')}</p>
-          {passkeys.length === 0 ? (
-            <p className="text-[0.86rem]" style={{ color: 'var(--text-muted)' }} data-testid="passkeys-empty">
-              {t('settings.passkeys.empty')}
-            </p>
-          ) : (
-            <>
-              <p className="text-[0.78rem]" style={{ color: 'var(--text-faint)' }} data-testid="passkey-count">
-                {t('settings.passkeys.count', { count: passkeys.length })}
+          <p className="field-hint" data-testid="passkeys-local-note">
+            {t('settings.passkeys.localNote')}
+          </p>
+
+          <div>
+            <p className="text-[0.86rem] font-medium">{t('settings.passkeys.localTitle')}</p>
+            {passkeys.length === 0 ? (
+              <p className="mt-1 text-[0.86rem]" style={{ color: 'var(--text-muted)' }} data-testid="passkeys-empty">
+                {t('settings.passkeys.empty')}
               </p>
-              <ul className="flex flex-col" data-testid="passkey-list">
-                {passkeys.map((record) => (
-                  <li
-                    key={record.id}
-                    className="flex items-center justify-between gap-3 border-t py-2 first:border-t-0"
-                    style={{ borderColor: 'var(--border)' }}
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-[0.9rem]" data-testid="passkey-name">
-                        {record.name}
+            ) : (
+              <>
+                <p className="mt-1 text-[0.78rem]" style={{ color: 'var(--text-faint)' }} data-testid="passkey-count">
+                  {t('settings.passkeys.count', { count: passkeys.length })}
+                </p>
+                <ul className="mt-1 flex flex-col" data-testid="passkey-list">
+                  {passkeys.map((record) => (
+                    <li
+                      key={record.id}
+                      className="flex items-center justify-between gap-3 border-t py-2 first:border-t-0"
+                      style={{ borderColor: 'var(--border)' }}
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-[0.9rem]" data-testid="passkey-name">
+                          {record.name}
+                        </p>
+                        <p className="text-[0.74rem]" style={{ color: 'var(--text-faint)' }}>
+                          {t('settings.passkeys.registeredAt')}: {formatTime(record.createdAt, language)}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-ghost shrink-0 text-[0.78rem]"
+                        onClick={() => setPasskeyToDelete(record)}
+                        data-testid="passkey-delete"
+                      >
+                        {t('settings.passkeys.delete')}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
+
+          {otherPasskeyInfos.length > 0 && (
+            <div data-testid="passkey-other-list">
+              <p className="text-[0.86rem] font-medium">{t('settings.passkeys.otherTitle')}</p>
+              <p className="mt-1 field-hint">{t('settings.passkeys.otherNote')}</p>
+              <ul className="mt-1 flex flex-col">
+                {otherPasskeyInfos.map((info) => {
+                  const fromThisDevice = info.deviceId === deviceId;
+                  return (
+                    <li
+                      key={info.id}
+                      className="border-t py-2 first:border-t-0"
+                      style={{ borderColor: 'var(--border)' }}
+                      data-testid="passkey-other-item"
+                    >
+                      <p className="truncate text-[0.9rem]" data-testid="passkey-other-name">
+                        {info.name}
                       </p>
                       <p className="text-[0.74rem]" style={{ color: 'var(--text-faint)' }}>
-                        {t('settings.passkeys.registeredAt')}: {formatTime(record.createdAt, language)}
+                        {t('settings.passkeys.registeredAt')}: {formatTime(info.createdAt, language)}
+                        {info.deviceName !== undefined && info.deviceName !== '' && (
+                          <> ・ {t('settings.passkeys.device')}: {info.deviceName}</>
+                        )}
                       </p>
-                    </div>
-                    <button
-                      type="button"
-                      className="btn btn-ghost shrink-0 text-[0.78rem]"
-                      onClick={() => setPasskeyToDelete(record)}
-                      data-testid="passkey-delete"
-                    >
-                      {t('settings.passkeys.delete')}
-                    </button>
-                  </li>
-                ))}
+                      <p className="mt-0.5 text-[0.72rem]" style={{ color: 'var(--clay)' }} data-testid="passkey-other-note">
+                        {fromThisDevice
+                          ? t('settings.passkeys.missingHere')
+                          : t('settings.passkeys.otherBadge')}
+                      </p>
+                    </li>
+                  );
+                })}
               </ul>
-            </>
+            </div>
           )}
 
           {passkeysAvailable ? (
@@ -680,9 +748,14 @@ export function SettingsPage() {
                   </button>
                 </div>
               </div>
+              {syncError !== null && (
+                <p className="field-error" role="alert" data-testid="sync-error">
+                  {syncErrorLabel(syncError, t)}
+                </p>
+              )}
               <div className="flex flex-wrap gap-2">
                 <button type="button" className="btn btn-secondary text-[0.82rem]" onClick={() => void syncNow()}>
-                  {t('toast.synced')}
+                  {t('settings.sync.now')}
                 </button>
                 <button type="button" className="btn btn-danger text-[0.82rem]" onClick={() => setDisableOpen(true)}>
                   {t('settings.sync.disable')}
@@ -833,6 +906,11 @@ export function SettingsPage() {
           </p>
           <p className="text-[0.76rem]" style={{ color: 'var(--text-faint)' }}>
             {t('settings.about.storage')}
+          </p>
+          <p>
+            <Link to="/privacy" className="link text-[0.82rem]" data-testid="privacy-link">
+              {t('settings.about.privacy')}
+            </Link>
           </p>
         </Section>
 

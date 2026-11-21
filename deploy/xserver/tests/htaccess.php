@@ -64,6 +64,17 @@ $client->check(
 );
 $client->check('ドットファイルの遮断（^\\.）が残っている', in_array('^\\.', $filesMatchPatterns, true));
 $client->check('FilesMatch は両方の authz 分岐にある', count($filesMatchPatterns) >= 6, (string) count($filesMatchPatterns));
+// SPA のルート（/privacy など、実ファイルの無いパス）は index.html へ返す。
+$client->check(
+    'SPA フォールバック（RewriteRule ^ index.html）がある',
+    preg_match('/RewriteRule \^ index\.html \[L\]/', $htaccess) === 1,
+);
+$client->check(
+    '/privacy を遮蔽する規則が無い（実ファイルが無ければ index.html へ）',
+    !str_contains($htaccess, '/privacy')
+        && !is_file($siteRoot . '/privacy')
+        && is_file($siteRoot . '/index.html'),
+);
 $client->check('HSTS がある', str_contains($htaccess, 'Strict-Transport-Security'));
 $client->check('X-Powered-By を消している', str_contains($htaccess, 'Header unset X-Powered-By'));
 

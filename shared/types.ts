@@ -62,6 +62,34 @@ export type VaultData = {
   tombstones?: Tombstone[];
   /** 同期している端末の一覧（古いバックアップには無いため任意） */
   devices?: SyncDevice[];
+  /**
+   * パスキー登録のメタ情報（古いバックアップには無いため任意）。
+   * 秘密（wrapped DEK・PRF salt・認証器の秘密鍵）は含めない。名前と登録端末を
+   * 端末をまたいで表示するためだけに、暗号化されたボルトの中へ入れる。
+   */
+  passkeyInfos?: PasskeyInfo[];
+};
+
+/**
+ * パスキー登録の「名前だけ」の記録。
+ *
+ * 端末ローカル（IndexedDB の PasskeyRecord）にある解除用の秘密は同期しない。
+ * 別の端末では解除に使えないが、「どの端末にどの名前のパスキーがあるか」を
+ * 一覧できるようにするための最小限の情報だけを、暗号化されたボルトの中で共有する。
+ */
+export type PasskeyInfo = {
+  /** credentialId（base64）。その端末の PasskeyRecord.id と同じ値 */
+  id: string;
+  /** 表示名（未入力なら既定名） */
+  name: string;
+  /** 登録日時（ISO 8601） */
+  createdAt: string;
+  /** 登録した端末の ID（この端末の登録かどうかの判定に使う） */
+  deviceId?: string;
+  /** 登録した端末の名前 */
+  deviceName?: string;
+  /** 削除した時刻（ISO 8601）。あるものは一覧に出さない（削除を他の端末にも伝える） */
+  deletedAt?: string;
 };
 
 /**
@@ -116,7 +144,9 @@ export type VaultRecord = {
 
 /**
  * パスキー / セキュリティキーによる解除の登録情報。
- * 端末の IndexedDB にだけ保存し、サーバーへは送らない（同期もしない）。
+ * 解除に使う情報（credentialId・PRF salt・包んだ DEK）は端末の IndexedDB にだけ置き、
+ * ほかの端末とは共有しない。表示名などの秘密でないメタ情報だけを
+ * VaultData.passkeyInfos として暗号化ボルトの中で共有する。
  */
 export type PasskeyRecord = {
   /** レコード形式のバージョン */
