@@ -36,8 +36,8 @@ android {
         minSdk = 26
         targetSdk = 35
         // Web 版・PHP 版と同じバージョンに揃える。
-        versionCode = 3
-        versionName = "1.1.1"
+        versionCode = 4
+        versionName = "1.1.2"
         resourceConfigurations += listOf("ja", "en")
         vectorDrawables { useSupportLibrary = true }
     }
