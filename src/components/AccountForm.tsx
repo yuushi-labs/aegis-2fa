@@ -4,11 +4,10 @@ import { MAX_NOTES_LENGTH, MAX_PERIOD, MIN_PERIOD } from '../../shared/types';
 import { decodeBase32, isValidBase32 } from '../../shared/base32';
 import { generateHOTP } from '../../shared/hotp';
 import { generateTOTP } from '../../shared/totp';
-import { useI18n, useToast } from '../lib/hooks';
+import { useI18n } from '../lib/hooks';
 import { type AccountDraft } from '../lib/accountDraft';
 import { avatarTone } from '../lib/format';
 import { ISSUER_SUGGESTIONS, matchedIssuerSuggestion } from '../lib/issuerSuggestions';
-import { detectSecretUri, draftFromOtpauthUri, type DetectedSecretUri } from '../lib/secretUri';
 import { Avatar } from './Avatar';
 import { Code } from './Code';
 import { RecoveryCodeEditor } from './RecoveryCodeEditor';
@@ -19,13 +18,6 @@ export type AccountFormProps = {
   /** 詳細設定を最初から開く */
   showAdvancedByDefault?: boolean;
   idPrefix?: string;
-  /**
-   * 秘密鍵欄に `otpauth://` / `otpauth-migration://` が貼られたときの処理。
-   * true を返すと URI を消費した（フォームへ反映済み、または移行タブへ案内済み）とみなし、
-   * 秘密鍵欄は書き換えない。false を返すと貼られた文字列をそのまま秘密鍵欄に入れる。
-   * 省略時は otpauth URI をこの場で分解して反映し、移行 URI は案内だけ出す。
-   */
-  onUriPaste?: (uri: string) => boolean;
 };
 
 export function AccountForm({
@@ -33,10 +25,8 @@ export function AccountForm({
   onChange,
   showAdvancedByDefault = false,
   idPrefix = 'acct',
-  onUriPaste,
 }: AccountFormProps) {
   const { t } = useI18n();
-  const toast = useToast();
   const [advanced, setAdvanced] = useState(showAdvancedByDefault);
   const [preview, setPreview] = useState<string>('');
   const [previewError, setPreviewError] = useState(false);
@@ -82,49 +72,6 @@ export function AccountForm({
 
   function patch(next: Partial<AccountDraft>): void {
     onChange({ ...value, ...next });
-  }
-
-  /**
-   * 検出した URI を呼び出し側へ渡す（または URI をこの場で分解する）。
-   * 引き受けた（true）ときは秘密鍵欄へ URI の文字列を残さない。
-   */
-  function consumeUri(detected: DetectedSecretUri): boolean {
-    if (onUriPaste !== undefined) return onUriPaste(detected.uri);
-    if (detected.kind === 'migration') {
-      toast(t('add.pasteMigration'), 'warning');
-      return true;
-    }
-    try {
-      onChange(draftFromOtpauthUri(detected.uri, value));
-      toast(t('add.pasteApplied'), 'success');
-      return true;
-    } catch {
-      // 解釈できない URI は秘密鍵として扱い、Base32 エラーを出す。
-      return false;
-    }
-  }
-
-  /**
-   * 貼り付けは入力途中と区別する。欄に前の（壊れた）URI が残っていても、
-   * 貼り付けた URI はそのまま解析する。引き受けたら既定の貼り付けを止める。
-   */
-  function handleSecretPaste(event: React.ClipboardEvent<HTMLInputElement>): void {
-    const detected = detectSecretUri(event.clipboardData.getData('text'));
-    if (detected === null) return;
-    if (consumeUri(detected)) event.preventDefault();
-  }
-
-  /**
-   * 秘密鍵欄への入力。URI が貼られた場合は Base32 として扱わず、フォーム全体へ展開する。
-   * 編集画面で黙って他の項目を上書きしないよう、呼び出し側の `onUriPaste` を優先する。
-   * URI を手で打っている途中（otpauth:// → otpauth://t …）で毎回反応しないよう、
-   * 直前の値がすでに URI だったときは何もしない（貼り直しは onPaste が扱う）。
-   */
-  function handleSecretInput(raw: string): void {
-    const detected = detectSecretUri(raw);
-    const alreadyUri = detectSecretUri(value.secret) !== null;
-    if (detected !== null && !alreadyUri && consumeUri(detected)) return;
-    patch({ secret: raw });
   }
 
   return (
@@ -212,8 +159,7 @@ export function AccountForm({
           id={`${idPrefix}-secret`}
           type="text"
           value={value.secret}
-          onChange={(event) => handleSecretInput(event.target.value)}
-          onPaste={handleSecretPaste}
+          onChange={(event) => patch({ secret: event.target.value })}
           placeholder="JBSWY3DPEHPK3PXP"
           autoComplete="off"
           autoCapitalize="characters"

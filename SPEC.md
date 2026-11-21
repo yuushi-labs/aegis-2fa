@@ -108,7 +108,11 @@ type VaultData = {
 1. **otpauth URI**: `otpauth://totp/Issuer:account?secret=...&issuer=...&algorithm=SHA1&digits=6&period=30` と `otpauth://hotp/...&counter=N` のパースと生成（往復で意味が変わらない）。
    - `secret` は Base32（大文字小文字・空白・`=` パディング許容）。不正なら明示エラー。
    - issuer は label の `Issuer:account` とクエリの `issuer` の両対応（クエリ優先、無ければ label から）。
-   - 手入力フォームの秘密鍵欄に `otpauth://` を貼った場合も同じパース結果でフォーム全体（issuer / label / secret / type / algorithm / digits / period / counter）を埋め、トーストで知らせる。`otpauth-migration://` を貼った場合は一括移行タブへ切り替えて読み込む。編集画面では入力中の値を上書きしてよいか確認してから反映する。
+   - 追加手段は「手入力（フォーム）」「QR 読み取り」「画像から」「一括移行」の 4 つだけにし、
+     `otpauth://` URI の手入力欄は置かない（secret 欄に URI を貼っても Base32 エラーとして扱う）。
+     URI を受け取るのは QR 読み取りだけで、読み取った otpauth URI は同じパーサでフォーム全体
+     （issuer / label / secret / type / algorithm / digits / period / counter）に入れて手入力タブへ移る。
+     `otpauth-migration://` の QR は一括移行タブへ切り替えて読み込む。
 2. **QR 読み取り**: カメラ（`getUserMedia`、背面優先）で連続スキャン。`BarcodeDetector` 未対応ブラウザは `jsqr` にフォールバック。画像ファイルアップロードからのデコードも可。読み取り結果が otpauth URI ならアカウント追加、`otpauth-migration://` なら一括インポート画面へ。
 3. **QR エクスポート**: 個別アカウントの otpauth URI を QR 表示（ダウンロード PNG 可）。全アカウントの一括 QR（Google Authenticator 移行形式）も生成（下記）。
 4. **Google Authenticator 移行形式**（`otpauth-migration://offline?data=<base64url>`）:
@@ -168,6 +172,19 @@ type VaultData = {
   同期画面（`SyncPage`）ではカメラの連続スキャンと QR 画像ファイルの読み取りができ（追加画面と同じ
   `QrScanPanel`）、読み取ったコードは入力欄に入る。この端末にまだボルトが無い場合はそのまま接続まで進む。
   同期コードを含まない QR は入力欄を変えずにエラーを出す。
+- Android アプリへの引き渡し（「📱 アプリでログイン」、設定の同期セクションと同期画面）:
+  - 押すと、同期コードが未発行ならその場で発行（`generateSyncToken`）し、**サーバーへ初回同期してから**
+    アプリを開く（アプリはコードでサーバーのボルトを取りに行くため、先に置いておく必要がある）。
+    同期に失敗したときはアプリを開かず、エラーを出す。
+  - 開く URL（`src/lib/appLogin.ts`）:
+    `aegis://login#code=<base64url(syncToken)>&dek=<base64url(DEK)>&name=<URL エンコードしたボルト名>`
+    - すべてフラグメント（`#`）に置く。フラグメントはサーバーへ送られないので、トークンも DEK も
+      アクセスログ・リファラに残らない。
+    - `code` は同期トークン（それ自体が base64url の 32 バイト）を UTF-8 のまま base64url 化したもの。
+      アプリ側は base64url デコード → 同期トークン文字列として使う。
+    - `dek` はアンロック中の DEK（32 バイト）の base64url。`name` は表示用のボルト名。
+  - 押したあとは「Aegis Android アプリを開いています。インストールされていない場合は GitHub Releases から
+    インストールしてください」と画面に出す（未インストールの端末ではブラウザが何もしないため）。
 
 ### 2.5 ロック / セッション
 
@@ -318,7 +335,7 @@ type PasskeyRecord = {
 
 ### 2.11 重複チェックと「よく使う順」ソート
 
-- **重複チェック**: 新規追加（手入力・QR・`otpauth://` 貼り付け）の保存時に、有効なアカウントの中に
+- **重複チェック**: 新規追加（手入力・QR・一括移行）の保存時に、有効なアカウントの中に
   同じ正規化 `secret`、または同じ `issuer` + `label`（大文字小文字と前後の空白を無視）があれば、
   どのアカウントと・どの理由で重なっているかをダイアログに並べる（`shared/duplicates.ts`）。
   「やめる」で追加画面に残り、「それでも追加する」で登録を続行できる。ゴミ箱のアカウントは数えない。
@@ -415,6 +432,9 @@ type PasskeyRecord = {
 20. 複数ボルト: 2 つ目のボルトを作成（別パスワード）→ 中身が空 → ヘッダーでメインへ戻ると
     ロックされ、2 つ目のパスワードでは開かず、メインのパスワードで元のアカウントが戻る。
 21. 同期端末: 同期ボルトの設定に自端末（「この端末」）が出て、名前を変えると再読み込み後も残る。
+22. 追加画面には `otpauth://` の手入力欄が無く、秘密鍵欄に URI を貼っても分解せず Base32 エラーになる。
+23. アプリでログイン: 未同期のボルトで押すと同期コードが自動発行され「同期済み」になり、案内が出る
+    （既に同期済みならコードを作り直さない）。設定と同期画面の両方から押せる。
 
 E2E は `pnpm build && pnpm start`（一時 DB）に対して `playwright.config.ts` の `webServer` で実行。`reuseExistingServer: !process.env.CI`。
 

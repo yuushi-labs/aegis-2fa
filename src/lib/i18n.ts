@@ -115,9 +115,6 @@ const ja = {
   'add.digits': '桁数',
   'add.period': '更新間隔（秒）',
   'add.counter': 'カウンタ',
-  'add.uri': 'otpauth:// URI',
-  'add.uriHint': '貼り付けて読み取ることもできます。',
-  'add.parse': 'URI を読み取る',
   'add.invalidSecret': '秘密鍵が Base32 として正しくありません',
   'add.invalidUri': 'otpauth URI を読み取れませんでした',
   'add.saved': 'アカウントを追加しました',
@@ -126,8 +123,16 @@ const ja = {
   'add.duplicate': '同じアカウントが既にあります',
   'add.duplicate.confirm': '重複していますが追加しますか？',
   'add.issuerSuggestions': 'よく使うサービス',
-  'add.pasteApplied': '貼り付けた URI からフォームに入れました',
-  'add.pasteMigration': '移行 URI は「一括移行」タブで読み込んでください',
+  'add.scanned': 'QR からアカウントを読み取りました',
+
+  'app.login.title': 'Android アプリで開く',
+  'app.login.lead': '同じボルトをスマホのアプリで開きます。パスワードを入れ直さずにそのまま使えます。',
+  'app.login.button': '📱 アプリでログイン',
+  'app.login.opening':
+    'Aegis Android アプリを開いています。インストールされていない場合は GitHub Releases からインストールしてください。',
+  'app.login.locked': 'ボルトがロックされています。解錠してからもう一度押してください。',
+  'app.login.syncFailed': '同期に失敗しました。接続を確認してからもう一度押してください。',
+  'app.login.failed': 'アプリを開けませんでした。もう一度お試しください。',
 
   'qr.start': 'カメラを起動',
   'qr.stop': 'カメラを停止',
@@ -162,8 +167,6 @@ const ja = {
   'detail.qr.warning': 'この QR には秘密鍵が含まれます。人に見せないでください。',
   'detail.qr.download': 'PNG を保存',
   'detail.advanced': '詳細設定',
-  'detail.uriPasteConfirm':
-    '貼り付けた URI の内容で、入力中の項目（サービス名・アカウント名・秘密鍵・詳細設定）を上書きしますか？',
 
   'settings.title': '設定',
   'settings.security': 'セキュリティ',
@@ -512,9 +515,6 @@ const en: Record<MessageKey, string> = {
   'add.digits': 'Digits',
   'add.period': 'Period (seconds)',
   'add.counter': 'Counter',
-  'add.uri': 'otpauth:// URI',
-  'add.uriHint': 'You can also paste one to fill the form.',
-  'add.parse': 'Read URI',
   'add.invalidSecret': 'This secret is not valid Base32',
   'add.invalidUri': 'Could not read that otpauth URI',
   'add.saved': 'Account added',
@@ -523,8 +523,16 @@ const en: Record<MessageKey, string> = {
   'add.duplicate': 'This account already exists',
   'add.duplicate.confirm': 'It looks like a duplicate. Add it anyway?',
   'add.issuerSuggestions': 'Common services',
-  'add.pasteApplied': 'Filled the form from the pasted URI',
-  'add.pasteMigration': 'Read a migration URI in the “Bulk import” tab',
+  'add.scanned': 'Read the account from the QR code',
+
+  'app.login.title': 'Open in the Android app',
+  'app.login.lead': 'Open the same vault in the phone app. You do not have to type the password again.',
+  'app.login.button': '📱 Sign in with the app',
+  'app.login.opening':
+    'Opening the Aegis Android app. If it is not installed yet, install it from GitHub Releases.',
+  'app.login.locked': 'The vault is locked. Unlock it and try again.',
+  'app.login.syncFailed': 'Sync failed. Check the connection and try again.',
+  'app.login.failed': 'Could not open the app. Try again.',
 
   'qr.start': 'Start camera',
   'qr.stop': 'Stop camera',
@@ -559,8 +567,6 @@ const en: Record<MessageKey, string> = {
   'detail.qr.warning': 'This QR contains the secret. Do not show it to anyone.',
   'detail.qr.download': 'Save PNG',
   'detail.advanced': 'Advanced',
-  'detail.uriPasteConfirm':
-    'Replace the fields you have entered (service, account name, secret, advanced options) with the pasted URI?',
 
   'settings.title': 'Settings',
   'settings.security': 'Security',

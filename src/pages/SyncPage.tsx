@@ -5,6 +5,7 @@ import { useI18n, useToast } from '../lib/hooks';
 import { useVaultStore } from '../lib/vaultStore';
 import { Modal } from '../components/Modal';
 import { QrScanPanel } from '../components/QrScanPanel';
+import { AppLoginButton } from '../components/AppLoginButton';
 import { createSyncClient, SyncNotFoundError } from '../lib/syncClient';
 import { extractSyncCode } from '../lib/syncCodeInput';
 
@@ -15,6 +16,7 @@ export function SyncPage() {
   const [params] = useSearchParams();
   const attachSync = useVaultStore((state) => state.attachSync);
   const hasVault = useVaultStore((state) => state.envelope !== null);
+  const status = useVaultStore((state) => state.status);
 
   const [code, setCode] = useState(() => params.get('code') ?? '');
   const [busy, setBusy] = useState(false);
@@ -149,6 +151,15 @@ export function SyncPage() {
           {busy ? t('common.loading') : t('sync.submit')}
         </button>
       </form>
+
+      {status === 'unlocked' && (
+        <section className="card mt-4 p-5" data-testid="app-login-card">
+          <p className="text-[0.9rem] font-medium">{t('app.login.title')}</p>
+          <div className="mt-3">
+            <AppLoginButton />
+          </div>
+        </section>
+      )}
 
       <div className="card mt-4 px-4 py-3">
         <button
