@@ -354,6 +354,27 @@ async function writeFixture(crypto: Modules['crypto'], options: FixtureOptions =
   return envelope;
 }
 
+/**
+ * 同じボルト（同じ鍵ラップ）のまま、別端末が作った revision の封筒を用意する。
+ * サーバー上の封筒は同じパスワードから作られた同じラップを持つ（ラップが変わるのは
+ * マスターパスワードを変更したときだけ）。
+ */
+function remoteSnapshot(
+  crypto: Modules['crypto'],
+  base: VaultEnvelope,
+  dek: Uint8Array,
+  plaintext: object,
+  revision: number,
+): Promise<VaultEnvelope> {
+  return crypto.updateEnvelopeData(
+    base,
+    dek,
+    JSON.stringify(plaintext),
+    revision,
+    '2026-01-02T00:00:00.000Z',
+  );
+}
+
 /** 保存済みボルトを初期化して解錠したストアを返す。 */
 async function unlockedStore(options: FixtureOptions = {}) {
   const modules = await loadModules();
@@ -985,13 +1006,13 @@ describe('ボルトストア: 同期', () => {
       token: TOKEN,
       syncedRevision: 1,
     });
-    const remote = await crypto.createVaultEnvelope({
-      password: PASSWORD,
-      plaintext: JSON.stringify({ accounts: [account('a'), account('b')], tombstones: [] }),
-      revision: 2,
-      iterations: TEST_ITERATIONS,
-      dek: store.getState().dek as Uint8Array,
-    });
+    const remote = await remoteSnapshot(
+      crypto,
+      store.getState().envelope as VaultEnvelope,
+      store.getState().dek as Uint8Array,
+      { accounts: [account('a'), account('b')], tombstones: [] },
+      2,
+    );
     const puts: Array<{ revision: number; base: number }> = [];
     H.server.get = async () => ({ envelope: remote, revision: 2 });
     H.server.put = async (_v: string, _t: string, envelope: VaultEnvelope, base: number) => {
@@ -1018,13 +1039,13 @@ describe('ボルトストア: 同期', () => {
       token: TOKEN,
       syncedRevision: 1,
     });
-    const remote = await crypto.createVaultEnvelope({
-      password: PASSWORD,
-      plaintext: JSON.stringify({ accounts: [account('a'), account('b')], tombstones: [] }),
-      revision: 2,
-      iterations: TEST_ITERATIONS,
-      dek: store.getState().dek as Uint8Array,
-    });
+    const remote = await remoteSnapshot(
+      crypto,
+      store.getState().envelope as VaultEnvelope,
+      store.getState().dek as Uint8Array,
+      { accounts: [account('a'), account('b')], tombstones: [] },
+      2,
+    );
     const put = vi.fn(
       async (_v: string, _t: string, envelope: VaultEnvelope, _base: number) => ({
         revision: envelope.revision,
@@ -1047,13 +1068,13 @@ describe('ボルトストア: 同期', () => {
       token: TOKEN,
       syncedRevision: 1,
     });
-    const remote = await crypto.createVaultEnvelope({
-      password: PASSWORD,
-      plaintext: JSON.stringify({ accounts: [account('a'), account('b')], tombstones: [] }),
-      revision: 2,
-      iterations: TEST_ITERATIONS,
-      dek: store.getState().dek as Uint8Array,
-    });
+    const remote = await remoteSnapshot(
+      crypto,
+      store.getState().envelope as VaultEnvelope,
+      store.getState().dek as Uint8Array,
+      { accounts: [account('a'), account('b')], tombstones: [] },
+      2,
+    );
     const put = vi.fn(
       async (_v: string, _t: string, envelope: VaultEnvelope, _base: number) => ({
         revision: envelope.revision,
@@ -1105,13 +1126,13 @@ describe('ボルトストア: 同期', () => {
       syncedRevision: 1,
     });
     // 別端末が revision 3 まで進めていた（手元の送信は base 1 なので拒否される）。
-    const remote = await crypto.createVaultEnvelope({
-      password: PASSWORD,
-      plaintext: JSON.stringify({ accounts: [account('a'), account('b')], tombstones: [] }),
-      revision: 3,
-      iterations: TEST_ITERATIONS,
-      dek: store.getState().dek as Uint8Array,
-    });
+    const remote = await remoteSnapshot(
+      crypto,
+      store.getState().envelope as VaultEnvelope,
+      store.getState().dek as Uint8Array,
+      { accounts: [account('a'), account('b')], tombstones: [] },
+      3,
+    );
     const puts: number[] = [];
     let first = true;
     H.server.put = async (_v: string, _t: string, envelope: VaultEnvelope, base: number) => {
@@ -1142,13 +1163,13 @@ describe('ボルトストア: 同期', () => {
       syncedRevision: 1,
     });
     // 別端末が revision 3 まで進めている（手元の送信は base 1 なので拒否される）。
-    const remote = await crypto.createVaultEnvelope({
-      password: PASSWORD,
-      plaintext: JSON.stringify({ accounts: [account('a'), account('b')], tombstones: [] }),
-      revision: 3,
-      iterations: TEST_ITERATIONS,
-      dek: store.getState().dek as Uint8Array,
-    });
+    const remote = await remoteSnapshot(
+      crypto,
+      store.getState().envelope as VaultEnvelope,
+      store.getState().dek as Uint8Array,
+      { accounts: [account('a'), account('b')], tombstones: [] },
+      3,
+    );
     const puts: number[] = [];
     H.server.put = async (_v: string, _t: string, _envelope: VaultEnvelope, base: number) => {
       puts.push(base);
@@ -1178,13 +1199,13 @@ describe('ボルトストア: 同期', () => {
     await store.getState().upsertAccount(account('d'));
     expect(H.vault?.envelope.revision).toBe(3);
     // 別端末は revision 2 でアカウント c を追加している。
-    const remote = await crypto.createVaultEnvelope({
-      password: PASSWORD,
-      plaintext: JSON.stringify({ accounts: [account('a'), account('c')], tombstones: [] }),
-      revision: 2,
-      iterations: TEST_ITERATIONS,
-      dek: store.getState().dek as Uint8Array,
-    });
+    const remote = await remoteSnapshot(
+      crypto,
+      store.getState().envelope as VaultEnvelope,
+      store.getState().dek as Uint8Array,
+      { accounts: [account('a'), account('c')], tombstones: [] },
+      2,
+    );
     const puts: Array<{ base: number; revision: number }> = [];
     let first = true;
     H.server.put = async (_v: string, _t: string, envelope: VaultEnvelope, base: number) => {
@@ -1213,13 +1234,13 @@ describe('ボルトストア: 同期', () => {
       token: TOKEN,
       syncedRevision: 1,
     });
-    const remote = await crypto.createVaultEnvelope({
-      password: PASSWORD,
-      plaintext: JSON.stringify({ accounts: [account('a'), account('b')], tombstones: [] }),
-      revision: 2,
-      iterations: TEST_ITERATIONS,
-      dek: store.getState().dek as Uint8Array,
-    });
+    const remote = await remoteSnapshot(
+      crypto,
+      store.getState().envelope as VaultEnvelope,
+      store.getState().dek as Uint8Array,
+      { accounts: [account('a'), account('b')], tombstones: [] },
+      2,
+    );
     H.server.get = async () => ({ envelope: remote, revision: 2 });
     H.server.put = async (_v: string, _t: string, envelope: VaultEnvelope) => ({
       revision: envelope.revision,
@@ -1232,10 +1253,45 @@ describe('ボルトストア: 同期', () => {
     await syncing;
     await settle();
     const state = store.getState();
-    // マージ結果は暗号文として保存するが、ロック後にアカウント（OTP の secret）は戻さない。
+    // ロック後にアカウント（OTP の secret）は戻さない。古いマージ結果は捨てて次の同期に任せる。
     expect(state.status).toBe('locked');
     expect(state.accounts).toEqual([]);
-    expect(H.vault?.envelope.revision).toBe(3);
+    expect(state.envelope?.revision).toBe(1);
+    expect(H.vault?.envelope.revision).toBe(1);
+  });
+
+  it('パスワード変更とサーバー側の更新が重なったら、自動で取り込まず競合にする（変更を取り消さない）', async () => {
+    const { store, crypto } = await unlockedStore({
+      accounts: [account('a')],
+      token: TOKEN,
+      syncedRevision: 1,
+    });
+    const original = store.getState().envelope as VaultEnvelope;
+    const dek = store.getState().dek as Uint8Array;
+    // この端末でパスワードを変更する（鍵のラップだけが変わる）。
+    expect(await store.getState().changePassword(PASSWORD, OTHER_PASSWORD)).toBe(true);
+    const changedSalt = store.getState().envelope?.kdf.salt;
+    expect(changedSalt).not.toBe(original.kdf.salt);
+
+    // サーバーは変更前のラップのまま revision 3 まで進んでいる（別端末の追加）。
+    const remote = await crypto.updateEnvelopeData(
+      original,
+      dek,
+      JSON.stringify({ accounts: [account('a'), account('c')], tombstones: [] }),
+      3,
+      '2026-02-02T00:00:00.000Z',
+    );
+    H.server.get = async () => ({ envelope: remote, revision: 3 });
+    H.server.put = async () => {
+      throw new H.errors.SyncHttpError(400, { error: 'revision_must_advance' });
+    };
+    await store.getState().syncNow();
+    await settle();
+    const state = store.getState();
+    expect(state.syncState).toBe('conflict');
+    expect(state.conflict?.remoteRevision).toBe(3);
+    // ローカルのパスワード変更は取り消されない（新しいラップのまま）。
+    expect(state.envelope?.kdf.salt).toBe(changedSalt);
   });
 
   it('サーバーが同じ封筒を持っていれば 409 を競合と誤認しない', async () => {
@@ -1266,13 +1322,13 @@ describe('ボルトストア: 同期', () => {
       token: TOKEN,
       syncedRevision: 1,
     });
-    const remote = await crypto.createVaultEnvelope({
-      password: PASSWORD,
-      plaintext: JSON.stringify({ accounts: [account('remote')], tombstones: [] }),
-      revision: 5,
-      iterations: TEST_ITERATIONS,
-      dek: store.getState().dek as Uint8Array,
-    });
+    const remote = await remoteSnapshot(
+      crypto,
+      store.getState().envelope as VaultEnvelope,
+      store.getState().dek as Uint8Array,
+      { accounts: [account('remote')], tombstones: [] },
+      5,
+    );
     H.server.put = async () => {
       throw new H.errors.SyncConflictError(5);
     };
@@ -1488,13 +1544,13 @@ describe('ボルトストア: 競合解決', () => {
       token: TOKEN,
       syncedRevision: 1,
     });
-    const remote = await crypto.createVaultEnvelope({
-      password: PASSWORD,
-      plaintext: JSON.stringify({ accounts: [account('remote')], tombstones: [] }),
-      revision: 4,
-      iterations: TEST_ITERATIONS,
-      dek: store.getState().dek as Uint8Array,
-    });
+    const remote = await remoteSnapshot(
+      crypto,
+      store.getState().envelope as VaultEnvelope,
+      store.getState().dek as Uint8Array,
+      { accounts: [account('remote')], tombstones: [] },
+      4,
+    );
     store.setState({ conflict: { remoteRevision: 4, remoteEnvelope: remote }, syncState: 'conflict' });
     const result = await store.getState().resolveConflict('discard');
     await settle();
@@ -1511,13 +1567,13 @@ describe('ボルトストア: 競合解決', () => {
       token: TOKEN,
       syncedRevision: 1,
     });
-    const remote = await crypto.createVaultEnvelope({
-      password: PASSWORD,
-      plaintext: JSON.stringify({ accounts: [account('remote')], tombstones: [] }),
-      revision: 4,
-      iterations: TEST_ITERATIONS,
-      dek: store.getState().dek as Uint8Array,
-    });
+    const remote = await remoteSnapshot(
+      crypto,
+      store.getState().envelope as VaultEnvelope,
+      store.getState().dek as Uint8Array,
+      { accounts: [account('remote')], tombstones: [] },
+      4,
+    );
     const put = vi.fn(async (_v: string, _t: string, envelope: VaultEnvelope, _base: number) => ({
       revision: envelope.revision,
     }));
@@ -1540,9 +1596,11 @@ describe('ボルトストア: 競合解決', () => {
       token: TOKEN,
       syncedRevision: 1,
     });
-    const remote = await crypto.createVaultEnvelope({
-      password: PASSWORD,
-      plaintext: JSON.stringify({
+    const remote = await remoteSnapshot(
+      crypto,
+      store.getState().envelope as VaultEnvelope,
+      store.getState().dek as Uint8Array,
+      {
         accounts: [
           account('keep', {
             label: 'remote-newer@example.com',
@@ -1553,11 +1611,9 @@ describe('ボルトストア: 競合解決', () => {
           account('deleted-locally', { updatedAt: '2026-01-01T00:00:00.000Z' }),
         ],
         tombstones: [{ id: 'deleted-locally', deletedAt: '2026-01-03T00:00:00.000Z' }],
-      }),
-      revision: 4,
-      iterations: TEST_ITERATIONS,
-      dek: store.getState().dek as Uint8Array,
-    });
+      },
+      4,
+    );
     H.server.put = async (_v: string, _t: string, envelope: VaultEnvelope) => ({
       revision: envelope.revision,
     });
@@ -1978,13 +2034,13 @@ describe('ボルトストア: パスキー / セキュリティキー', () => {
       deviceId: 'device-other',
       deviceName: 'MacBook',
     };
-    const remote = await crypto.createVaultEnvelope({
-      password: PASSWORD,
-      dek: store.getState().dek as Uint8Array,
-      plaintext: JSON.stringify({ accounts: [], tombstones: [], passkeyInfos: [remoteInfo] }),
-      revision: 2,
-      iterations: TEST_ITERATIONS,
-    });
+    const remote = await remoteSnapshot(
+      crypto,
+      store.getState().envelope as VaultEnvelope,
+      store.getState().dek as Uint8Array,
+      { accounts: [], tombstones: [], passkeyInfos: [remoteInfo] },
+      2,
+    );
     H.server.get = async () => ({ envelope: remote, revision: 2 });
     await store.getState().syncNow();
     await settle();

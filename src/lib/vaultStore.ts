@@ -847,9 +847,22 @@ export const useVaultStore = create<VaultStore>((set, get) => {
       const sameEnvelope =
         remote.envelope.data.iv === sent.data.iv &&
         remote.envelope.data.ciphertext === sent.data.ciphertext;
-      if (remote.revision === sent.revision && sameEnvelope) {
+      // 鍵のラップ（salt と wrappedKey）が違う＝どちらかの端末でマスターパスワードが
+      // 変更されている。勝手に取り込むと変更を取り消して古いパスワードが有効に戻るので、
+      // 解錠した利用者に選ばせる（取り込み / 上書き / マージ）。
+      const sameWrapping =
+        remote.envelope.kdf.salt === sent.kdf.salt &&
+        remote.envelope.wrappedKey.ciphertext === sent.wrappedKey.ciphertext;
+      if (remote.revision === sent.revision && sameEnvelope && sameWrapping) {
         // サーバーと一致している → 同期済みとして終わる。
         await adoptRemote(remote);
+        return;
+      }
+      if (!sameWrapping) {
+        set({
+          syncState: 'conflict',
+          conflict: { remoteRevision: remote.revision, remoteEnvelope: remote.envelope },
+        });
         return;
       }
 
@@ -919,6 +932,9 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         return;
       }
       if (!isCurrent()) return;
+      // 再暗号化の間にローカルが保存された／ロック・切替が起きたら、この結果は捨てる
+      // （次の同期が最新の内容でやり直す。古いマージ結果で編集を上書きしない）。
+      if (get().envelope !== sent || session !== unlockSession) return;
       // 先に手元へ保存する（送信に失敗してもマージ結果を失わない）。
       if (profileId !== null) await writeVault(profileId, next, remote.revision);
       if (!isCurrent()) return;
