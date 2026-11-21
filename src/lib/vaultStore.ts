@@ -1149,11 +1149,16 @@ export const useVaultStore = create<VaultStore>((set, get) => {
       }
       const profileId = initial.activeProfileId ?? DEFAULT_PROFILE_ID;
       const generation = lifecycleGeneration;
+      // 待機中に別のボルトへ切り替わった・作り直されたら、このボルトのコードは渡さない。
+      const stillCurrent = (): boolean =>
+        generation === lifecycleGeneration && (get().activeProfileId ?? DEFAULT_PROFILE_ID) === profileId;
       let token = initial.token;
       if (token === null) {
         token = generateSyncToken();
         const vaultId = await deriveVaultId(token);
+        if (!stillCurrent()) throw new VaultChangedError();
         await writeToken(profileId, token);
+        if (!stillCurrent()) throw new VaultChangedError();
         // 失敗してもコードは残す（次に押したときの再送で使える。設定画面にも出る）。
         set({
           token,
@@ -1166,16 +1171,23 @@ export const useVaultStore = create<VaultStore>((set, get) => {
       }
       // アプリはコードでサーバーのボルトを取りに行くので、未送信なら先に置いておく
       // （サーバーに無ければ base 0 で作られる）。
-      if (get().syncedRevision === null) await get().syncNow();
+      // `syncedRevision` が 0 のままなのは「作ったが一度も送れていない」状態
+      // （オフラインで createVault した等）。error のときも押し直しで再送する。
+      const current = (): { sent: boolean } => {
+        const state = get();
+        const revision = state.syncedRevision;
+        return { sent: revision !== null && revision > 0 && state.syncState !== 'error' };
+      };
+      if (!current().sent) await get().syncNow();
       // 送信中に別のボルトへ切り替わった・消えた場合、そのコードは渡さない。
-      if (generation !== lifecycleGeneration || get().token !== token) throw new VaultChangedError();
-      if (get().syncedRevision === null || get().syncState === 'error') throw new AppLoginSyncError();
-      const current = get();
-      if (current.dek === null || current.status !== 'unlocked') throw new VaultLockedError();
+      if (!stillCurrent() || get().token !== token) throw new VaultChangedError();
+      if (!current().sent) throw new AppLoginSyncError();
+      const unlocked = get();
+      if (unlocked.dek === null || unlocked.status !== 'unlocked') throw new VaultLockedError();
       const vaultName = normaliseProfileName(
-        current.profiles.find((profile) => profile.id === profileId)?.name ?? '',
+        unlocked.profiles.find((profile) => profile.id === profileId)?.name ?? '',
       );
-      return { token, dek: current.dek, vaultName };
+      return { token, dek: unlocked.dek, vaultName };
     },
 
     async changePassword(current, next) {

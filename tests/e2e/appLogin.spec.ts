@@ -33,10 +33,10 @@ test.describe('アプリでログイン（Android アプリへの引き渡し）
     await page.getByTestId('app-login').click();
     await expect(page.getByTestId('app-login-notice')).toContainText('Aegis Android アプリを開いています');
 
-    // 同期コード（伏せ字の桁数）は変わらない = 作り直していない。
-    const masked = await page.getByTestId('sync-code-value').textContent();
-    expect(masked?.trim().length).toBeGreaterThan(0);
-    expect(token).not.toBeNull();
+    // 同期コードは作り直さない（表示して、操作前のコードと一致することを確かめる）。
+    await page.getByRole('button', { name: '表示する' }).click();
+    const shown = (await page.getByTestId('sync-code-value').textContent())?.replace(/\s+/g, '') ?? '';
+    expect(shown).toBe(token);
   });
 
   test('同期画面にも同じボタンがあり、押すと案内が出る', async ({ page }) => {

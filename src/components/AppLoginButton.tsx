@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { buildAppLoginUrl } from '../lib/appLogin';
 import { useI18n } from '../lib/hooks';
 import { AppLoginSyncError, VaultLockedError, useVaultStore } from '../lib/vaultStore';
@@ -16,6 +16,15 @@ export function AppLoginButton() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** 初回同期の待機中に画面を離れたら、アプリへの遷移はしない。 */
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   async function handleClick(): Promise<void> {
     if (busy) return;
@@ -24,16 +33,19 @@ export function AppLoginButton() {
     setNotice(null);
     try {
       const { token, dek, vaultName } = await prepareAppLogin();
+      // 待機中に別のページへ移っていたら、いまの操作を中断させない（画面も変えない）。
+      if (!mounted.current) return;
       // カスタムスキームへ遷移する。未インストールの端末ではブラウザが何もしないので、
       // 下の案内（GitHub Releases）を必ず出す。
       window.location.href = buildAppLoginUrl({ token, dek, vaultName });
       setNotice(t('app.login.opening'));
     } catch (loginError) {
+      if (!mounted.current) return;
       if (loginError instanceof AppLoginSyncError) setError(t('app.login.syncFailed'));
       else if (loginError instanceof VaultLockedError) setError(t('app.login.locked'));
       else setError(t('app.login.failed'));
     } finally {
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   }
 
