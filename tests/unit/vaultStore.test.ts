@@ -1136,23 +1136,106 @@ describe('ボルトストア: 同期', () => {
   });
 
   it('400 が続いても往復を 1 回で止め、エラーとして記録する', async () => {
-    const { store } = await unlockedStore({ accounts: [account('a')], token: TOKEN, syncedRevision: 1 });
+    const { store, crypto } = await unlockedStore({
+      accounts: [account('a')],
+      token: TOKEN,
+      syncedRevision: 1,
+    });
+    // 別端末が revision 3 まで進めている（手元の送信は base 1 なので拒否される）。
+    const remote = await crypto.createVaultEnvelope({
+      password: PASSWORD,
+      plaintext: JSON.stringify({ accounts: [account('a'), account('b')], tombstones: [] }),
+      revision: 3,
+      iterations: TEST_ITERATIONS,
+      dek: store.getState().dek as Uint8Array,
+    });
     const puts: number[] = [];
     H.server.put = async (_v: string, _t: string, _envelope: VaultEnvelope, base: number) => {
       puts.push(base);
       throw new H.errors.SyncHttpError(400, { error: 'revision_must_advance' });
     };
-    H.server.get = async () => ({ envelope: H.vault!.envelope, revision: 1 });
+    H.server.get = async () => ({ envelope: remote, revision: 3 });
     await store.getState().upsertAccount(account('b'));
     await store.getState().syncNow();
     await settle();
-    // 最初の PUT と、取り込み直したあとの 1 回だけ（同じ送信をくり返さない）。
-    expect(puts).toEqual([1, 1]);
+    // 最初の PUT（base 1）と、取り込み直したあとの 1 回（base 3）だけ。
+    expect(puts).toEqual([1, 3]);
     expect(store.getState().syncState).toBe('error');
     expect(store.getState().syncError).toBe('http_400');
     expect(store.getState().conflict).toBeNull();
     // 平文は失われない（次の同期で送り直せる）。
     expect(store.getState().accounts.map((item) => item.id).sort()).toEqual(['a', 'b']);
+  });
+
+  it('サーバーが手元より 1 つだけ遅れているときは、送り返さずマージする（他端末の変更を捨てない）', async () => {
+    const { store, crypto } = await unlockedStore({
+      accounts: [account('a')],
+      token: TOKEN,
+      syncedRevision: 1,
+    });
+    // 未送信の変更を 2 つ重ねる（ローカル revision 3 / 最後に一致した revision 1）。
+    await store.getState().upsertAccount(account('b'));
+    await store.getState().upsertAccount(account('d'));
+    expect(H.vault?.envelope.revision).toBe(3);
+    // 別端末は revision 2 でアカウント c を追加している。
+    const remote = await crypto.createVaultEnvelope({
+      password: PASSWORD,
+      plaintext: JSON.stringify({ accounts: [account('a'), account('c')], tombstones: [] }),
+      revision: 2,
+      iterations: TEST_ITERATIONS,
+      dek: store.getState().dek as Uint8Array,
+    });
+    const puts: Array<{ base: number; revision: number }> = [];
+    let first = true;
+    H.server.put = async (_v: string, _t: string, envelope: VaultEnvelope, base: number) => {
+      if (first) {
+        first = false;
+        throw new H.errors.SyncHttpError(400, { error: 'revision_must_advance' });
+      }
+      puts.push({ base, revision: envelope.revision });
+      return { revision: envelope.revision };
+    };
+    H.server.get = async () => ({ envelope: remote, revision: 2 });
+    await store.getState().syncNow();
+    await settle();
+    // 手元の変更（b・d）と他端末の変更（c）の両方が残り、サーバーの revision 2 を基準に送る。
+    expect(store.getState().accounts.map((item) => item.id).sort()).toEqual(['a', 'b', 'c', 'd']);
+    expect(puts).toEqual([{ base: 2, revision: 3 }]);
+    expect(store.getState().syncState).toBe('synced');
+    const stored = await decrypted(H.vault!.envelope, crypto);
+    expect(stored.accounts.map((item) => item.id).sort()).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('取り込みの再暗号化中にロックされたら、平文は戻さない', async () => {
+    // 手元にしかない d があるので、マージ結果はサーバーの内容と一致せず再暗号化に入る。
+    const { store, crypto } = await unlockedStore({
+      accounts: [account('a'), account('d')],
+      token: TOKEN,
+      syncedRevision: 1,
+    });
+    const remote = await crypto.createVaultEnvelope({
+      password: PASSWORD,
+      plaintext: JSON.stringify({ accounts: [account('a'), account('b')], tombstones: [] }),
+      revision: 2,
+      iterations: TEST_ITERATIONS,
+      dek: store.getState().dek as Uint8Array,
+    });
+    H.server.get = async () => ({ envelope: remote, revision: 2 });
+    H.server.put = async (_v: string, _t: string, envelope: VaultEnvelope) => ({
+      revision: envelope.revision,
+    });
+    const gate = holdEncryption();
+    const syncing = store.getState().syncNow();
+    await gate.entered;
+    store.getState().lock();
+    gate.release();
+    await syncing;
+    await settle();
+    const state = store.getState();
+    // マージ結果は暗号文として保存するが、ロック後にアカウント（OTP の secret）は戻さない。
+    expect(state.status).toBe('locked');
+    expect(state.accounts).toEqual([]);
+    expect(H.vault?.envelope.revision).toBe(3);
   });
 
   it('サーバーが同じ封筒を持っていれば 409 を競合と誤認しない', async () => {

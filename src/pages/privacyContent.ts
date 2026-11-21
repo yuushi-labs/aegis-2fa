@@ -68,7 +68,7 @@ export const PRIVACY_SECTIONS: Record<PrivacyLanguage, PrivacySection[]> = {
             '端末内（ブラウザの IndexedDB。暗号化した状態で保存）: 上のアカウント情報、削除の記録、端末一覧、パスキーの表示名一覧、アプリの設定。',
             '端末内のみで、同期しないもの: パスキー / セキュリティキーの登録情報（credential ID、PRF の salt、DEK を包んだ情報）。指紋・顔・認証器の秘密鍵は認証器の外へ出ません。',
             'サーバー（同期を有効にした場合のみ）: 暗号文、IV、鍵導出の salt と反復回数、verifier、リビジョン番号、更新日時。これらから秘密鍵やマスターパスワードを知ることはできません。',
-            'ボルト ID: 同期コードの SHA-256 の先頭 32 桁。同期コードそのものは送りません。',
+            'ボルト ID: 同期コードの SHA-256 の先頭 32 桁。サーバーはトークンのハッシュだけを保存し、同期コードそのものは保存しません（認証のため、リクエストごとに Authorization ヘッダで送信します）。',
           ],
         },
       ],
@@ -82,7 +82,7 @@ export const PRIVACY_SECTIONS: Record<PrivacyLanguage, PrivacySection[]> = {
         },
         {
           kind: 'p',
-          text: 'マスターパスワードを忘れた場合、開発者を含む誰もデータを復元できません。',
+          text: 'マスターパスワードを忘れ、有効なパスキーも使えない場合、開発者を含む誰もデータを復元できません。パスキーを登録してあれば、その端末ではパスキーで解除できます。',
         },
       ],
     },
@@ -123,7 +123,7 @@ export const PRIVACY_SECTIONS: Record<PrivacyLanguage, PrivacySection[]> = {
           kind: 'ul',
           items: [
             'リクエストの記録は、メソッド・パス・ステータス・処理時間だけです。Authorization ヘッダやリクエスト本文は記録しません。',
-            'レート制限のため、接続元の IP アドレスを一定時間だけ数えます。カウントはメモリ上で行い、データベースには保存しません。',
+            'レート制限のため、接続元の IP アドレスを一定時間だけ数えます。Node 版はメモリ上だけで数え、PHP 版（Xserver）はデータベース（SQLite）に「用途名 + IP アドレス」と回数・期限を保存します。期限切れの行は後続のリクエスト時に少しずつ削除され、IP アドレスを長期に残す用途には使いません。',
             'ホスティング事業者（Xserver など）が取得するアクセスログは、その事業者のポリシーに従います。',
           ],
         },
@@ -176,8 +176,8 @@ export const PRIVACY_SECTIONS: Record<PrivacyLanguage, PrivacySection[]> = {
         {
           kind: 'ul',
           items: [
-            '「ボルトを削除」で、この端末の暗号文とサーバー上の暗号文を削除します（サーバーへの削除が失敗しても端末側は削除します）。',
-            '「同期を停止」で、サーバー上の暗号文を削除します。ほかの端末では解除できなくなります。',
+            '「ボルトを削除」で、この端末の暗号文を削除し、サーバー上の暗号文の削除も要求します（通信できないときなどは、サーバー側に暗号文が残ることがあります）。',
+            '「同期を停止」で、サーバー上の暗号文の削除を要求します。削除に失敗した場合は、端末側の同期設定だけが外れて暗号文が残ることがあります。また、すでに暗号文を取得済みの端末は、手元のコピーを引き続き復号できます（鍵は端末の中にあり、サーバー側からは失効できません）。',
             'パスキーの削除は、その端末の登録と、暗号化されたボルト内の表示名の一覧から行います。',
             'ブラウザのサイトデータを消すと端末内の暗号文も消えます。マスターパスワードが分かっていても、暗号文がなければ復号できません。',
           ],
@@ -231,7 +231,7 @@ export const PRIVACY_SECTIONS: Record<PrivacyLanguage, PrivacySection[]> = {
             'On your device (the browser’s IndexedDB, encrypted): account data, deletion records, the device list, the passkey label list, and app settings.',
             'On your device only, never synced: passkey / security key registrations (credential ID, PRF salt, wrapped DEK). Fingerprints, faces and the authenticator’s private key never leave the authenticator.',
             'On the server (only when sync is enabled): ciphertext, IV, the key-derivation salt and iteration count, the verifier, the revision number and the update time. None of it reveals your secrets or master password.',
-            'Vault ID: the first 32 hex characters of SHA-256(sync code). The sync code itself is never sent.',
+            'Vault ID: the first 32 hex characters of SHA-256(sync code). The server stores only a hash of the token and never the sync code itself (the code is sent in the Authorization header of each request for authentication).',
           ],
         },
       ],
@@ -245,7 +245,7 @@ export const PRIVACY_SECTIONS: Record<PrivacyLanguage, PrivacySection[]> = {
         },
         {
           kind: 'p',
-          text: 'If you forget your master password, nobody — including the developer — can recover the data.',
+          text: 'If you forget your master password and have no working passkey, nobody — including the developer — can recover the data. If you registered a passkey, you can still unlock with it on that device.',
         },
       ],
     },
@@ -286,7 +286,7 @@ export const PRIVACY_SECTIONS: Record<PrivacyLanguage, PrivacySection[]> = {
           kind: 'ul',
           items: [
             'Request records contain the method, path, status and duration only. The Authorization header and request bodies are never logged.',
-            'For rate limiting, the client IP address is counted for a short time in memory; it is not written to the database.',
+            'For rate limiting, the client IP address is counted for a short time. The Node build counts only in memory; the PHP build (Xserver) stores “bucket name + IP address” with a count and an expiry in its SQLite database. Expired rows are pruned gradually by later requests and are not used to keep IP addresses long term.',
             'Access logs kept by the hosting provider (such as Xserver) follow that provider’s own policy.',
           ],
         },
@@ -339,8 +339,8 @@ export const PRIVACY_SECTIONS: Record<PrivacyLanguage, PrivacySection[]> = {
         {
           kind: 'ul',
           items: [
-            '“Delete vault” removes the ciphertext on this device and on the server (the local copy is removed even if the server request fails).',
-            '“Stop syncing” removes the ciphertext on the server; other devices will no longer be able to unlock.',
+            '“Delete vault” removes the ciphertext on this device and requests its removal on the server (if the request cannot be made, for example while offline, the server copy may remain).',
+            '“Stop syncing” requests removal of the ciphertext on the server. If that request fails, only the sync setting on the device is removed and the ciphertext may remain. Devices that already downloaded the ciphertext can still decrypt their local copy: the keys live on the devices, so the server cannot revoke them.',
             'Deleting a passkey removes the registration on that device and the label from the encrypted vault.',
             'Clearing your browser’s site data also removes the ciphertext on the device. Even with the master password, data without its ciphertext cannot be decrypted.',
           ],

@@ -81,7 +81,18 @@ object VaultMerge {
                     byId[info.id] = info
                     continue
                 }
-                val newer = if (compareTimestamps(info.createdAt, current.createdAt) > 0) info else current
+                val byCreatedAt = compareTimestamps(info.createdAt, current.createdAt)
+                // 登録日時が同じ（端末名の付け替え）なら名前で決める。入力順に任せると
+                // 端末ごとに違う名前が残り、同期のたびに書き戻されて収束しない。
+                val newer = when {
+                    byCreatedAt > 0 -> info
+                    byCreatedAt < 0 -> current
+                    else -> {
+                        val left = (current.deviceName ?: "") + "\u0000" + current.name
+                        val right = (info.deviceName ?: "") + "\u0000" + info.name
+                        if (right > left) info else current
+                    }
+                }
                 val deletedAt = when {
                     current.deletedAt == null -> info.deletedAt
                     info.deletedAt == null -> current.deletedAt

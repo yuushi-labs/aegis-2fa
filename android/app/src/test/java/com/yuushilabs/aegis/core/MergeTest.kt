@@ -188,6 +188,14 @@ class MergeTest {
     }
 
     @Test
+    fun `passkey device name ties resolve the same way regardless of order`() {
+        val a = listOf(PasskeyInfo("k1", "Pixel", "2026-01-01T00:00:00.000Z", "phone", "Pixel"))
+        val b = listOf(PasskeyInfo("k1", "Pixel", "2026-01-01T00:00:00.000Z", "phone", "Pixel 8"))
+        assertEquals(VaultMerge.mergePasskeyInfos(a, b), VaultMerge.mergePasskeyInfos(b, a))
+        assertEquals("Pixel 8", VaultMerge.mergePasskeyInfos(a, b).single().deviceName)
+    }
+
+    @Test
     fun `merging vault data keeps passkey infos`() {
         val base = VaultData(
             accounts = emptyList(),

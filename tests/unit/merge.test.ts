@@ -263,6 +263,30 @@ describe('パスキーのメタ情報のマージ', () => {
     expect(mergePasskeyInfos(left, right).map((info) => info.id)).toEqual(['k1', 'k2']);
   });
 
+  it('登録日時が同じで端末名だけ違うときは、入力順に依存せず同じ結果になる', () => {
+    const a = [
+      {
+        id: 'k1',
+        name: 'Pixel',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        deviceId: 'phone',
+        deviceName: 'Pixel',
+      },
+    ];
+    const b = [
+      {
+        id: 'k1',
+        name: 'Pixel',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        deviceId: 'phone',
+        deviceName: 'Pixel 8',
+      },
+    ];
+    // 端末名を変えても登録日時は変わらないので、名前で決めて両端末で同じ結果にする。
+    expect(mergePasskeyInfos(a, b)).toEqual(mergePasskeyInfos(b, a));
+    expect(mergePasskeyInfos(a, b)[0]?.deviceName).toBe('Pixel 8');
+  });
+
   it('ボルトのマージ結果にもパスキーのメタ情報が残る（空なら書かない）', () => {
     const base: VaultData = {
       accounts: [],

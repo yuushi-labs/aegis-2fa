@@ -788,6 +788,8 @@ export const useVaultStore = create<VaultStore>((set, get) => {
      * そこでまた拒否されたら送信を繰り返さずエラーにする（無限の往復を防ぐ）。
      */
     const pull = async (attempt = 0): Promise<void> => {
+      // 取得を始めた時点の基準。ここよりサーバーが古いときだけ「巻き戻り」と判断する。
+      const startBase = get().syncedRevision ?? 0;
       const retryOrFail = async (
         target: VaultEnvelope,
         base: number,
@@ -806,6 +808,8 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         remote = await syncClient.get(vaultId, token);
       } catch (error) {
         if (error instanceof SyncNotFoundError) {
+          // 待機中に別のボルトへ切り替わったら、古い ID で送り直さない。
+          if (!isCurrent()) return;
           // サーバーに無い → 手元の封筒を base 0 で作り直す。
           const latest = get().envelope;
           if (latest === null) return;
@@ -829,9 +833,13 @@ export const useVaultStore = create<VaultStore>((set, get) => {
       const state = get();
       const sent = state.envelope;
       if (sent === null) return;
+      // 待機中にローカルが編集されたか（封筒は保存ごとに新しいオブジェクトになる）。
+      const localUnchanged = (): boolean =>
+        isCurrent() && get().envelope === sent && get().dek === state.dek;
 
-      if (remote.revision < sent.revision) {
-        // サーバーが巻き戻っている（復元など）→ 手元の方が新しいので送り返す。
+      if (remote.revision < startBase) {
+        // サーバーが「最後に一致した revision」より古い（復元など）→ 手元を送り返す。
+        // ローカルが進んでいるだけ（別端末の変更をまだ見ていない）場合は巻き戻りではない。
         await retryOrFail(sent, remote.revision, 'http_400');
         return;
       }
@@ -847,11 +855,21 @@ export const useVaultStore = create<VaultStore>((set, get) => {
 
       // ここから先はサーバーが新しい（同じ revision で別内容の場合も含む）。
       if (state.dek === null || state.status !== 'unlocked') {
-        // ロック中は中身を比べられない → 暗号文だけ合わせる（次の解錠で読める）。
+        if (sent.revision > startBase) {
+          // ロック中はマージできない。手元の未送信の変更を捨てないよう、
+          // サーバーの封筒を競合として預けて解錠後に選ばせる。
+          set({
+            syncState: 'conflict',
+            conflict: { remoteRevision: remote.revision, remoteEnvelope: remote.envelope },
+          });
+          return;
+        }
+        // 未送信が無ければ、暗号文だけ合わせる（次の解錠で読める）。
         await adoptRemote(remote);
         return;
       }
 
+      const session = unlockSession;
       let remoteData: VaultData;
       try {
         remoteData = parseVaultData(await decryptVaultDataWithDek(remote.envelope, state.dek));
@@ -860,7 +878,9 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         set({ syncState: 'error', syncError: 'decrypt_failed' });
         return;
       }
-      if (!isCurrent() || get().dek !== state.dek) return;
+      // 復号中にローカルが編集された（DEK は変わらないので封筒の同一性で見る）／
+      // ロック・切替が起きたら、この古い内容は取り込まない（次の同期に任せる）。
+      if (!localUnchanged() || session !== unlockSession) return;
 
       const merged = mergeVaultData(
         {
@@ -879,6 +899,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
       );
       // 手元に足すものが無ければ、サーバーの封筒をそのまま採用して終わる。
       if (mergedText === serializeVaultDataOf(remoteData)) {
+        if (!localUnchanged() || session !== unlockSession) return;
         await adoptRemote(remote, remoteData);
         return;
       }
@@ -901,13 +922,19 @@ export const useVaultStore = create<VaultStore>((set, get) => {
       // 先に手元へ保存する（送信に失敗してもマージ結果を失わない）。
       if (profileId !== null) await writeVault(profileId, next, remote.revision);
       if (!isCurrent()) return;
+      // 再暗号化の間にロックされたら、平文（accounts）は戻さず封筒と同期状態だけにする。
+      const stillUnlocked = session === unlockSession && get().dek !== null && get().status === 'unlocked';
       set({
         envelope: next,
         syncedRevision: remote.revision,
-        accounts: manualSort(merged.data.accounts),
-        tombstones: merged.data.tombstones ?? [],
-        devices: merged.data.devices ?? [],
-        passkeyInfos: merged.data.passkeyInfos ?? [],
+        ...(stillUnlocked
+          ? {
+              accounts: manualSort(merged.data.accounts),
+              tombstones: merged.data.tombstones ?? [],
+              devices: merged.data.devices ?? [],
+              passkeyInfos: merged.data.passkeyInfos ?? [],
+            }
+          : {}),
         syncState: 'pending',
         syncError: null,
         conflict: null,

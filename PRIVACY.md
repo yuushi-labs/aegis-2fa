@@ -25,12 +25,12 @@ Aegis 2FA は、2 段階認証のコードを発行するアプリです。マ�
 - 端末内（ブラウザの IndexedDB。暗号化した状態で保存）: 上のアカウント情報、削除の記録、端末一覧、パスキーの表示名一覧、アプリの設定。
 - 端末内のみで、同期しないもの: パスキー / セキュリティキーの登録情報（credential ID、PRF の salt、DEK を包んだ情報）。指紋・顔・認証器の秘密鍵は認証器の外へ出ません。
 - サーバー（同期を有効にした場合のみ）: 暗号文、IV、鍵導出の salt と反復回数、verifier、リビジョン番号、更新日時。これらから秘密鍵やマスターパスワードを知ることはできません。
-- ボルト ID: 同期コードの SHA-256 の先頭 32 桁。同期コードそのものは送りません。
+- ボルト ID: 同期コードの SHA-256 の先頭 32 桁。サーバーはトークンのハッシュだけを保存し、同期コードそのものは保存しません（認証のため、リクエストごとに Authorization ヘッダで送信します）。
 
 ### 3. 暗号化の方式
 マスターパスワードから PBKDF2-HMAC-SHA-256（600,000 回）で鍵を導出し、AES-256-GCM でアカウント情報を暗号化します。復号は端末内でだけ行います。サーバーは鍵もパスワードも受け取らないため、暗号文を読む手段がありません。
 
-マスターパスワードを忘れた場合、開発者を含む誰もデータを復元できません。
+マスターパスワードを忘れ、有効なパスキーも使えない場合、開発者を含む誰もデータを復元できません。パスキーを登録してあれば、その端末ではパスキーで解除できます。
 
 ### 4. ローカル専用モードと同期モード
 ボルトを作るときに「この端末だけで使う」を選ぶと、サーバーへの通信は一切発生しません（アプリ本体の読み込みを除く）。
@@ -46,7 +46,7 @@ Aegis 2FA は、2 段階認証のコードを発行するアプリです。マ�
 サーバー（Node 版・Xserver の PHP 版）は、暗号文の保存・取得・削除と、不正アクセスや過負荷を防ぐためのレート制限だけを行います。
 
 - リクエストの記録は、メソッド・パス・ステータス・処理時間だけです。Authorization ヘッダやリクエスト本文は記録しません。
-- レート制限のため、接続元の IP アドレスを一定時間だけ数えます。カウントはメモリ上で行い、データベースには保存しません。
+- レート制限のため、接続元の IP アドレスを一定時間だけ数えます。Node 版はメモリ上だけで数え、PHP 版（Xserver）はデータベース（SQLite）に「用途名 + IP アドレス」と回数・期限を保存します。期限切れの行は後続のリクエスト時に少しずつ削除され、IP アドレスを長期に残す用途には使いません。
 - ホスティング事業者（Xserver など）が取得するアクセスログは、その事業者のポリシーに従います。
 
 ### 7. 広告・解析・第三者提供
@@ -67,8 +67,8 @@ Aegis 2FA は、2 段階認証のコードを発行するアプリです。マ�
 - Cookie は使用しません。
 
 ### 10. データの削除
-- 「ボルトを削除」で、この端末の暗号文とサーバー上の暗号文を削除します（サーバーへの削除が失敗しても端末側は削除します）。
-- 「同期を停止」で、サーバー上の暗号文を削除します。ほかの端末では解除できなくなります。
+- 「ボルトを削除」で、この端末の暗号文を削除し、サーバー上の暗号文の削除も要求します（通信できないときなどは、サーバー側に暗号文が残ることがあります）。
+- 「同期を停止」で、サーバー上の暗号文の削除を要求します。削除に失敗した場合は、端末側の同期設定だけが外れて暗号文が残ることがあります。また、すでに暗号文を取得済みの端末は、手元のコピーを引き続き復号できます（鍵は端末の中にあり、サーバー側からは失効できません）。
 - パスキーの削除は、その端末の登録と、暗号化されたボルト内の表示名の一覧から行います。
 - ブラウザのサイトデータを消すと端末内の暗号文も消えます。マスターパスワードが分かっていても、暗号文がなければ復号できません。
 
@@ -98,12 +98,12 @@ Storage is split between your device and the server. The server only ever holds 
 - On your device (the browser’s IndexedDB, encrypted): account data, deletion records, the device list, the passkey label list, and app settings.
 - On your device only, never synced: passkey / security key registrations (credential ID, PRF salt, wrapped DEK). Fingerprints, faces and the authenticator’s private key never leave the authenticator.
 - On the server (only when sync is enabled): ciphertext, IV, the key-derivation salt and iteration count, the verifier, the revision number and the update time. None of it reveals your secrets or master password.
-- Vault ID: the first 32 hex characters of SHA-256(sync code). The sync code itself is never sent.
+- Vault ID: the first 32 hex characters of SHA-256(sync code). The server stores only a hash of the token and never the sync code itself (the code is sent in the Authorization header of each request for authentication).
 
 ### 3. How it is encrypted
 The master password is stretched with PBKDF2-HMAC-SHA-256 (600,000 iterations) and account data is encrypted with AES-256-GCM. Decryption happens only on your device. The server never receives the key or the password, so it has no way to read the ciphertext.
 
-If you forget your master password, nobody — including the developer — can recover the data.
+If you forget your master password and have no working passkey, nobody — including the developer — can recover the data. If you registered a passkey, you can still unlock with it on that device.
 
 ### 4. Local-only mode and sync mode
 If you choose “this device only” when creating a vault, the app makes no network requests at all (apart from loading the app itself).
@@ -119,7 +119,7 @@ What is needed for unlocking is stored only in that device’s IndexedDB and is 
 The server (Node or the PHP build for Xserver) only stores, returns and deletes ciphertext, and applies rate limits to stop abuse and overload.
 
 - Request records contain the method, path, status and duration only. The Authorization header and request bodies are never logged.
-- For rate limiting, the client IP address is counted for a short time in memory; it is not written to the database.
+- For rate limiting, the client IP address is counted for a short time. The Node build counts only in memory; the PHP build (Xserver) stores “bucket name + IP address” with a count and an expiry in its SQLite database. Expired rows are pruned gradually by later requests and are not used to keep IP addresses long term.
 - Access logs kept by the hosting provider (such as Xserver) follow that provider’s own policy.
 
 ### 7. Ads, analytics and third parties
@@ -140,8 +140,8 @@ The app bundles its own fonts and assets, so it does not load files from third-p
 - No cookies are used.
 
 ### 10. Deleting your data
-- “Delete vault” removes the ciphertext on this device and on the server (the local copy is removed even if the server request fails).
-- “Stop syncing” removes the ciphertext on the server; other devices will no longer be able to unlock.
+- “Delete vault” removes the ciphertext on this device and requests its removal on the server (if the request cannot be made, for example while offline, the server copy may remain).
+- “Stop syncing” requests removal of the ciphertext on the server. If that request fails, only the sync setting on the device is removed and the ciphertext may remain. Devices that already downloaded the ciphertext can still decrypt their local copy: the keys live on the devices, so the server cannot revoke them.
 - Deleting a passkey removes the registration on that device and the label from the encrypted vault.
 - Clearing your browser’s site data also removes the ciphertext on the device. Even with the master password, data without its ciphertext cannot be decrypted.
 

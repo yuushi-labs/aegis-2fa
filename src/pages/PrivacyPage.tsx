@@ -32,7 +32,9 @@ export function PrivacyPage() {
   return (
     <main className="mx-auto max-w-2xl px-5 py-10" data-testid="privacy-page">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-[1.5rem]">{PRIVACY_TITLE[docLanguage]}</h1>
+        <h1 className="text-[1.5rem]" lang={docLanguage}>
+          {PRIVACY_TITLE[docLanguage]}
+        </h1>
         <div className="flex gap-1" role="group" aria-label={t('privacy.title')}>
           {(
             [
@@ -54,14 +56,17 @@ export function PrivacyPage() {
         </div>
       </div>
 
-      <p className="mt-1.5 text-[0.86rem] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-        {PRIVACY_INTRO[docLanguage]}
-      </p>
-      <p className="mt-2 text-[0.74rem]" style={{ color: 'var(--text-faint)' }}>
-        {PRIVACY_UPDATED_LABEL[docLanguage]}: {PRIVACY_UPDATED}
-      </p>
+      {/* 本文は UI の言語設定と別に切り替わるので、読み上げの言語も本文側に指定する。 */}
+      <div lang={docLanguage}>
+        <p className="mt-1.5 text-[0.86rem] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+          {PRIVACY_INTRO[docLanguage]}
+        </p>
+        <p className="mt-2 text-[0.74rem]" style={{ color: 'var(--text-faint)' }}>
+          {PRIVACY_UPDATED_LABEL[docLanguage]}: {PRIVACY_UPDATED}
+        </p>
+      </div>
 
-      <div className="mt-6 flex flex-col gap-5">
+      <div className="mt-6 flex flex-col gap-5" lang={docLanguage}>
         {sections.map((section) => (
           <section key={section.title}>
             <h2 className="text-[1rem]">{section.title}</h2>

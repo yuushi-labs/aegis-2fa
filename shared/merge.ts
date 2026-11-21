@@ -188,6 +188,21 @@ export function mergeDevices(
 }
 
 /**
+ * 同じ登録 id の 2 件から採る方を決める。
+ *
+ * 登録日時が違えば新しい方（表示名の付け替え）。同じなら端末名で決める
+ * ——端末名の変更は登録日時を変えないため、入力順に任せると端末ごとに
+ * 違う名前が残り、同期のたびに書き戻されて収束しない。
+ */
+function newerPasskeyInfo(a: PasskeyInfo, b: PasskeyInfo): PasskeyInfo {
+  const byCreatedAt = compareTimestamps(a.createdAt, b.createdAt);
+  if (byCreatedAt !== 0) return byCreatedAt > 0 ? a : b;
+  const left = `${a.deviceName ?? ''}\u0000${a.name}`;
+  const right = `${b.deviceName ?? ''}\u0000${b.name}`;
+  return right > left ? b : a;
+}
+
+/**
  * パスキー登録のメタ情報を id 単位に統合する。
  *
  * - 同じ id は createdAt が新しい方を採る（名前の付け替えを反映する）。
@@ -217,7 +232,7 @@ export function mergePasskeyInfos(
         byId.set(info.id, normalized);
         continue;
       }
-      const newer = compareTimestamps(normalized.createdAt, current.createdAt) > 0 ? normalized : current;
+      const newer = newerPasskeyInfo(normalized, current);
       const deletedAt =
         current.deletedAt === undefined
           ? normalized.deletedAt

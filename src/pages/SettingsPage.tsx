@@ -585,6 +585,10 @@ export function SettingsPage() {
               <ul className="mt-1 flex flex-col">
                 {otherPasskeyInfos.map((info) => {
                   const fromThisDevice = info.deviceId === deviceId;
+                  // 端末名は端末一覧（同期で最後に更新された名前）を優先する
+                  // （登録時の名前のままだと、改名しても古い名前が残る）。
+                  const infoDeviceName =
+                    devices.find((device) => device.id === info.deviceId)?.name ?? info.deviceName;
                   return (
                     <li
                       key={info.id}
@@ -597,8 +601,8 @@ export function SettingsPage() {
                       </p>
                       <p className="text-[0.74rem]" style={{ color: 'var(--text-faint)' }}>
                         {t('settings.passkeys.registeredAt')}: {formatTime(info.createdAt, language)}
-                        {info.deviceName !== undefined && info.deviceName !== '' && (
-                          <> ・ {t('settings.passkeys.device')}: {info.deviceName}</>
+                        {infoDeviceName !== undefined && infoDeviceName !== '' && (
+                          <> ・ {t('settings.passkeys.device')}: {infoDeviceName}</>
                         )}
                       </p>
                       <p className="mt-0.5 text-[0.72rem]" style={{ color: 'var(--clay)' }} data-testid="passkey-other-note">

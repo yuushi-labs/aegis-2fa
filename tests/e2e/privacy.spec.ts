@@ -72,7 +72,8 @@ test.describe('プライバシーポリシー', () => {
 
     // 設定の「このアプリについて」。
     await page.getByRole('link', { name: '設定', exact: true }).click();
-    await page.getByRole('link', { name: 'プライバシーポリシー' }).click();
+    // フッターの「プライバシーポリシーを開く」と区別するため完全一致で選ぶ。
+    await page.getByRole('link', { name: 'プライバシーポリシー', exact: true }).click();
     await expectPrivacyPage(page);
     await page.getByTestId('privacy-back').click();
     await expect(page.getByRole('heading', { name: '設定' })).toBeVisible();
