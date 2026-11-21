@@ -82,8 +82,9 @@ export default defineConfig({
     // 本番ビルドを配信する（pnpm build 済みが前提）。
     command: `node dist-server/index.js`,
     url: `http://${HOST}:${PORT}/api/health`,
-    // CI では既存サーバーを再利用しない（今回のビルドを必ず検証する）。
-    reuseExistingServer: !IS_CI,
+    // 既存サーバーは再利用しない。今回のビルドとテスト用の設定
+    // （AEGIS_DISABLE_RATE_LIMIT 等）を必ず効かせるため。
+    reuseExistingServer: false,
     timeout: 120_000,
     stdout: 'pipe',
     stderr: 'pipe',
@@ -92,6 +93,9 @@ export default defineConfig({
       // 実行ごとの一時 DB。テスト終了後の掃除は globalTeardown で行う。
       DATABASE_PATH: databasePath,
       NODE_ENV: 'test',
+      // 全テストが 127.0.0.1 から短時間に作る・更新するため、レート制限は切る
+      // （20 PUT/分を超えると無関係なテストが 429 で落ちる。制限は integration で検証する）。
+      AEGIS_DISABLE_RATE_LIMIT: 'true',
     },
   },
 });

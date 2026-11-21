@@ -8,6 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bytesToBase64 } from '../../shared/encoding';
+import { isValidSyncToken } from '../../shared/sync';
 import { envelopeFingerprint } from '../../src/lib/sessionKey';
 import type {
   Account,
@@ -1706,5 +1707,130 @@ describe('ボルトストア: ゴミ箱・使用回数・同期端末', () => {
     await store.getState().forgetDevice('other-device');
     expect(store.getState().devices.some((device) => device.id === 'other-device')).toBe(false);
     expect(store.getState().devices.some((device) => device.id === self)).toBe(true);
+  });
+});
+
+describe('ボルトストア: アプリでログイン', () => {
+  it('未同期のボルトは同期コードを自動発行し、初回同期してから DEK を返す', async () => {
+    const { store } = await unlockedStore({ accounts: [account('a')], token: null });
+    const put = vi.fn(async (_v: string, _t: string, envelope: VaultEnvelope, _base: number) => ({
+      revision: envelope.revision,
+    }));
+    H.server.put = put;
+
+    const result = await store.getState().prepareAppLogin();
+
+    // 同期コードは base64url の 32 バイトで、ストアと保存先の両方に入る。
+    expect(isValidSyncToken(result.token)).toBe(true);
+    expect(H.token).toBe(result.token);
+    expect(store.getState().token).toBe(result.token);
+    // サーバーへは base 0（新規作成）で 1 回だけ送る。
+    expect(put).toHaveBeenCalledTimes(1);
+    expect(put.mock.calls[0]?.[3]).toBe(0);
+    expect(store.getState().syncState).toBe('synced');
+    expect(store.getState().syncedRevision).toBe(H.vault?.envelope.revision);
+    // 渡す DEK はアンロック中のもの。ボルト名はプロファイル名。
+    expect(result.dek).toEqual(store.getState().dek);
+    expect(result.vaultName).toBe('メイン');
+  });
+
+  it('同期済みのボルトは既存の同期コードをそのまま返し、追加の送信をしない', async () => {
+    const { store } = await unlockedStore({ accounts: [], token: TOKEN, syncedRevision: 1 });
+    const put = vi.fn(async (_v: string, _t: string, envelope: VaultEnvelope, _base: number) => ({
+      revision: envelope.revision,
+    }));
+    H.server.put = put;
+
+    const result = await store.getState().prepareAppLogin();
+
+    expect(result.token).toBe(TOKEN);
+    expect(H.token).toBe(TOKEN);
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it('コードはあるが未送信なら、渡す前に送っておく', async () => {
+    const { store } = await unlockedStore({ accounts: [], token: TOKEN, syncedRevision: null });
+    const put = vi.fn(async (_v: string, _t: string, envelope: VaultEnvelope, _base: number) => ({
+      revision: envelope.revision,
+    }));
+    H.server.put = put;
+
+    const result = await store.getState().prepareAppLogin();
+
+    expect(result.token).toBe(TOKEN);
+    expect(put).toHaveBeenCalledTimes(1);
+    expect(put.mock.calls[0]?.[3]).toBe(0);
+    expect(store.getState().syncedRevision).not.toBeNull();
+  });
+
+  it('syncedRevision が 0（作ったが未送信）なら、渡す前に送る', async () => {
+    // createVault が同期有効で作った直後にオフラインだった場合にあたる。
+    const { store } = await unlockedStore({ accounts: [], token: TOKEN, syncedRevision: 0 });
+    const put = vi.fn(async (_v: string, _t: string, envelope: VaultEnvelope, _base: number) => ({
+      revision: envelope.revision,
+    }));
+    H.server.put = put;
+
+    const result = await store.getState().prepareAppLogin();
+
+    expect(result.token).toBe(TOKEN);
+    expect(put).toHaveBeenCalledTimes(1);
+    expect(put.mock.calls[0]?.[3]).toBe(0);
+    expect(store.getState().syncedRevision).toBeGreaterThan(0);
+  });
+
+  it('前回の同期が error なら、押し直しで再送する', async () => {
+    const { store } = await unlockedStore({ accounts: [], token: TOKEN, syncedRevision: 1 });
+    let failing = true;
+    const put = vi.fn(async (_v: string, _t: string, envelope: VaultEnvelope, _base: number) => {
+      if (failing) throw new H.errors.SyncHttpError(503, null);
+      return { revision: envelope.revision };
+    });
+    H.server.put = put;
+
+    // まずは通常の保存で同期を失敗させ、error 状態にする。
+    await store.getState().upsertAccount(account('a'));
+    await vi.advanceTimersByTimeAsync(2000);
+    await settle();
+    expect(store.getState().syncState).toBe('error');
+
+    // 復旧したら、同じボルトのまま再送して渡せる。
+    failing = false;
+    const result = await store.getState().prepareAppLogin();
+    expect(result.token).toBe(TOKEN);
+    expect(store.getState().syncState).toBe('synced');
+  });
+
+  it('再送がオフラインで止まったら、過去の送信実績があっても渡さない', async () => {
+    const { vault, store } = await unlockedStore({ accounts: [], token: TOKEN, syncedRevision: 1 });
+    // 一度失敗させて error 状態にしておく。
+    H.server.put = async () => {
+      throw new H.errors.SyncHttpError(503, null);
+    };
+    await store.getState().upsertAccount(account('a'));
+    await vi.advanceTimersByTimeAsync(2000);
+    await settle();
+    expect(store.getState().syncState).toBe('error');
+
+    // 押し直しのときはオフライン（runSync は送らずに pending / offline で終わる）。
+    vi.stubGlobal('navigator', { onLine: false });
+    await expect(store.getState().prepareAppLogin()).rejects.toBeInstanceOf(vault.AppLoginSyncError);
+    expect(store.getState().syncState).toBe('pending');
+  });
+
+  it('初回同期に失敗したら AppLoginSyncError を投げる（アプリへは渡さない）', async () => {
+    const { vault, store } = await unlockedStore({ accounts: [], token: null });
+    H.server.put = async () => {
+      throw new H.errors.SyncHttpError(503, null);
+    };
+
+    await expect(store.getState().prepareAppLogin()).rejects.toBeInstanceOf(vault.AppLoginSyncError);
+    expect(store.getState().syncState).toBe('error');
+  });
+
+  it('ロック中は VaultLockedError を投げる', async () => {
+    const { vault, store } = await unlockedStore({ accounts: [] });
+    store.getState().lock();
+    await expect(store.getState().prepareAppLogin()).rejects.toBeInstanceOf(vault.VaultLockedError);
   });
 });

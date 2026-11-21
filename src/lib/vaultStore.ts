@@ -103,6 +103,14 @@ export class VaultLockedError extends Error {
   }
 }
 
+/** アプリへ引き渡す前の初回同期に失敗した（オフライン・サーバー側の拒否など）。 */
+export class AppLoginSyncError extends Error {
+  constructor() {
+    super('app_login_sync_failed');
+    this.name = 'AppLoginSyncError';
+  }
+}
+
 /** パスキー登録の結果（画面でメッセージを出し分ける）。 */
 export type PasskeyRegisterResult =
   | { ok: true; record: PasskeyRecord }
@@ -193,6 +201,8 @@ type VaultStore = {
   deleteProfile: (id: string) => Promise<void>;
   renameDevice: (name: string) => Promise<void>;
   forgetDevice: (id: string) => Promise<void>;
+  /** 「アプリでログイン」用に、同期コードとアンロック中の DEK をそろえる。 */
+  prepareAppLogin: () => Promise<{ token: string; dek: Uint8Array; vaultName: string }>;
 };
 
 export const syncClient = createSyncClient();
@@ -1123,6 +1133,64 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         syncError: null,
         lastSyncedAt: null,
       });
+    },
+
+    /**
+     * 「アプリでログイン」の準備。同期コードが未発行ならここで作って初回同期まで済ませる。
+     *
+     * アプリは同期コードでサーバーのボルトを取りに行くため、コードを渡す前に
+     * サーバー側へ暗号文を置いておく必要がある（置いていなければアプリは
+     * 「ボルトが見つからない」になる）。DEK はアンロック中のものだけを返す。
+     */
+    async prepareAppLogin() {
+      const initial = get();
+      if (initial.status !== 'unlocked' || initial.dek === null || initial.envelope === null) {
+        throw new VaultLockedError();
+      }
+      const profileId = initial.activeProfileId ?? DEFAULT_PROFILE_ID;
+      const generation = lifecycleGeneration;
+      // 待機中に別のボルトへ切り替わった・作り直されたら、このボルトのコードは渡さない。
+      const stillCurrent = (): boolean =>
+        generation === lifecycleGeneration && (get().activeProfileId ?? DEFAULT_PROFILE_ID) === profileId;
+      let token = initial.token;
+      if (token === null) {
+        token = generateSyncToken();
+        const vaultId = await deriveVaultId(token);
+        if (!stillCurrent()) throw new VaultChangedError();
+        await writeToken(profileId, token);
+        if (!stillCurrent()) throw new VaultChangedError();
+        // 失敗してもコードは残す（次に押したときの再送で使える。設定画面にも出る）。
+        set({
+          token,
+          vaultId,
+          syncedRevision: null,
+          syncState: 'pending',
+          syncError: null,
+          lastSyncedAt: null,
+        });
+      }
+      // アプリはコードでサーバーのボルトを取りに行くので、未送信なら先に置いておく
+      // （サーバーに無ければ base 0 で作られる）。
+      // `syncedRevision` が 0 のままなのは「作ったが一度も送れていない」状態
+      // （オフラインで createVault した等）。error のときも押し直しで再送する。
+      const current = (): { sent: boolean } => {
+        const state = get();
+        const revision = state.syncedRevision;
+        return { sent: revision !== null && revision > 0 && state.syncState !== 'error' };
+      };
+      const needsUpload = !current().sent;
+      if (needsUpload) await get().syncNow();
+      // 送信中に別のボルトへ切り替わった・消えた場合、そのコードは渡さない。
+      if (!stillCurrent() || get().token !== token) throw new VaultChangedError();
+      // 今回の再送が通ったときだけ渡す（オフラインで pending のまま・失敗は渡さない）。
+      if (needsUpload && get().syncState !== 'synced') throw new AppLoginSyncError();
+      if (!current().sent) throw new AppLoginSyncError();
+      const unlocked = get();
+      if (unlocked.dek === null || unlocked.status !== 'unlocked') throw new VaultLockedError();
+      const vaultName = normaliseProfileName(
+        unlocked.profiles.find((profile) => profile.id === profileId)?.name ?? '',
+      );
+      return { token, dek: unlocked.dek, vaultName };
     },
 
     async changePassword(current, next) {

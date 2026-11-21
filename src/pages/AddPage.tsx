@@ -30,9 +30,9 @@ export function AddPage() {
 
   const [tab, setTab] = useState<Tab>('manual');
   const [draft, setDraft] = useState<AccountDraft>({ ...EMPTY_DRAFT });
-  const [uriInput, setUriInput] = useState('');
   const [saving, setSaving] = useState(false);
 
+  /** QR（カメラ・画像）の読み取り結果をフォームへ反映する。 */
   function applyUri(uri: string): boolean {
     try {
       if (isMigrationUri(uri)) {
@@ -55,7 +55,7 @@ export function AddPage() {
         counter: accountDraft.counter,
       }));
       setTab('manual');
-      toast(t('add.pasteApplied'), 'success');
+      toast(t('add.scanned'), 'success');
       return true;
     } catch {
       return false;
@@ -132,35 +132,7 @@ export function AddPage() {
       <div className="card mt-3 p-5">
         {tab === 'manual' && (
           <>
-            <div className="mb-4">
-              <label className="field-label" htmlFor="uri-input">
-                {t('add.uri')}
-              </label>
-              <div className="flex gap-2">
-                <input
-                  id="uri-input"
-                  type="text"
-                  value={uriInput}
-                  onChange={(event) => setUriInput(event.target.value)}
-                  placeholder="otpauth://totp/..."
-                  spellCheck={false}
-                  className="code-text min-w-0 text-[0.8rem]"
-                />
-                <button
-                  type="button"
-                  className="btn btn-secondary shrink-0 text-[0.8rem]"
-                  onClick={() => {
-                    if (!applyUri(uriInput)) toast(t('add.invalidUri'), 'error');
-                  }}
-                  disabled={uriInput.trim() === ''}
-                >
-                  {t('add.parse')}
-                </button>
-              </div>
-              <p className="field-hint">{t('add.uriHint')}</p>
-            </div>
-            <hr className="rule mb-4" />
-            <AccountForm value={draft} onChange={setDraft} idPrefix="add" onUriPaste={applyUri} />
+            <AccountForm value={draft} onChange={setDraft} idPrefix="add" />
             <div className="mt-5 flex items-center justify-end gap-2">
               <button type="button" className="btn btn-secondary" onClick={() => navigate('/')}>
                 {t('common.cancel')}

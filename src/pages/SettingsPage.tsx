@@ -5,6 +5,7 @@ import type { VaultEnvelope, PasskeyRecord } from '../../shared/types';
 import { encodeMigrationPayload, partitionMigratableAccounts } from '../../shared/migration';
 import { CryptoError, WrongPasswordError } from '../../shared/crypto';
 import { formatSyncCode } from '../../shared/sync';
+import { AppLoginButton } from '../components/AppLoginButton';
 import { AUTO_LOCK_OPTIONS, type AutoLockMinutes, type ThemeMode } from '../lib/settings';
 import { useI18n, useToast } from '../lib/hooks';
 import { useVaultStore, VaultChangedError, VaultLockedError } from '../lib/vaultStore';
@@ -752,6 +753,14 @@ export function SettingsPage() {
               </div>
             </>
           )}
+
+          <hr className="rule" />
+          <div data-testid="app-login-section">
+            <p className="text-[0.88rem] font-medium">{t('app.login.title')}</p>
+            <div className="mt-2">
+              <AppLoginButton />
+            </div>
+          </div>
         </Section>
 
         <Section title={t('settings.export')}>
