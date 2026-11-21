@@ -1,5 +1,6 @@
 package com.yuushilabs.aegis.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,11 +11,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -23,6 +28,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,6 +57,9 @@ import com.yuushilabs.aegis.ui.components.AegisCard
 import com.yuushilabs.aegis.ui.components.ConfirmDialog
 import com.yuushilabs.aegis.ui.components.MutedText
 import com.yuushilabs.aegis.ui.components.SectionTitle
+import com.yuushilabs.aegis.ui.components.ThinDivider
+import com.yuushilabs.aegis.ui.update.UpdateSection
+import com.yuushilabs.aegis.ui.update.UpdateUiState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -67,9 +76,15 @@ fun SettingsScreen(
     onOpenDevices: () -> Unit,
     onOpenProfiles: () -> Unit,
     onCopy: (String) -> Unit,
+    updateState: UpdateUiState,
+    onCheckUpdate: () -> Unit,
+    onDownloadUpdate: () -> Unit,
+    onInstallUpdate: () -> Unit,
+    onCancelUpdate: () -> Unit,
 ) {
     var showPasswordDialog by remember { mutableStateOf(false) }
     var showSyncCode by remember { mutableStateOf(false) }
+    var showSyncDetail by remember { mutableStateOf(false) }
     var autoLockMenu by remember { mutableStateOf(false) }
     var skewMenu by remember { mutableStateOf(false) }
     var confirmDisableSync by remember { mutableStateOf(false) }
@@ -77,8 +92,13 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
                 title = { Text("設定") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("戻る") } },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Filled.ArrowBack, contentDescription = "戻る")
+                    }
+                },
             )
         },
     ) { padding ->
@@ -93,15 +113,10 @@ fun SettingsScreen(
         ) {
             AegisCard {
                 SectionTitle("セキュリティ")
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                SettingRow(
+                    title = "自動ロック",
+                    description = "無操作のあいだ、この時間でロックします。",
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("自動ロック", style = MaterialTheme.typography.bodyLarge)
-                        MutedText("無操作のあいだ、この時間でロックします。")
-                    }
                     OutlinedButton(onClick = { autoLockMenu = true }) {
                         Text(autoLockLabel(state.settings.autoLockMinutes))
                     }
@@ -117,47 +132,25 @@ fun SettingsScreen(
                         }
                     }
                 }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                ThinDivider()
+                SettingSwitch(
+                    title = "アプリを離れたら即ロック",
+                    description = "自動ロックが「なし」のときは効きません。",
+                    checked = state.settings.lockOnHide,
+                    onChange = { value -> onSettings { it.copy(lockOnHide = value) } },
+                )
+                ThinDivider()
+                SettingSwitch(
+                    title = "指紋 / 顔で解錠",
+                    description = "端末の生体認証でアンロックします（DEK を Keystore で保護）。",
+                    checked = state.settings.biometricEnabled,
+                    onChange = { value -> if (value) onEnableBiometric() else onDisableBiometric() },
+                )
+                ThinDivider()
+                SettingRow(
+                    title = "時計のずれ補正",
+                    description = "認証コードが合わないときに ±2 ステップまで調整します。",
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("アプリを離れたら即ロック", style = MaterialTheme.typography.bodyLarge)
-                        MutedText("自動ロックが「なし」のときは効きません。")
-                    }
-                    Switch(
-                        checked = state.settings.lockOnHide,
-                        onCheckedChange = { value -> onSettings { it.copy(lockOnHide = value) } },
-                        modifier = Modifier.semantics { contentDescription = "アプリを離れたら即ロック" },
-                    )
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("指紋 / 顔で解錠", style = MaterialTheme.typography.bodyLarge)
-                        MutedText("端末の生体認証でアンロックします（DEK を Keystore で保護）。")
-                    }
-                    Switch(
-                        checked = state.settings.biometricEnabled,
-                        onCheckedChange = { value ->
-                            if (value) onEnableBiometric() else onDisableBiometric()
-                        },
-                        modifier = Modifier.semantics { contentDescription = "指紋 / 顔で解錠" },
-                    )
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("時計のずれ補正", style = MaterialTheme.typography.bodyLarge)
-                        MutedText("認証コードが合わないときに ±2 ステップまで調整します。")
-                    }
                     OutlinedButton(onClick = { skewMenu = true }) { Text("${state.settings.clockSkew}") }
                     DropdownMenu(expanded = skewMenu, onDismissRequest = { skewMenu = false }) {
                         (-2..2).forEach { skew ->
@@ -171,21 +164,14 @@ fun SettingsScreen(
                         }
                     }
                 }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("コピーしたコードを 30 秒で消す", style = MaterialTheme.typography.bodyLarge)
-                        MutedText("クリップボードに残り続けないようにします。")
-                    }
-                    Switch(
-                        checked = state.settings.clearClipboard,
-                        onCheckedChange = { value -> onSettings { it.copy(clearClipboard = value) } },
-                        modifier = Modifier.semantics { contentDescription = "コピーしたコードを30秒で消す" },
-                    )
-                }
+                ThinDivider()
+                SettingSwitch(
+                    title = "コピーしたコードを 30 秒で消す",
+                    description = "クリップボードに残り続けないようにします。",
+                    checked = state.settings.clearClipboard,
+                    onChange = { value -> onSettings { it.copy(clearClipboard = value) } },
+                )
+                ThinDivider()
                 OutlinedButton(onClick = { showPasswordDialog = true }, modifier = Modifier.fillMaxWidth()) {
                     Text("マスターパスワードを変更")
                 }
@@ -194,15 +180,28 @@ fun SettingsScreen(
             AegisCard {
                 SectionTitle("同期（ゼロ知識）")
                 MutedText("接続先: ${ServerConfig.BASE_URL}")
-                MutedText(
-                    when (state.syncState) {
-                        SyncState.LOCAL_ONLY -> "この端末だけで使っています（送信していません）。"
-                        SyncState.SYNCED -> "同期済み。最終同期: ${state.lastSyncedAt ?: "—"}"
-                        SyncState.PENDING -> "同期待ち（変更は 2 秒後にまとめて送ります）。"
-                        SyncState.ERROR -> "同期でエラーが起きました: ${state.syncError ?: "network"}"
-                        SyncState.CONFLICT -> "他の端末と競合しています。一覧画面で解決してください。"
-                    },
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MutedText(
+                        when (state.syncState) {
+                            SyncState.LOCAL_ONLY -> "この端末だけで使っています（送信していません）。"
+                            SyncState.SYNCED -> "同期済み。最終同期: ${state.lastSyncedAt ?: "—"}"
+                            SyncState.PENDING -> "同期待ち（変更は 2 秒後にまとめて送ります）。"
+                            SyncState.ERROR -> state.syncError ?: "通信状態を確認して、もう一度お試しください。"
+                            SyncState.CONFLICT -> "他の端末と競合しています。一覧画面で解決してください。"
+                        },
+                    )
+                }
+                if (state.syncState == SyncState.ERROR) {
+                    TextButton(onClick = { showSyncDetail = !showSyncDetail }) {
+                        Text(if (showSyncDetail) "詳細を閉じる" else "詳細を見る")
+                    }
+                    AnimatedVisibility(visible = showSyncDetail) {
+                        Column {
+                            MutedText("理由: ${state.syncErrorCode ?: "不明"}")
+                            MutedText("最終同期: ${state.lastSyncedAt ?: "まだ"}")
+                        }
+                    }
+                }
                 if (!state.syncEnabled) {
                     Button(onClick = onEnableSync, modifier = Modifier.fillMaxWidth()) {
                         Text("このボルトで同期を始める")
@@ -257,12 +256,14 @@ fun SettingsScreen(
                 }
             }
 
-            AegisCard {
-                SectionTitle("このアプリについて")
-                MutedText("Aegis 2FA ${BuildConfig.VERSION_NAME}")
-                MutedText("秘密鍵とマスターパスワードは端末の外へ出ません。同期で送るのは AES-256-GCM の暗号文だけです。")
-                MutedText("サーバー URL は固定です（変更できません）。")
-            }
+            UpdateSection(
+                state = updateState,
+                versionName = BuildConfig.VERSION_NAME,
+                onCheck = onCheckUpdate,
+                onDownload = onDownloadUpdate,
+                onInstall = onInstallUpdate,
+                onCancel = onCancelUpdate,
+            )
 
             AegisCard {
                 SectionTitle("もしものとき")
@@ -292,6 +293,50 @@ fun SettingsScreen(
                 onDisableSync()
             },
             onDismiss = { confirmDisableSync = false },
+        )
+    }
+}
+
+/** 左に見出し・説明、右に操作を置く行。 */
+@Composable
+private fun SettingRow(
+    title: String,
+    description: String,
+    content: @Composable () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            MutedText(description)
+        }
+        content()
+    }
+}
+
+@Composable
+private fun SettingSwitch(
+    title: String,
+    description: String,
+    checked: Boolean,
+    onChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            MutedText(description)
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onChange,
+            modifier = Modifier.semantics { contentDescription = title },
         )
     }
 }
@@ -361,8 +406,13 @@ fun TrashScreen(
     Scaffold(
         topBar = {
             TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
                 title = { Text("ゴミ箱") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("戻る") } },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Filled.ArrowBack, contentDescription = "戻る")
+                    }
+                },
                 actions = {
                     if (trashed.isNotEmpty()) {
                         TextButton(onClick = { confirmEmpty = true }) { Text("空にする") }
@@ -435,8 +485,13 @@ fun DevicesScreen(
     Scaffold(
         topBar = {
             TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
                 title = { Text("同期している端末") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("戻る") } },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Filled.ArrowBack, contentDescription = "戻る")
+                    }
+                },
             )
         },
     ) { padding ->
@@ -504,8 +559,13 @@ fun SyncScreen(
     Scaffold(
         topBar = {
             TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
                 title = { Text("同期") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("戻る") } },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Filled.ArrowBack, contentDescription = "戻る")
+                    }
+                },
             )
         },
     ) { padding ->
@@ -608,8 +668,13 @@ fun ProfilesScreen(
     Scaffold(
         topBar = {
             TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
                 title = { Text("ボルト") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("戻る") } },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Filled.ArrowBack, contentDescription = "戻る")
+                    }
+                },
                 actions = { TextButton(onClick = { showCreate = true }) { Text("追加") } },
             )
         },

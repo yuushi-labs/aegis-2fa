@@ -3,20 +3,28 @@ package com.yuushilabs.aegis.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.yuushilabs.aegis.BuildConfig
 import com.yuushilabs.aegis.core.Account
 import com.yuushilabs.aegis.core.AppLogin
 import com.yuushilabs.aegis.core.AppLoginException
 import com.yuushilabs.aegis.core.Migration
 import com.yuushilabs.aegis.core.MigrationEntry
 import com.yuushilabs.aegis.core.SyncCode
+import com.yuushilabs.aegis.core.update.HttpApkDownloader
+import com.yuushilabs.aegis.core.update.HttpReleaseFetcher
 import com.yuushilabs.aegis.data.AegisSettings
 import com.yuushilabs.aegis.data.RepoEvent
 import com.yuushilabs.aegis.data.SyncState
 import com.yuushilabs.aegis.data.VaultRepository
+import com.yuushilabs.aegis.data.update.AndroidApkInstaller
+import com.yuushilabs.aegis.data.update.PrefsUpdateMemo
+import com.yuushilabs.aegis.data.update.UpdateRepository
+import com.yuushilabs.aegis.ui.update.UpdateController
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.io.File
 import java.util.UUID
 
 sealed interface Route {
@@ -35,6 +43,23 @@ sealed interface Route {
  */
 class AegisViewModel(application: Application) : AndroidViewModel(application) {
     val repository = VaultRepository(application)
+
+    /**
+     * GitHub Releases からのアプリ内アップデート。画面を移動してもダウンロードが
+     * 続くよう、ViewModel（プロセスと同じ寿命）に 1 つだけ置く。
+     */
+    val updateController = UpdateController(
+        repository = UpdateRepository(
+            fetcher = HttpReleaseFetcher(),
+            downloader = HttpApkDownloader(),
+            memo = PrefsUpdateMemo(application),
+            apkDirectory = File(application.cacheDir, "updates"),
+            currentVersionName = BuildConfig.VERSION_NAME,
+            currentVersionCode = BuildConfig.VERSION_CODE,
+        ),
+        installer = AndroidApkInstaller(application),
+        scope = viewModelScope,
+    )
 
     val state: StateFlow<com.yuushilabs.aegis.data.RepoState> = repository.state
 

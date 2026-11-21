@@ -51,7 +51,10 @@ data class RepoState(
     /** 表示用の同期コード（トークンそのもの。画面で必要になったときだけ出す）。 */
     val syncCode: String? = null,
     val syncState: SyncState = SyncState.LOCAL_ONLY,
+    /** 画面に出す日本語のメッセージ（`http_400` のような生コードは入れない）。 */
     val syncError: String? = null,
+    /** 設定画面の「詳細」にだけ出すデバッグ情報（`http_400 revision_must_advance` など）。 */
+    val syncErrorCode: String? = null,
     val lastSyncedAt: String? = null,
     val syncedRevision: Int? = null,
     val conflict: ConflictState? = null,
@@ -78,6 +81,7 @@ class VaultRepository(context: Context) {
     private val store = SecureStore(appContext)
     private val settingsStore = SettingsStore(appContext)
     private val api = SyncApi()
+    private val syncEngine = SyncEngine(api)
     private val writeMutex = Mutex()
 
     private val _state = MutableStateFlow(RepoState())
@@ -550,63 +554,87 @@ class VaultRepository(context: Context) {
         }
     }
 
+    /**
+     * 1 回の同期。判断は [SyncEngine] に任せ、ここでは保存と画面の状態だけを扱う。
+     *
+     * 未送信の変更が無い（`envelope.revision <= syncedRevision`）ときに `PUT` を送ると
+     * サーバーが `400 revision_must_advance` を返すため、[SyncEngine] はその場合は `GET` する。
+     */
     private suspend fun syncNowInternal(): Unit = writeMutex.withLock {
         val currentToken = token ?: return@withLock
         val sent = envelope ?: return@withLock
-        val vaultId = SyncCode.deriveVaultId(currentToken)
         val base = syncedRevision ?: 0
-        _state.value = _state.value.copy(syncState = SyncState.PENDING, syncError = null)
-        try {
-            api.put(vaultId, currentToken, sent, base)
-            syncedRevision = sent.revision
-            activeStoredVault()?.let { updateStoredVault(it.copy(syncedRevision = sent.revision)) }
-            _state.value = _state.value.copy(
-                syncedRevision = sent.revision,
-                syncState = SyncState.SYNCED,
-                syncError = null,
-                lastSyncedAt = sent.updatedAt,
+        _state.value = _state.value.copy(
+            syncState = SyncState.PENDING,
+            syncError = null,
+            syncErrorCode = null,
+        )
+        val outcome = try {
+            syncEngine.sync(
+                SyncRequest(
+                    token = currentToken,
+                    envelope = sent,
+                    baseRevision = base,
+                    local = localDataOrNull(),
+                    dek = dek,
+                ),
             )
-        } catch (error: SyncConflictException) {
-            try {
-                val remote = api.get(vaultId, currentToken)
-                val same = remote.revision == sent.revision &&
-                    remote.envelope.data.iv == sent.data.iv &&
-                    remote.envelope.data.ciphertext == sent.data.ciphertext
-                if (same) {
-                    syncedRevision = remote.revision
-                    activeStoredVault()?.let { updateStoredVault(it.copy(syncedRevision = remote.revision)) }
-                    _state.value = _state.value.copy(
-                        syncedRevision = remote.revision,
-                        syncState = SyncState.SYNCED,
-                        syncError = null,
-                    )
-                } else {
-                    _state.value = _state.value.copy(
-                        syncState = SyncState.CONFLICT,
-                        conflict = ConflictState(remote.revision, remote.envelope),
-                    )
-                }
-            } catch (_: Exception) {
-                _state.value = _state.value.copy(syncState = SyncState.ERROR, syncError = "conflict_fetch_failed")
-            }
-        } catch (_: SyncNotFoundException) {
-            // サーバー側で消えている → base 0 で作り直す。
-            try {
-                api.put(vaultId, currentToken, sent, 0)
-                syncedRevision = sent.revision
-                activeStoredVault()?.let { updateStoredVault(it.copy(syncedRevision = sent.revision)) }
-                _state.value = _state.value.copy(
-                    syncedRevision = sent.revision,
-                    syncState = SyncState.SYNCED,
-                    syncError = null,
-                )
-            } catch (_: Exception) {
-                _state.value = _state.value.copy(syncState = SyncState.ERROR, syncError = "put_failed")
-            }
-        } catch (error: SyncHttpException) {
-            _state.value = _state.value.copy(syncState = SyncState.ERROR, syncError = "http_${error.status}")
-        } catch (_: Exception) {
-            _state.value = _state.value.copy(syncState = SyncState.ERROR, syncError = "network")
+        } catch (error: Exception) {
+            SyncOutcome.Failed(SyncFailure.of(error))
+        }
+        when (outcome) {
+            is SyncOutcome.Synced -> applySynced(outcome.applied)
+            is SyncOutcome.Conflict -> _state.value = _state.value.copy(
+                syncState = SyncState.CONFLICT,
+                conflict = ConflictState(outcome.remoteRevision, outcome.remoteEnvelope),
+                syncError = null,
+                syncErrorCode = null,
+            )
+            is SyncOutcome.Failed -> _state.value = _state.value.copy(
+                syncState = SyncState.ERROR,
+                syncError = outcome.failure.message,
+                syncErrorCode = outcome.failure.debugLabel,
+            )
+        }
+    }
+
+    /** ロック中は中身を渡さない（比較できないので封筒だけ同期する）。 */
+    private fun localDataOrNull(): VaultData? {
+        if (dek == null || !_state.value.unlocked) return null
+        return VaultData(
+            accounts = accounts,
+            tombstones = tombstones,
+            devices = if (devices.isEmpty()) null else devices,
+        )
+    }
+
+    private suspend fun applySynced(applied: SyncApplied) {
+        envelope = applied.envelope
+        syncedRevision = applied.revision
+        activeStoredVault()?.let {
+            updateStoredVault(it.copy(envelope = applied.envelope, syncedRevision = applied.revision))
+        }
+        val data = applied.data
+        if (data != null && dek != null) {
+            accounts = VaultJson.manualSort(data.accounts)
+            tombstones = data.tombstones.orEmpty()
+            devices = data.devices.orEmpty()
+        }
+        _state.value = _state.value.copy(
+            accounts = accounts,
+            devices = devices,
+            syncedRevision = applied.revision,
+            syncState = if (applied.pendingPush) SyncState.PENDING else SyncState.SYNCED,
+            syncError = null,
+            syncErrorCode = null,
+            lastSyncedAt = applied.updatedAt.ifBlank { _state.value.lastSyncedAt },
+            conflict = null,
+        )
+        val pull = applied.pull
+        if (pull != null && !applied.pendingPush && (pull.added > 0 || pull.updated > 0)) {
+            emit(
+                "他の端末の変更を取り込みました（追加 ${pull.added} / 更新 ${pull.updated}）",
+            )
         }
     }
 

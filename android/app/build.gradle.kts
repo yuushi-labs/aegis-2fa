@@ -35,9 +35,9 @@ android {
         applicationId = "com.yuushilabs.aegis"
         minSdk = 26
         targetSdk = 35
-        // Web 版 1.1.0 と揃える。
-        versionCode = 2
-        versionName = "1.1.0"
+        // Web 版・PHP 版と同じバージョンに揃える。
+        versionCode = 3
+        versionName = "1.1.1"
         resourceConfigurations += listOf("ja", "en")
         vectorDrawables { useSupportLibrary = true }
     }

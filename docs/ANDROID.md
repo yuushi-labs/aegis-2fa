@@ -49,11 +49,38 @@ android/
 - **保存**: 端末内のファイルは Android Keystore の AES-256-GCM で暗号化。バックアップ
   （`android:allowBackup="false"`）にも出しません
 
+## 同期（v1.1.1）
+
+同期の判断は `data/SyncEngine.kt`（Android に依存しない）にあり、`VaultRepository` は
+結果の保存だけを行います。
+
+- ローカルに未送信の変更が無い（`envelope.revision <= 最後に同期した revision`）ときは
+  `PUT` せず `GET` します。サーバーは `nextRevision <= baseRevision` を
+  `400 revision_must_advance` で拒否するため、この判定が無いと「今すぐ同期」が失敗します。
+- サーバーが進んでいれば取り込みます。ロック中は暗号文の封筒だけ、解錠中は復号して
+  `VaultMerge.merge()`（新しい `updatedAt` 優先）。差分があれば `remote.revision + 1` で送り返し、
+  送れなくても手元に保存して次の同期で送ります。
+- 404（サーバーに無い）は base 0 で作り直し、`revision 0` の封筒は送る前に 1 以上へ進めます。
+- 409 は利用者が「マージ / この端末を残す / サーバーを残す」を選びます。
+- エラー本文の `error` は日本語に置き換え、生のコードは設定の「詳細」にだけ出します。
+
+## アプリ内アップデート（v1.1.1）
+
+- `GET /repos/yuushi-labs/aegis-2fa/releases/latest` を `ETag` 付きで確認（`304` はレート制限を消費しない）。
+  起動とフォアグラウンド復帰のたびに確認し、連続発火だけ 20 秒でまとめます。
+- リリースの `tag_name` と `aegis-android-*.apk`（サイズ・`sha256` ダイジェストがあれば照合）を取り、
+  `BuildConfig.VERSION_NAME` より新しいときだけ提示します（draft / prerelease は対象外）。
+- APK は `cacheDir/updates/` に `.part` 経由で保存し、`FileProvider`（`<cache-path name="updates">`）
+  経由で `ACTION_VIEW` + `application/vnd.android.package-archive` を開きます。
+  未許可なら `ACTION_MANAGE_UNKNOWN_APP_SOURCES` へ案内します。
+- 起動時とダウンロード前に、実行中以下の APK・`.part`・見覚えのないファイルを掃除します。
+
 ## 権限
 
-`INTERNET`（同期）・`CAMERA`（QR）・`USE_BIOMETRIC`（指紋/顔）・`USE_FINGERPRINT`
-（API 26–27 の指紋は `USE_BIOMETRIC` では代替できない）だけです。解析 SDK、
-位置情報、連絡先、外部ストレージは取りません。
+`INTERNET`（同期と更新確認）・`CAMERA`（QR）・`USE_BIOMETRIC`（指紋/顔）・`USE_FINGERPRINT`
+（API 26–27 の指紋は `USE_BIOMETRIC` では代替できない）・`REQUEST_INSTALL_PACKAGES`
+（アプリ内アップデートの APK をインストーラに渡す。実際の可否は利用者の許可で決まる）
+だけです。解析 SDK、位置情報、連絡先、外部ストレージは取りません。
 
 ## ビルドとテスト
 

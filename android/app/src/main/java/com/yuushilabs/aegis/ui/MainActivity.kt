@@ -17,6 +17,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -73,6 +74,12 @@ class MainActivity : FragmentActivity() {
     override fun onStop() {
         super.onStop()
         viewModel.onBackground()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // 起動・フォアグラウンド復帰のたびに GitHub Releases を確認する（20 秒のデバウンス付き）。
+        viewModel.updateController.onForeground()
     }
 
     /** ディープリンクを処理したら、Intent から値を消す（残さない）。 */
@@ -145,10 +152,23 @@ fun AegisRoot(viewModel: AegisViewModel) {
     val route by viewModel.route.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val syncPrefill by viewModel.syncPrefill.collectAsStateWithLifecycle()
+    val updateState by viewModel.updateController.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     var biometricMode by remember { mutableStateOf(BiometricMode.UNLOCK) }
+    var installPermission by remember { mutableStateOf(false) }
+
+    fun installUpdate() {
+        val intent = viewModel.updateController.installIntent()
+        if (intent == null) {
+            installPermission = true
+            return
+        }
+        runCatching { context.startActivity(intent) }
+            .onFailure { viewModel.showMessage("インストーラを開けませんでした") }
+        viewModel.updateController.installStarted()
+    }
 
     LaunchedEffect(message) {
         val text = message ?: return@LaunchedEffect
@@ -225,6 +245,13 @@ fun AegisRoot(viewModel: AegisViewModel) {
                             onSyncNow = viewModel::syncNow,
                             onResolveConflict = viewModel::resolveConflict,
                             onSortMode = { mode -> viewModel.updateSettings { it.copy(sortMode = mode) } },
+                            onSwitchProfile = viewModel::switchProfile,
+                            updateState = updateState,
+                            onCheckUpdate = { viewModel.updateController.checkNow() },
+                            onDownloadUpdate = { viewModel.updateController.downloadNow() },
+                            onInstallUpdate = { installUpdate() },
+                            onSkipUpdate = { viewModel.updateController.skip() },
+                            onCancelUpdate = { viewModel.updateController.cancelDownload() },
                         )
 
                         Route.Add -> AddAccountScreen(
@@ -283,6 +310,11 @@ fun AegisRoot(viewModel: AegisViewModel) {
                                 copyCode(context, text, null)
                                 viewModel.showMessage("コピーしました")
                             },
+                            updateState = updateState,
+                            onCheckUpdate = { viewModel.updateController.checkNow() },
+                            onDownloadUpdate = { viewModel.updateController.downloadNow() },
+                            onInstallUpdate = { installUpdate() },
+                            onCancelUpdate = { viewModel.updateController.cancelDownload() },
                         )
 
                         Route.Trash -> TrashScreen(
@@ -324,6 +356,27 @@ fun AegisRoot(viewModel: AegisViewModel) {
                 }
             }
         }
+    }
+
+    if (installPermission) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { installPermission = false },
+            title = { Text("インストールの許可が必要です") },
+            text = {
+                Text(
+                    "Android の設定で、このアプリに「提供元不明のアプリ」のインストールを許可してください。" +
+                        "許可すると、ダウンロード済みの APK をインストールできます。",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    installPermission = false
+                    runCatching { context.startActivity(viewModel.updateController.unknownSourcesSettingsIntent()) }
+                        .onFailure { viewModel.showMessage("設定を開けませんでした") }
+                }) { Text("設定を開く") }
+            },
+            dismissButton = { TextButton(onClick = { installPermission = false }) { Text("あとで") } },
+        )
     }
 }
 
