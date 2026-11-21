@@ -10,8 +10,22 @@ const SCOPE = new URL(self.registration.scope).pathname;
 const BASE = SCOPE.endsWith('/') ? SCOPE : `${SCOPE}/`;
 const INDEX = `${BASE}index.html`;
 const API_PREFIX = `${BASE}api/`;
-const CACHE = 'aegis-shell-v1';
-const SHELL = [BASE, INDEX, `${BASE}manifest.webmanifest`, `${BASE}icon.svg`];
+/**
+ * ビルド時に vite.config.ts が dist/index.html の参照（エントリ JS / CSS）で置き換える。
+ * ハッシュ付きのファイル名はビルドごとに変わるため、一覧を手で書かない。
+ * 値は配置先の基準（BASE）からの相対パス。
+ */
+const PRECACHE_ASSETS = [];
+/** ビルド時に vite.config.ts が `-<hash>` を足す（アセットが変わったらキャッシュも作り直す）。 */
+const CACHE_VERSION = 'v1';
+const CACHE = `aegis-shell-${CACHE_VERSION}`;
+const SHELL = [
+  BASE,
+  INDEX,
+  `${BASE}manifest.webmanifest`,
+  `${BASE}icon.svg`,
+  ...PRECACHE_ASSETS.map((path) => `${BASE}${path}`),
+];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(

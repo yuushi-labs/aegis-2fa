@@ -6,6 +6,8 @@
  * - 上限超過は 429 と Retry-After、上限内なら X-RateLimit-Limit / X-RateLimit-Remaining
  * - キーは接続元 IP。転送ヘッダは trust_proxy のときだけ採用し、
  *   X-Forwarded-For を右端から trust_proxy_hops 番目で数える（左端は偽装できる）。
+ * - 転送ヘッダを信じるのは、接続元が信頼済みプロキシ（trust_proxy_ips、既定は
+ *   127.0.0.1 / ::1）のときだけ。直接つながるクライアントは remoteAddr で数える。
  * - X-Real-IP は読まない。
  */
 
@@ -99,7 +101,10 @@ final class RateLimiter
     /** レート制限のキーにするクライアント IP。 */
     public static function clientIp(Request $request, Config $config): string
     {
-        if ($config->trustProxy) {
+        $remoteAddr = $request->remoteAddr;
+        // 転送ヘッダは、接続元が信頼済みプロキシのときだけ採用する
+        // （直接つながるクライアントが X-Forwarded-For を毎回変えて制限を回避できないように）。
+        if ($config->trustProxy && $config->isTrustedProxy($remoteAddr)) {
             $forwarded = $request->header('x-forwarded-for');
             if ($forwarded !== null && trim($forwarded) !== '') {
                 $parts = [];
@@ -115,9 +120,9 @@ final class RateLimiter
                     return $candidate;
                 }
             }
-            return $request->remoteAddr ?? 'unknown';
+            return $remoteAddr ?? 'unknown';
         }
 
-        return $request->remoteAddr ?? 'local';
+        return $remoteAddr ?? ($config->trustProxy ? 'unknown' : 'local');
     }
 }

@@ -20,6 +20,9 @@ return [
     // Xserver の共用サーバーでは通常 false のままでよい（REMOTE_ADDR が実クライアント）。
     'trust_proxy' => false,
     'trust_proxy_hops' => 1,
+    // X-Forwarded-For を信じてよい接続元の IP（カンマ区切りでも可）。
+    // ここに無い接続元からの転送ヘッダは無視し、REMOTE_ADDR で数える。
+    // 'trust_proxy_ips' => ['127.0.0.1', '::1'],
 
     // レート制限。新規ボルトの作成だけは別枠（既定 10 回/時）。
     'rate_limit' => true,

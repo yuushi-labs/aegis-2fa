@@ -5,6 +5,7 @@
  * シナリオ（AEGIS_TEST_SCENARIO）:
  *   untrusted … 既定（TRUST_PROXY なし）のサーバー。X-Forwarded-For を変えても回避できない。
  *   trusted   … TRUST_PROXY=true のサーバー。転送ヘッダの値ごとに数える。
+ *   untrusted-peer … TRUST_PROXY=true でも接続元が TRUST_PROXY_IPS に無いサーバー。転送ヘッダを無視する。
  *   put       … 書き込み（PUT）が 20 req/min で制限される。
  *   create    … 新規作成だけの別バケット（既定 10/時）が効き、既存の更新は妨げない。
  *
@@ -77,6 +78,24 @@ switch ($scenario) {
             );
         }
         $client->check('同じ転送ヘッダを繰り返すと 429', ($last['status'] ?? 0) === 429, 'status=' . ($last['status'] ?? 0));
+        break;
+
+    case 'untrusted-peer':
+        // 接続元（127.0.0.1）は TRUST_PROXY_IPS に含めない。転送ヘッダを変えても 1 つのバケットで数える。
+        $spoofed = [];
+        for ($i = 0; $i < 61; $i += 1) {
+            $spoofed[] = $client->request(
+                'GET',
+                '/api/vault/' . $vaultId . '/meta',
+                ['Authorization' => test_bearer($token), 'X-Forwarded-For' => '10.0.3.' . $i],
+            );
+        }
+        $client->check('60 回までは 404（上限内）', ($spoofed[59]['status'] ?? 0) === 404, 'status=' . ($spoofed[59]['status'] ?? 0));
+        $client->check(
+            '信頼しない接続元の転送ヘッダでは回避できない（61 回目は 429）',
+            ($spoofed[60]['status'] ?? 0) === 429,
+            'status=' . ($spoofed[60]['status'] ?? 0),
+        );
         break;
 
     case 'put':

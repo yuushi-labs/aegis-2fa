@@ -71,7 +71,25 @@ $client->check('manifest が配信される', $manifest['status'] === 200 && ($m
 $client->check('manifest の start_url が相対パス', ($manifestBody['start_url'] ?? null) === './');
 
 $sw = $client->request('GET', '/sw.js');
-$client->check('Service Worker が配信される', $sw['status'] === 200 && str_contains($sw['body'], 'aegis-shell-v1'));
+$client->check('Service Worker が配信される', $sw['status'] === 200 && str_contains($sw['body'], 'aegis-shell-'));
+$client->check(
+    'キャッシュ名にビルドのハッシュが入る（アセットが変わればキャッシュを作り直す）',
+    preg_match('/CACHE_VERSION = \'v1-[0-9a-f]{8}\'/', (string) $sw['body']) === 1,
+);
+
+// 初回のオフライン起動で使うエントリ JS / CSS が install 時のプリキャッシュに入っているか。
+preg_match_all('/(?:src|href)="([^"]+\.(?:js|css))"/', (string) $root['body'], $entryMatches);
+$entryAssets = [];
+foreach ($entryMatches[1] as $entryPath) {
+    $entryAssets[] = $basePath === '' ? ltrim($entryPath, '/') : ltrim(substr($entryPath, strlen($basePath)), '/');
+}
+$client->check('index.html が JS / CSS を参照している', $entryAssets !== [], implode(',', $entryAssets));
+foreach ($entryAssets as $entryAsset) {
+    $client->check(
+        'エントリの ' . $entryAsset . ' が sw.js のプリキャッシュに入る',
+        str_contains((string) $sw['body'], '"' . $entryAsset . '"'),
+    );
+}
 
 $assets = glob($siteRoot . '/assets/*.js') ?: [];
 $client->check('assets/ にハッシュ付き JS がある', $assets !== []);

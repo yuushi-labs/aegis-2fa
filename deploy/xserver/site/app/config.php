@@ -26,6 +26,8 @@ return [
     // 前段プロキシが X-Forwarded-For を設定・上書きする場合のみ true。
     'trust_proxy' => false,
     'trust_proxy_hops' => 1,
+    // 転送ヘッダを信じてよい接続元（プロキシ）の IP。ここに無い接続元は remoteAddr で数える。
+    'trust_proxy_ips' => ['127.0.0.1', '::1'],
     // HSTS。null なら HTTPS を自動判定する（Xserver の SSL なら自動で有効）。
     'https' => null,
     // レート制限（/api/vault/* は 60 回/分、PUT は 20 回/分）。

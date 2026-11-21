@@ -75,6 +75,7 @@ $client->section('設定: 環境変数と丸め');
 putenv('AEGIS_DB_PATH=' . $workRoot . '/env/aegis.db');
 putenv('AEGIS_TRUST_PROXY=true');
 putenv('AEGIS_TRUST_PROXY_HOPS=99');
+putenv('AEGIS_TRUST_PROXY_IPS=10.1.2.3, 192.0.2.4');
 putenv('AEGIS_HTTPS=auto');
 putenv('AEGIS_RATE_LIMIT_WINDOW=30');
 putenv('AEGIS_RATE_LIMIT_CREATE_MAX=3');
@@ -83,6 +84,15 @@ $config = Config::load($appDir);
 $client->check('AEGIS_DB_PATH が最優先', $config->dbPath === $workRoot . '/env/aegis.db', $config->dbPath);
 $client->check('AEGIS_TRUST_PROXY が true になる', $config->trustProxy === true);
 $client->check('TRUST_PROXY_HOPS は 10 で頭打ち', $config->trustProxyHops === 10, (string) $config->trustProxyHops);
+$client->check(
+    'TRUST_PROXY_IPS をカンマ区切りで読む',
+    $config->trustProxyIps === ['10.1.2.3', '192.0.2.4'],
+    implode(',', $config->trustProxyIps),
+);
+$client->check(
+    'TRUST_PROXY_IPS に無い接続元は信頼しない',
+    $config->isTrustedProxy('127.0.0.1') === false && $config->isTrustedProxy('10.1.2.3') === true,
+);
 $client->check('https=auto は自動判定（null）', $config->https === null);
 $client->check('レート制限のウィンドウを変更できる', $config->rateLimitWindowSeconds === 30);
 $client->check('新規作成の上限を変更できる', $config->rateLimitCreateMax === 3, (string) $config->rateLimitCreateMax);
@@ -90,12 +100,20 @@ $client->check('新規作成のウィンドウを変更できる', $config->rate
 putenv('AEGIS_DB_PATH');
 putenv('AEGIS_TRUST_PROXY');
 putenv('AEGIS_TRUST_PROXY_HOPS');
+putenv('AEGIS_TRUST_PROXY_IPS');
 putenv('AEGIS_HTTPS');
 putenv('AEGIS_RATE_LIMIT_WINDOW');
 putenv('AEGIS_RATE_LIMIT_CREATE_MAX');
 putenv('AEGIS_RATE_LIMIT_CREATE_WINDOW');
 
 $config = Config::load($appDir);
+$client->check(
+    'TRUST_PROXY_IPS の既定はループバック',
+    $config->trustProxyIps === ['127.0.0.1', '::1'],
+    implode(',', $config->trustProxyIps),
+);
+$client->check('既定ではループバックを信頼する', $config->isTrustedProxy('127.0.0.1') && $config->isTrustedProxy('::1'));
+$client->check('既定では外部の接続元を信頼しない', $config->isTrustedProxy('198.51.100.7') === false);
 $client->check('新規作成の上限の既定は 10', $config->rateLimitCreateMax === 10, (string) $config->rateLimitCreateMax);
 $client->check(
     '新規作成のウィンドウの既定は 3600 秒',

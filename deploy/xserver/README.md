@@ -79,6 +79,7 @@ return [
 | `max_vault_bytes` | `268435456`（256 MiB） | 保存できる暗号文の総量。超過は `507` |
 | `trust_proxy` | `false` | 前段が `X-Forwarded-For` を設定・上書きする場合のみ `true` |
 | `trust_proxy_hops` | `1` | 信頼するプロキシ段数（右端から数える） |
+| `trust_proxy_ips` | `['127.0.0.1', '::1']` | `X-Forwarded-For` を信じてよい接続元の IP（カンマ区切りも可）。ここに無い接続元は `REMOTE_ADDR` で数える |
 | `https` | `null`（自動判定） | `true` で HSTS を強制、`false` で付けない |
 | `cors_origin` | `null` | 別オリジンから API を使う場合のみ |
 | `rate_limit` | `true` | `/api/vault/*` 60/分、PUT 20/分 |
@@ -89,6 +90,7 @@ return [
 
 環境変数（`.htaccess` の `SetEnv` など）でも同じキーを上書きできます:
 `AEGIS_DB_PATH` / `AEGIS_MAX_VAULT_BYTES` / `AEGIS_TRUST_PROXY` / `AEGIS_TRUST_PROXY_HOPS` /
+`AEGIS_TRUST_PROXY_IPS`（カンマ区切り）/
 `AEGIS_HTTPS` / `AEGIS_CORS_ORIGIN` / `AEGIS_RATE_LIMIT` / `AEGIS_RATE_LIMIT_CREATE_MAX` /
 `AEGIS_RATE_LIMIT_CREATE_WINDOW` / `AEGIS_DEBUG` / `AEGIS_CONFIG` /
 `AEGIS_APP_DIR`（`app/` を公開ディレクトリ外へ移した場合）。
@@ -239,6 +241,10 @@ Apache 固有の `.htaccess` の挙動は `php -S` では再現できないた�
 
 - `uptime` は「DB を最初に作った時刻からの経過秒数」です（PHP に常駐プロセスがないため）。
 - `X-Real-IP` は読みません（Node 版と同じ。`X-Forwarded-For` のみ、`trust_proxy` のときだけ）。
+- `trust_proxy=true` でも、転送ヘッダを採用するのは接続元が `trust_proxy_ips`（既定 `127.0.0.1` / `::1`、
+  同じホストの前段プロキシ）のときだけです。別ホストのプロキシを使う構成では、その IP を
+  `trust_proxy_ips` に追加してください。追加しない場合、直接アクセスするクライアントが
+  `X-Forwarded-For` を毎回変えてもレート制限は `REMOTE_ADDR` 単位になり、回避できません。
 - 新規ボルトの作成上限（既定 10/時/IP）は PHP 版だけの追加です（Node 版は PUT 20/分のみ）。
 - `db_path` に相対パスを書くと、これまでどおりサイト直下（公開領域内）に DB を作りますが、
   その場合 `error_log` に警告を出します（動きは変えていません）。絶対パスを推奨します。

@@ -118,6 +118,16 @@ else
   FAILED=1
 fi
 
+# 3b) レート制限: TRUST_PROXY=true でも接続元が信頼済みでなければ転送ヘッダを無視する
+P3B=$(( PORT_BASE + 6 ))
+if start_server rate-untrusted-peer "$P3B" AEGIS_DB_PATH="$TMP/rate-untrusted-peer.db" AEGIS_TRUST_PROXY=true AEGIS_TRUST_PROXY_IPS=10.9.9.9; then
+  run_php rate-limit.php \
+    AEGIS_TEST_BASE_URL="http://127.0.0.1:$P3B" \
+    AEGIS_TEST_SCENARIO=untrusted-peer || FAILED=1
+else
+  FAILED=1
+fi
+
 # 4) レート制限: PUT は 20 req/min
 P4=$(( PORT_BASE + 3 ))
 if start_server rate-put "$P4" AEGIS_DB_PATH="$TMP/rate-put.db"; then

@@ -12,12 +12,17 @@ namespace Aegis;
 
 final class Config
 {
+    /** 転送ヘッダを信じてよい接続元の既定値（同じホストで動く前段プロキシ）。 */
+    public const DEFAULT_TRUST_PROXY_IPS = ['127.0.0.1', '::1'];
+
     private function __construct(
         public readonly string $dbPath,
         public readonly int $maxVaultBytes,
         public readonly ?string $corsOrigin,
         public readonly bool $trustProxy,
         public readonly int $trustProxyHops,
+        /** X-Forwarded-For を信じてよい接続元（プロキシ）の IP。 */
+        public readonly array $trustProxyIps,
         public readonly ?bool $https,
         public readonly bool $rateLimit,
         public readonly int $rateLimitReadMax,
@@ -59,6 +64,7 @@ final class Config
             corsOrigin: $corsOrigin === '' ? null : $corsOrigin,
             trustProxy: (bool) ($values['trust_proxy'] ?? false),
             trustProxyHops: min(10, max(1, self::intValue($values['trust_proxy_hops'] ?? 1, 1))),
+            trustProxyIps: self::ipList($values['trust_proxy_ips'] ?? self::DEFAULT_TRUST_PROXY_IPS),
             https: self::nullableBool($values['https'] ?? null),
             rateLimit: (bool) ($values['rate_limit'] ?? true),
             rateLimitReadMax: self::positiveInt($values['rate_limit_read_max'] ?? 0, 60),
@@ -72,6 +78,48 @@ final class Config
             debug: (bool) ($values['debug'] ?? false),
             version: is_string($version) ? $version : '1.0.0',
         );
+    }
+
+    /**
+     * X-Forwarded-For を信じてよい接続元か。
+     *
+     * trust_proxy は「前段が転送ヘッダを上書きする」前提の設定なので、接続元が
+     * その前段（既定では同じホストのプロキシ）であることも確かめる。直接つながる
+     * クライアントが X-Forwarded-For を毎回変えてレート制限を回避できないようにするため。
+     */
+    public function isTrustedProxy(?string $remoteAddr): bool
+    {
+        if ($remoteAddr === null || $remoteAddr === '') {
+            return false;
+        }
+        $normalized = str_starts_with($remoteAddr, '::ffff:') ? substr($remoteAddr, 7) : $remoteAddr;
+        foreach ($this->trustProxyIps as $trusted) {
+            if ($trusted === $remoteAddr || $trusted === $normalized) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * IP の一覧（配列またはカンマ区切り）を正規化する。IP として不正な値は捨てる。
+     *
+     * @return list<string>
+     */
+    private static function ipList(mixed $value): array
+    {
+        $items = [];
+        foreach (is_array($value) ? $value : [$value] as $entry) {
+            if (!is_string($entry)) {
+                continue;
+            }
+            foreach (preg_split('/[\s,]+/', $entry) ?: [] as $item) {
+                if (filter_var($item, FILTER_VALIDATE_IP) !== false) {
+                    $items[$item] = true;
+                }
+            }
+        }
+        return array_keys($items);
     }
 
     /**
@@ -113,6 +161,7 @@ final class Config
             'AEGIS_CORS_ORIGIN' => 'cors_origin',
             'AEGIS_TRUST_PROXY' => 'trust_proxy',
             'AEGIS_TRUST_PROXY_HOPS' => 'trust_proxy_hops',
+            'AEGIS_TRUST_PROXY_IPS' => 'trust_proxy_ips',
             'AEGIS_HTTPS' => 'https',
             'AEGIS_RATE_LIMIT' => 'rate_limit',
             'AEGIS_RATE_LIMIT_READ_MAX' => 'rate_limit_read_max',
@@ -131,7 +180,7 @@ final class Config
                 continue;
             }
             $overrides[$key] = match ($key) {
-                'db_path', 'cors_origin', 'version' => $raw,
+                'db_path', 'cors_origin', 'version', 'trust_proxy_ips' => $raw,
                 'trust_proxy', 'rate_limit', 'debug' => self::envBool($raw),
                 'https' => self::envNullableBool($raw),
                 default => self::envInt($raw),
