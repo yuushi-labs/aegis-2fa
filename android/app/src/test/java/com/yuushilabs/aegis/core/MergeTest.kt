@@ -168,4 +168,45 @@ class MergeTest {
         val b = com.google.gson.JsonParser.parseString("""{"a":[1,2],"b":1}""")
         assertEquals(VaultMerge.canonicalJson(a), VaultMerge.canonicalJson(b))
     }
+
+    @Test
+    fun `passkey infos are merged by id and deletions stay deleted`() {
+        val merged = VaultMerge.mergePasskeyInfos(
+            listOf(
+                PasskeyInfo("k1", "Pixel", "2026-01-01T00:00:00.000Z", "phone", "Pixel"),
+                PasskeyInfo("k2", "YubiKey", "2026-01-01T00:00:00.000Z", "pc", "PC", "2026-03-01T00:00:00.000Z"),
+            ),
+            listOf(
+                PasskeyInfo("k1", "Pixel 8", "2026-02-01T00:00:00.000Z", "phone", "Pixel"),
+                PasskeyInfo("k2", "YubiKey", "2026-01-01T00:00:00.000Z", "pc", "PC"),
+            ),
+        )
+        assertEquals(listOf("k1", "k2"), merged.map { it.id })
+        assertEquals("Pixel 8", merged[0].name)
+        // 削除の印は取り消さない（古い端末の情報で復活させない）。
+        assertEquals("2026-03-01T00:00:00.000Z", merged[1].deletedAt)
+    }
+
+    @Test
+    fun `passkey device name ties resolve the same way regardless of order`() {
+        val a = listOf(PasskeyInfo("k1", "Pixel", "2026-01-01T00:00:00.000Z", "phone", "Pixel"))
+        val b = listOf(PasskeyInfo("k1", "Pixel", "2026-01-01T00:00:00.000Z", "phone", "Pixel 8"))
+        assertEquals(VaultMerge.mergePasskeyInfos(a, b), VaultMerge.mergePasskeyInfos(b, a))
+        assertEquals("Pixel 8", VaultMerge.mergePasskeyInfos(a, b).single().deviceName)
+    }
+
+    @Test
+    fun `merging vault data keeps passkey infos`() {
+        val base = VaultData(
+            accounts = emptyList(),
+            passkeyInfos = listOf(PasskeyInfo("k1", "Pixel", "2026-01-01T00:00:00.000Z", "phone")),
+        )
+        val incoming = VaultData(
+            accounts = listOf(account("a", "2026-01-02T00:00:00.000Z")),
+            passkeyInfos = listOf(PasskeyInfo("k2", "Mac", "2026-01-02T00:00:00.000Z", "mac")),
+        )
+        val result = VaultMerge.merge(base, incoming, now = 0)
+        assertEquals(listOf("k1", "k2"), result.data.passkeyInfos?.map { it.id })
+        assertEquals(1, result.added)
+    }
 }

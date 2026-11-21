@@ -29,7 +29,15 @@ $client->check('200 を返す', $health['status'] === 200, 'status=' . $health['
 $client->check('status=ok', ($body['status'] ?? null) === 'ok');
 $client->check('database=ok', ($body['database'] ?? null) === 'ok');
 $client->check('uptime が整数', isset($body['uptime']) && is_int($body['uptime']));
-$client->check('version=1.0.0', ($body['version'] ?? null) === '1.0.0', (string) ($body['version'] ?? 'null'));
+// バージョンは package.json からビルド時に app/version.php へ書かれるので、そこを正にする
+// （リリースごとに手で直すと、上げ忘れで CI が落ちる）。
+preg_match("/return '([^']+)';/", (string) @file_get_contents($siteRoot . '/app/version.php'), $versionMatch);
+$expectedVersion = $versionMatch[1] ?? '';
+$client->check(
+    'version が app/version.php と一致',
+    $expectedVersion !== '' && ($body['version'] ?? null) === $expectedVersion,
+    (string) ($body['version'] ?? 'null'),
+);
 $client->check(
     'Content-Type が JSON',
     str_contains((string) ($health['headers']['content-type'] ?? ''), 'application/json'),
@@ -64,6 +72,21 @@ $client->check('GET / が index.html を返す', $root['status'] === 200 && str_
 
 $spa = $client->request('GET', '/accounts');
 $client->check('未知のパスは index.html（SPA フォールバック）', $spa['status'] === 200 && str_contains($spa['body'], '<div id="root">'));
+
+// プライバシーポリシー（/privacy）は、ロック解除前でも直リンク・リロードで開ける必要がある。
+// 実際のリダイレクトは Apache の .htaccess（php -S では router.php が同じ規則を再現）が行う。
+$privacy = $client->request('GET', '/privacy');
+$client->check(
+    'GET /privacy が index.html を返す（直リンクで開ける）',
+    $privacy['status'] === 200 && str_contains((string) $privacy['body'], '<div id="root">'),
+    'status=' . $privacy['status'],
+);
+$client->check(
+    'GET /privacy の Content-Type が HTML',
+    str_contains((string) ($privacy['headers']['content-type'] ?? ''), 'text/html'),
+    (string) ($privacy['headers']['content-type'] ?? ''),
+);
+$client->check('GET /privacy の本文が / と同じ index.html', $privacy['body'] === $root['body']);
 
 $manifest = $client->request('GET', '/manifest.webmanifest');
 $manifestBody = is_array($manifest['json']) ? $manifest['json'] : [];

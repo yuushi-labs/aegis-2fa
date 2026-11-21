@@ -113,6 +113,7 @@ android/         Kotlin + Compose のネイティブアプリ（core/ は shared
 ```
 
 データフローと競合解決は [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+プライバシーポリシーは [PRIVACY.md](PRIVACY.md)（アプリ内の `/privacy` と同じ内容）。
 
 ## 開発コマンド
 

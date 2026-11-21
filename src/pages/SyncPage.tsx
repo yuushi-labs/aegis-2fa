@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { deriveVaultId, formatSyncCode, normalizeSyncCode } from '../../shared/sync';
 import { useI18n, useToast } from '../lib/hooks';
 import { useVaultStore } from '../lib/vaultStore';
@@ -184,6 +184,12 @@ export function SyncPage() {
           </div>
         )}
       </div>
+
+      <p className="mt-6 text-center text-[0.78rem]">
+        <Link to="/privacy" className="link" data-testid="privacy-link">
+          {t('privacy.open')}
+        </Link>
+      </p>
 
       <Modal
         open={confirmOpen}

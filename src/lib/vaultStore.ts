@@ -19,7 +19,7 @@ import {
   unlockVaultEnvelope,
   updateEnvelopeData,
 } from '../../shared/crypto';
-import { mergeTombstones, mergeVaultData } from '../../shared/merge';
+import { mergePasskeyInfos, mergeTombstones, mergeVaultData } from '../../shared/merge';
 import { purgeExpiredTrash } from '../../shared/trash';
 import {
   PasskeyPrfUnsupportedError,
@@ -42,6 +42,7 @@ import { base64ToBytes, bytesToBase64 } from '../../shared/encoding';
 import { DEFAULT_PROFILE_ID, MAX_PROFILE_NAME_LENGTH, MIN_PASSWORD_LENGTH } from '../../shared/types';
 import type {
   Account,
+  PasskeyInfo,
   PasskeyRecord,
   SyncDevice,
   Tombstone,
@@ -82,6 +83,7 @@ import {
   touchDevice,
 } from './device';
 import { SyncConflictError, SyncHttpError, SyncNotFoundError, createSyncClient } from './syncClient';
+import type { RemoteVault } from './syncClient';
 
 export type VaultStatus = 'loading' | 'uninitialized' | 'locked' | 'unlocked';
 
@@ -157,6 +159,11 @@ type VaultStore = {
   dek: Uint8Array | null;
   /** このボルトで使えるパスキー / セキュリティキーの登録（端末内のみ） */
   passkeys: PasskeyRecord[];
+  /**
+   * 登録済みパスキーのメタ情報（名前と端末名だけ。暗号化ボルトの中で同期する）。
+   * この端末の登録は passkeys にも入る。ここは「ほかの端末の登録」も見せるために持つ。
+   */
+  passkeyInfos: PasskeyInfo[];
   /** このブラウザにあるプロファイル（ボルト）の一覧 */
   profiles: VaultProfile[];
   /** 選択中のプロファイル ID */
@@ -305,7 +312,85 @@ function parseVaultData(plaintext: string): VaultData {
           (item as SyncDevice).id !== '',
       )
     : [];
-  return { accounts: Array.isArray(parsed.accounts) ? parsed.accounts : [], tombstones, devices };
+  // パスキーのメタ情報は秘密ではないが、壊れた要素で一覧が落ちないよう形を確かめる。
+  const passkeyInfos = Array.isArray(parsed.passkeyInfos)
+    ? mergePasskeyInfos(
+        parsed.passkeyInfos.filter(
+          (item): item is PasskeyInfo =>
+            typeof item === 'object' &&
+            item !== null &&
+            typeof (item as PasskeyInfo).id === 'string' &&
+            (item as PasskeyInfo).id !== '',
+        ),
+      )
+    : [];
+  return {
+    accounts: Array.isArray(parsed.accounts) ? parsed.accounts : [],
+    tombstones,
+    devices,
+    ...(passkeyInfos.length === 0 ? {} : { passkeyInfos }),
+  };
+}
+
+/**
+ * 暗号化ペイロードの直列化。devices / passkeyInfos は空なら書かない
+ * （古い端末やバックアップと同じ形を保ち、無駄に revision を進めない）。
+ */
+function serializeVaultData(
+  accounts: readonly Account[],
+  tombstones: readonly Tombstone[],
+  devices: readonly SyncDevice[],
+  passkeyInfos: readonly PasskeyInfo[],
+): string {
+  return JSON.stringify({
+    accounts: manualSort(accounts),
+    tombstones: [...tombstones],
+    ...(devices.length === 0 ? {} : { devices: [...devices] }),
+    ...(passkeyInfos.length === 0 ? {} : { passkeyInfos: [...passkeyInfos] }),
+  } satisfies VaultData);
+}
+
+/** 暗号化ペイロードを、比較用の同じ形へ直す（サーバーから取り込んだ平文にも使う）。 */
+function serializeVaultDataOf(data: VaultData): string {
+  return serializeVaultData(
+    data.accounts,
+    data.tombstones ?? [],
+    data.devices ?? [],
+    data.passkeyInfos ?? [],
+  );
+}
+
+/** この端末の登録を一覧に足す（同じ credentialId は新しい表示名で置き換える）。 */
+function withPasskeyInfo(
+  infos: readonly PasskeyInfo[],
+  record: Pick<PasskeyRecord, 'id' | 'name' | 'createdAt'>,
+  device: { id: string; name: string },
+): PasskeyInfo[] {
+  const entry: PasskeyInfo = {
+    id: record.id,
+    name: record.name,
+    createdAt: record.createdAt,
+    deviceId: device.id,
+    deviceName: device.name,
+  };
+  return mergePasskeyInfos(
+    infos.filter((info) => info.id !== record.id),
+    [entry],
+  );
+}
+
+/** 登録を消したことを他の端末にも伝える（解除に使う登録は端末から消し、削除の印だけを暗号化ボルトに残す）。 */
+function withPasskeyDeleted(
+  infos: readonly PasskeyInfo[],
+  id: string,
+  deletedAt: string,
+): PasskeyInfo[] {
+  const existing = infos.find((info) => info.id === id);
+  if (existing === undefined) return [...infos];
+  return mergePasskeyInfos(
+    infos.filter((info) => info.id !== id),
+    [{ ...existing, deletedAt }],
+  );
 }
 
 function nextOrder(accounts: readonly Account[]): number {
@@ -354,11 +439,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
     const next = await updateEnvelopeData(
       envelope,
       dek,
-      JSON.stringify({
-        accounts: manualSort(purged.accounts),
-        tombstones: purged.tombstones,
-        ...(devices.length === 0 ? {} : { devices }),
-      } satisfies VaultData),
+      serializeVaultData(purged.accounts, purged.tombstones ?? [], devices, get().passkeyInfos),
       revision,
       now,
     );
@@ -385,29 +466,30 @@ export const useVaultStore = create<VaultStore>((set, get) => {
     if (token !== null) scheduleSync();
   }
 
-  /** サーバーに新しい版があれば競合として提示する（黙って上書きしない）。 */
+  /**
+   * サーバーに新しい版があれば取り込みを予約する（黙って上書きしない）。
+   *
+   * 解錠中なら同期の中でマージし、ロック中なら暗号文だけ合わせる
+   * （どちらも runSync の「サーバー優先」経路）。
+   */
   async function refreshRemote(): Promise<void> {
     const { token, vaultId, envelope } = get();
     if (token === null || vaultId === null || envelope === null) return;
     try {
       const remote = await syncClient.get(vaultId, token);
       if (remote.revision > envelope.revision) {
-        set({
-          conflict: { remoteRevision: remote.revision, remoteEnvelope: remote.envelope },
-          syncState: 'conflict',
-        });
+        // 別端末の更新 → 同期で取り込む（同一 revision の食い違いも同じ扱い）。
+        set({ syncState: 'pending' });
+        scheduleSync();
       } else if (remote.revision === envelope.revision) {
-        // 同じ revision でも封筒が違えば、別端末が同じ revision から編集している。
         const sameEnvelope =
           remote.envelope.data.iv === envelope.data.iv &&
           remote.envelope.data.ciphertext === envelope.data.ciphertext;
         if (sameEnvelope) {
           set({ syncState: 'synced', syncedRevision: remote.revision, lastSyncedAt: remote.envelope.updatedAt });
         } else {
-          set({
-            conflict: { remoteRevision: remote.revision, remoteEnvelope: remote.envelope },
-            syncState: 'conflict',
-          });
+          set({ syncState: 'pending' });
+          scheduleSync();
         }
       } else {
         // サーバーが古い（未送信の変更がある）→ 送信待ちとして扱う。
@@ -489,6 +571,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         accounts: [],
         tombstones: [],
         devices: [],
+        passkeyInfos: [],
         token,
         vaultId: null,
         syncedRevision: null,
@@ -536,6 +619,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
             accounts: manualSort(purged.accounts),
             tombstones: purged.tombstones,
             devices: raw.devices ?? [],
+            passkeyInfos: raw.passkeyInfos ?? [],
           });
           void refreshRemote();
           if (pending) scheduleSync();
@@ -558,13 +642,33 @@ export const useVaultStore = create<VaultStore>((set, get) => {
       accounts: [],
       tombstones: [],
       devices: [],
+      passkeyInfos: [],
       pendingSyncToken: null,
     });
     // 未同期の変更が残っている場合は、ロック画面のままでも送信を試みる。
     if (pending) scheduleSync();
   }
 
-  /** 実際の送信処理（syncNow は 1 本ずつ直列化して呼ぶ）。 */
+  /** サーバーのエラー本文（`{ "error": "revision_must_advance" }`）からコードを取り出す。 */
+  function serverErrorCode(error: SyncHttpError): string | null {
+    const body = error.body;
+    if (typeof body === 'object' && body !== null && 'error' in body) {
+      const code = (body as { error?: unknown }).error;
+      return typeof code === 'string' ? code : null;
+    }
+    return null;
+  }
+
+  /**
+   * 同期 1 回分（syncNow は 1 本ずつ直列化して呼ぶ）。送る前に必ず
+   * 「ローカルに未送信の変更があるか」を見る。
+   *
+   * - 未送信あり → PUT（base は最後にサーバーと一致した revision）。
+   *   PHP / Node のサーバーは `envelope.revision <= base` を 400
+   *   `revision_must_advance` で拒否するので、送る変更が無いときに PUT を投げない。
+   * - 未送信なし → GET でサーバーの状態を取りに行き、進んでいれば取り込む
+   *   （解錠中はマージして必要なら送り返す／ロック中は暗号文だけ合わせる）。
+   */
   async function runSync(): Promise<void> {
     const { token, vaultId, envelope } = get();
     if (token === null || vaultId === null || envelope === null) return;
@@ -577,73 +681,293 @@ export const useVaultStore = create<VaultStore>((set, get) => {
       set({ syncState: 'pending', syncError: 'offline' });
       return;
     }
-    // 基準は「最後にサーバーと一致した revision」（envelope.revision - 1 ではない）。
-    const sent = envelope;
-    const base = get().syncedRevision ?? 0;
-    try {
-      await syncClient.put(vaultId, token, sent, base);
+
+    /** 送信が通ったあとの状態反映。送信中にさらに編集されたら続けて送る。 */
+    const applied = async (revision: number): Promise<void> => {
       if (!isCurrent()) return;
-      if (profileId !== null) await updateSyncedRevision(profileId, sent.revision);
+      if (profileId !== null) await updateSyncedRevision(profileId, revision);
       if (!isCurrent()) return;
-      set({ syncedRevision: sent.revision });
+      set({ syncedRevision: revision, syncError: null });
       const latest = get().envelope;
-      if (latest !== null && latest.revision > sent.revision) {
+      if (latest !== null && latest.revision > revision) {
         // 送信中にさらに編集された → 続けて送る。
-        set({ syncState: 'pending', syncError: null });
+        set({ syncState: 'pending' });
         scheduleSync();
       } else {
-        set({ syncState: 'synced', syncError: null, lastSyncedAt: new Date().toISOString() });
+        set({ syncState: 'synced', lastSyncedAt: new Date().toISOString() });
       }
-    } catch (error) {
-      if (error instanceof SyncConflictError) {
-        try {
-          const remote = await syncClient.get(vaultId, token);
+    };
+
+    /** サーバーの封筒を手元へ取り込む（解錠中なら data も反映する）。 */
+    const adoptRemote = async (remote: RemoteVault, data?: VaultData): Promise<void> => {
+      if (profileId !== null) await writeVault(profileId, remote.envelope, remote.revision);
+      if (!isCurrent()) return;
+      if (profileId !== null) await syncPasskeys(profileId, remote.envelope);
+      if (!isCurrent()) return;
+      // 復号待ちの間にロックされたら、平文（accounts 等）は戻さない。
+      const unlockedNow = data !== undefined && get().dek !== null && get().status === 'unlocked';
+      set({
+        envelope: remote.envelope,
+        syncedRevision: remote.revision,
+        syncState: 'synced',
+        syncError: null,
+        lastSyncedAt: remote.envelope.updatedAt,
+        conflict: null,
+        ...(unlockedNow && data !== undefined
+          ? {
+              accounts: manualSort(data.accounts),
+              tombstones: data.tombstones ?? [],
+              devices: data.devices ?? [],
+              passkeyInfos: data.passkeyInfos ?? [],
+            }
+          : {}),
+      });
+    };
+
+    /**
+     * 手元の封筒を送る。戻り値:
+     * - 'ok'      … 送信できた（競合・エラーも状態へ反映済み）
+     * - 'advance' … 400 revision_must_advance。呼び出し側で取り込み直す
+     */
+    const push = async (target: VaultEnvelope, base: number): Promise<'ok' | 'advance'> => {
+      try {
+        await syncClient.put(vaultId, token, target, base);
+        await applied(target.revision);
+        return 'ok';
+      } catch (error) {
+        if (error instanceof SyncConflictError) {
+          try {
+            const remote = await syncClient.get(vaultId, token);
+            if (!isCurrent()) return 'ok';
+            // 応答だけ失われた PUT を「競合」と誤認しない（サーバーが同じ封筒を持っている）。
+            const sameEnvelope =
+              remote.revision === target.revision &&
+              remote.envelope.data.iv === target.data.iv &&
+              remote.envelope.data.ciphertext === target.data.ciphertext;
+            if (sameEnvelope) {
+              if (profileId !== null) await updateSyncedRevision(profileId, remote.revision);
+              if (!isCurrent()) return 'ok';
+              set({ syncedRevision: remote.revision, syncState: 'synced', syncError: null });
+              return 'ok';
+            }
+            set({
+              syncState: 'conflict',
+              conflict: { remoteRevision: remote.revision, remoteEnvelope: remote.envelope },
+            });
+          } catch {
+            set({ syncState: 'error', syncError: 'conflict_fetch_failed' });
+          }
+          return 'ok';
+        }
+        if (error instanceof SyncNotFoundError) {
+          // サーバー側でボルトが消えている → base 0 で作り直す。
+          try {
+            await syncClient.put(vaultId, token, target, 0);
+            await applied(target.revision);
+          } catch {
+            set({ syncState: 'error', syncError: 'put_failed' });
+          }
+          return 'ok';
+        }
+        if (error instanceof SyncHttpError) {
+          // サーバーの前提と食い違った → 取り込み直して合わせる（同じ送信を繰り返さない）。
+          if (error.status === 400 && serverErrorCode(error) === 'revision_must_advance') {
+            return 'advance';
+          }
+          set({ syncState: 'error', syncError: `http_${error.status}` });
+          return 'ok';
+        }
+        set({ syncState: 'error', syncError: 'network' });
+        return 'ok';
+      }
+    };
+
+    /**
+     * サーバー優先: 取り込んで、足りない分だけ送り返す。
+     * [attempt] は合わせ直しの回数。400 で戻ってきたときは attempt=1 で呼ばれ、
+     * そこでまた拒否されたら送信を繰り返さずエラーにする（無限の往復を防ぐ）。
+     */
+    const pull = async (attempt = 0): Promise<void> => {
+      // 取得を始めた時点の基準。ここよりサーバーが古いときだけ「巻き戻り」と判断する。
+      const startBase = get().syncedRevision ?? 0;
+      const retryOrFail = async (
+        target: VaultEnvelope,
+        base: number,
+        errorCode: string,
+      ): Promise<void> => {
+        if (attempt > 0) {
+          set({ syncState: 'error', syncError: errorCode });
+          return;
+        }
+        const result = await push(target, base);
+        if (result === 'advance') await pull(1);
+      };
+
+      let remote: RemoteVault;
+      try {
+        remote = await syncClient.get(vaultId, token);
+      } catch (error) {
+        if (error instanceof SyncNotFoundError) {
+          // 待機中に別のボルトへ切り替わったら、古い ID で送り直さない。
           if (!isCurrent()) return;
-          // 応答だけ失われた PUT を「競合」と誤認しない（サーバーが同じ封筒を持っている）。
-          const sameEnvelope =
-            remote.revision === sent.revision &&
-            remote.envelope.data.iv === sent.data.iv &&
-            remote.envelope.data.ciphertext === sent.data.ciphertext;
-          if (sameEnvelope) {
-            if (profileId !== null) await updateSyncedRevision(profileId, remote.revision);
-            if (!isCurrent()) return;
-            set({ syncedRevision: remote.revision, syncState: 'synced', syncError: null });
+          // サーバーに無い → 手元の封筒を base 0 で作り直す。
+          const latest = get().envelope;
+          if (latest === null) return;
+          if (latest.revision < 1) {
+            // revision 0 の封筒は解錠していないと作り直せない。
+            set({ syncState: 'error', syncError: 'stale_envelope' });
             return;
           }
+          await retryOrFail(latest, 0, 'put_failed');
+          return;
+        }
+        if (error instanceof SyncHttpError) {
+          set({ syncState: 'error', syncError: `http_${error.status}` });
+          return;
+        }
+        set({ syncState: 'error', syncError: 'network' });
+        return;
+      }
+      if (!isCurrent()) return;
+
+      const state = get();
+      const sent = state.envelope;
+      if (sent === null) return;
+      // 待機中にローカルが編集されたか（封筒は保存ごとに新しいオブジェクトになる）。
+      const localUnchanged = (): boolean =>
+        isCurrent() && get().envelope === sent && get().dek === state.dek;
+
+      if (remote.revision < startBase) {
+        // サーバーが「最後に一致した revision」より古い（復元など）→ 手元を送り返す。
+        // ローカルが進んでいるだけ（別端末の変更をまだ見ていない）場合は巻き戻りではない。
+        await retryOrFail(sent, remote.revision, 'http_400');
+        return;
+      }
+
+      const sameEnvelope =
+        remote.envelope.data.iv === sent.data.iv &&
+        remote.envelope.data.ciphertext === sent.data.ciphertext;
+      // 鍵のラップ（salt と wrappedKey）が違う＝どちらかの端末でマスターパスワードが
+      // 変更されている。勝手に取り込むと変更を取り消して古いパスワードが有効に戻るので、
+      // 解錠した利用者に選ばせる（取り込み / 上書き / マージ）。
+      const sameWrapping =
+        remote.envelope.kdf.salt === sent.kdf.salt &&
+        remote.envelope.wrappedKey.ciphertext === sent.wrappedKey.ciphertext;
+      if (remote.revision === sent.revision && sameEnvelope && sameWrapping) {
+        // サーバーと一致している → 同期済みとして終わる。
+        await adoptRemote(remote);
+        return;
+      }
+      if (!sameWrapping) {
+        set({
+          syncState: 'conflict',
+          conflict: { remoteRevision: remote.revision, remoteEnvelope: remote.envelope },
+        });
+        return;
+      }
+
+      // ここから先はサーバーが新しい（同じ revision で別内容の場合も含む）。
+      if (state.dek === null || state.status !== 'unlocked') {
+        if (sent.revision > startBase) {
+          // ロック中はマージできない。手元の未送信の変更を捨てないよう、
+          // サーバーの封筒を競合として預けて解錠後に選ばせる。
           set({
             syncState: 'conflict',
             conflict: { remoteRevision: remote.revision, remoteEnvelope: remote.envelope },
           });
-        } catch {
-          set({ syncState: 'error', syncError: 'conflict_fetch_failed' });
+          return;
         }
+        // 未送信が無ければ、暗号文だけ合わせる（次の解錠で読める）。
+        await adoptRemote(remote);
         return;
       }
-      if (error instanceof SyncNotFoundError) {
-        try {
-          await syncClient.put(vaultId, token, sent, 0);
-          if (!isCurrent()) return;
-          if (profileId !== null) await updateSyncedRevision(profileId, sent.revision);
-          if (!isCurrent()) return;
-          set({ syncedRevision: sent.revision, syncError: null });
-          const latest = get().envelope;
-          if (latest !== null && latest.revision > sent.revision) {
-            // 再作成の送信中にさらに編集された → 続けて送る。
-            set({ syncState: 'pending' });
-            scheduleSync();
-          } else {
-            set({ syncState: 'synced', lastSyncedAt: new Date().toISOString() });
-          }
-        } catch {
-          set({ syncState: 'error', syncError: 'put_failed' });
-        }
+
+      const session = unlockSession;
+      let remoteData: VaultData;
+      try {
+        remoteData = parseVaultData(await decryptVaultDataWithDek(remote.envelope, state.dek));
+      } catch {
+        // 別のマスターパスワードで作られたボルトと重なっている等。勝手に上書きしない。
+        set({ syncState: 'error', syncError: 'decrypt_failed' });
         return;
       }
+      // 復号中にローカルが編集された（DEK は変わらないので封筒の同一性で見る）／
+      // ロック・切替が起きたら、この古い内容は取り込まない（次の同期に任せる）。
+      if (!localUnchanged() || session !== unlockSession) return;
+
+      const merged = mergeVaultData(
+        {
+          accounts: state.accounts,
+          tombstones: state.tombstones,
+          devices: state.devices,
+          ...(state.passkeyInfos.length === 0 ? {} : { passkeyInfos: state.passkeyInfos }),
+        },
+        remoteData,
+      );
+      const mergedText = serializeVaultData(
+        merged.data.accounts,
+        merged.data.tombstones ?? [],
+        merged.data.devices ?? [],
+        merged.data.passkeyInfos ?? [],
+      );
+      // 手元に足すものが無ければ、サーバーの封筒をそのまま採用して終わる。
+      if (mergedText === serializeVaultDataOf(remoteData)) {
+        if (!localUnchanged() || session !== unlockSession) return;
+        await adoptRemote(remote, remoteData);
+        return;
+      }
+
+      // 両方に差分がある → サーバーの revision + 1 でマージ結果を保存して送る。
+      let next: VaultEnvelope;
+      try {
+        next = await updateEnvelopeData(
+          remote.envelope,
+          state.dek,
+          mergedText,
+          remote.revision + 1,
+          new Date().toISOString(),
+        );
+      } catch {
+        set({ syncState: 'error', syncError: 'decrypt_failed' });
+        return;
+      }
+      if (!isCurrent()) return;
+      // 再暗号化の間にローカルが保存された／ロック・切替が起きたら、この結果は捨てる
+      // （次の同期が最新の内容でやり直す。古いマージ結果で編集を上書きしない）。
+      if (get().envelope !== sent || session !== unlockSession) return;
+      // 先に手元へ保存する（送信に失敗してもマージ結果を失わない）。
+      if (profileId !== null) await writeVault(profileId, next, remote.revision);
+      if (!isCurrent()) return;
+      // 再暗号化の間にロックされたら、平文（accounts）は戻さず封筒と同期状態だけにする。
+      const stillUnlocked = session === unlockSession && get().dek !== null && get().status === 'unlocked';
       set({
-        syncState: 'error',
-        syncError: error instanceof SyncHttpError ? `http_${error.status}` : 'network',
+        envelope: next,
+        syncedRevision: remote.revision,
+        ...(stillUnlocked
+          ? {
+              accounts: manualSort(merged.data.accounts),
+              tombstones: merged.data.tombstones ?? [],
+              devices: merged.data.devices ?? [],
+              passkeyInfos: merged.data.passkeyInfos ?? [],
+            }
+          : {}),
+        syncState: 'pending',
+        syncError: null,
+        conflict: null,
       });
+      await retryOrFail(next, remote.revision, 'http_400');
+    };
+
+    // 基準は「最後にサーバーと一致した revision」（envelope.revision - 1 ではない）。
+    const base = get().syncedRevision ?? 0;
+    // ローカルに未送信の変更が無ければ、まずサーバーの状態を取りに行く。
+    // ここで PUT を投げると `revision_must_advance`（400）になる。
+    if (base > 0 && envelope.revision <= base) {
+      await pull();
+      return;
     }
+    const result = await push(envelope, base);
+    if (result === 'advance' && base > 0) await pull();
   }
 
   return {
@@ -665,6 +989,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
     pendingSyncToken: null,
     dek: null,
     passkeys: [],
+    passkeyInfos: [],
     profiles: [],
     activeProfileId: null,
     deviceId: getDeviceId(),
@@ -757,6 +1082,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
             accounts: manualSort(purged.accounts),
             tombstones: purged.tombstones,
             devices: raw.devices ?? [],
+            passkeyInfos: raw.passkeyInfos ?? [],
             failedAttempts: 0,
             cooldownUntil: 0,
           });
@@ -836,7 +1162,13 @@ export const useVaultStore = create<VaultStore>((set, get) => {
           await readPasskeys(current.activeProfileId),
           current.envelope,
         );
-        set({ passkeys: stored });
+        // 名前だけの一覧を暗号化ボルトへ入れて同期する（別の端末で「登録済み」と分かるように）。
+        const passkeyInfos = withPasskeyInfo(get().passkeyInfos, record, {
+          id: getDeviceId(),
+          name: getDeviceName(),
+        });
+        set({ passkeys: stored, passkeyInfos });
+        await persist(get().accounts, get().tombstones);
         return { ok: true, record };
       });
     },
@@ -846,6 +1178,12 @@ export const useVaultStore = create<VaultStore>((set, get) => {
       if (profileId === null) return;
       await deletePasskey(id, profileId);
       set({ passkeys: get().passkeys.filter((record) => record.id !== id) });
+      // アンロック中なら、削除したことを他の端末にも伝える（名前だけの一覧に残さない）。
+      if (get().dek === null) return;
+      await runExclusive(async () => {
+        set({ passkeyInfos: withPasskeyDeleted(get().passkeyInfos, id, new Date().toISOString()) });
+        await persist(get().accounts, get().tombstones);
+      });
     },
 
     /**
@@ -908,6 +1246,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
           accounts: manualSort(purged.accounts),
           tombstones: purged.tombstones,
           devices: raw.devices ?? [],
+          passkeyInfos: raw.passkeyInfos ?? [],
           failedAttempts: 0,
           cooldownUntil: 0,
           passkeys: candidates,
@@ -930,7 +1269,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
       clearSessionDek();
       // 2 秒デバウンス内の変更を取りこぼさない（syncNow は DEK を必要としない）。
       flushSync();
-      set({ status: 'locked', dek: null, accounts: [], tombstones: [], devices: [], conflict: null });
+      set({ status: 'locked', dek: null, accounts: [], tombstones: [], devices: [], passkeyInfos: [], conflict: null });
     },
 
     async updateSettings(patch) {
@@ -1065,6 +1404,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         accounts: [],
         tombstones: [],
         devices: [],
+        passkeyInfos: [],
         token,
         vaultId: token === null ? null : await deriveVaultId(token),
         syncedRevision: token === null ? null : 0,
@@ -1101,6 +1441,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         accounts: [],
         tombstones: [],
         devices: [],
+        passkeyInfos: [],
         token,
         vaultId,
         syncedRevision: remote.revision,
@@ -1198,7 +1539,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
       if (next.length < MIN_PASSWORD_LENGTH) return false;
       return runExclusive(async () => {
         // PBKDF2 を 2 回待つ間に保存が走らないよう、キューの内側で最新状態を読む。
-        const { envelope, dek, token, accounts, tombstones, devices, activeProfileId } = get();
+        const { envelope, dek, token, accounts, tombstones, devices, passkeyInfos, activeProfileId } = get();
         const generation = lifecycleGeneration;
         const profileId = activeProfileId ?? DEFAULT_PROFILE_ID;
         if (envelope === null || dek === null) return false;
@@ -1212,11 +1553,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         const updated = await updateEnvelopeData(
           rewrapped,
           dek,
-          JSON.stringify({
-            accounts: manualSort(accounts),
-            tombstones,
-            ...(devices.length === 0 ? {} : { devices }),
-          } satisfies VaultData),
+          serializeVaultData(accounts, tombstones, devices, passkeyInfos),
           envelope.revision + 1,
           new Date().toISOString(),
         );
@@ -1283,11 +1620,12 @@ export const useVaultStore = create<VaultStore>((set, get) => {
                   accounts: manualSort(raw.accounts),
                   tombstones: raw.tombstones ?? [],
                   devices: raw.devices ?? [],
+                  passkeyInfos: raw.passkeyInfos ?? [],
                 });
               }
             } catch {
               if (session === unlockSession) {
-                set({ status: 'locked', dek: null, accounts: [], tombstones: [], devices: [] });
+                set({ status: 'locked', dek: null, accounts: [], tombstones: [], devices: [], passkeyInfos: [] });
               }
             }
           }
@@ -1301,23 +1639,38 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         let accounts = get().accounts;
         let tombstones = get().tombstones;
         let devices = get().devices;
+        let passkeyInfos = get().passkeyInfos;
         let added = 0;
         let updated = 0;
         if (mode === 'merge') {
           try {
             const plaintext = await decryptVaultDataWithDek(conflict.remoteEnvelope, dek);
             const merged = mergeVaultData(
-              { accounts, tombstones, devices },
+              {
+                accounts,
+                tombstones,
+                devices,
+                ...(passkeyInfos.length === 0 ? {} : { passkeyInfos }),
+              },
               parseVaultData(plaintext),
             );
             accounts = merged.data.accounts;
             tombstones = merged.data.tombstones ?? [];
             devices = merged.data.devices ?? devices;
+            passkeyInfos = merged.data.passkeyInfos ?? passkeyInfos;
             added = merged.added;
             updated = merged.updated;
           } catch (error) {
             if (error instanceof CryptoError) {
-              set({ conflict: null, status: 'locked', dek: null, accounts: [], tombstones: [], devices: [] });
+              set({
+                conflict: null,
+                status: 'locked',
+                dek: null,
+                accounts: [],
+                tombstones: [],
+                devices: [],
+                passkeyInfos: [],
+              });
               return { added: 0, updated: 0, resolved: false, shouldSync: false };
             }
             throw error;
@@ -1328,11 +1681,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         const next = await updateEnvelopeData(
           envelope,
           dek,
-          JSON.stringify({
-            accounts: manualSort(accounts),
-            tombstones,
-            ...(devices.length === 0 ? {} : { devices }),
-          } satisfies VaultData),
+          serializeVaultData(accounts, tombstones, devices, passkeyInfos),
           revision,
           new Date().toISOString(),
         );
@@ -1349,6 +1698,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
             accounts: manualSort(accounts),
             tombstones,
             devices,
+            passkeyInfos,
             conflict: null,
             syncedRevision: conflict.remoteRevision,
             syncState: 'pending',
@@ -1389,6 +1739,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
           accounts: [],
           tombstones: [],
           devices: [],
+          passkeyInfos: [],
           syncedRevision: token === null ? null : 0,
           syncState: token === null ? 'local-only' : 'pending',
         });
@@ -1417,9 +1768,15 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         const latest = get();
         if (latest.dek === null || latest.status !== 'unlocked') throw new VaultLockedError();
         const merged = mergeVaultData(
-          { accounts: latest.accounts, tombstones: latest.tombstones, devices: latest.devices },
+          {
+            accounts: latest.accounts,
+            tombstones: latest.tombstones,
+            devices: latest.devices,
+            ...(latest.passkeyInfos.length === 0 ? {} : { passkeyInfos: latest.passkeyInfos }),
+          },
           incoming,
         );
+        set({ passkeyInfos: merged.data.passkeyInfos ?? latest.passkeyInfos });
         await persist(
           merged.data.accounts,
           merged.data.tombstones ?? [],
@@ -1462,6 +1819,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         accounts: [],
         tombstones: [],
         devices: [],
+        passkeyInfos: [],
         envelope: null,
         dek: null,
         passkeys: [],
@@ -1515,7 +1873,7 @@ export const useVaultStore = create<VaultStore>((set, get) => {
       unlockSession += 1;
       await writeActiveProfileId(id);
       // 表示上の状態を先に空にして、切替中に前のプロファイルの平文が残らないようにする。
-      set({ dek: null, accounts: [], tombstones: [], devices: [], conflict: null, envelope: null });
+      set({ dek: null, accounts: [], tombstones: [], devices: [], passkeyInfos: [], conflict: null, envelope: null });
       await loadProfile(id);
     },
 
@@ -1547,7 +1905,14 @@ export const useVaultStore = create<VaultStore>((set, get) => {
       const trimmed = name.trim().slice(0, 64);
       if (trimmed === '') return;
       persistDeviceName(trimmed);
-      set({ deviceName: getDeviceName() });
+      const deviceName = getDeviceName();
+      // パスキーの一覧に載っている「登録した端末の名前」も一緒に付け替える。
+      set({
+        deviceName,
+        passkeyInfos: get().passkeyInfos.map((info) =>
+          info.deviceId === get().deviceId ? { ...info, deviceName } : info,
+        ),
+      });
       await runExclusive(() => persist(get().accounts, get().tombstones));
     },
 

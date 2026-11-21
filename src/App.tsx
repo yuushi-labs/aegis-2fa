@@ -15,6 +15,7 @@ import { TrashPage } from './pages/TrashPage';
 import { PrintSheetPage } from './pages/PrintSheetPage';
 import { SetupPage } from './pages/SetupPage';
 import { SyncPage } from './pages/SyncPage';
+import { PrivacyPage } from './pages/PrivacyPage';
 
 const ACTIVITY_EVENTS = ['pointerdown', 'keydown', 'visibilitychange', 'wheel', 'touchstart'] as const;
 
@@ -129,6 +130,8 @@ export function App() {
       <>
         <Routes>
           <Route path="/sync" element={<SyncPage />} />
+          {/* プライバシーポリシーは、ボルトを作る前でも読めるようにする。 */}
+          <Route path="/privacy" element={<PrivacyPage />} />
           <Route path="*" element={<SetupPage />} />
         </Routes>
         <Toaster />
@@ -141,6 +144,8 @@ export function App() {
       <>
         <Routes>
           <Route path="/sync" element={<SyncPage />} />
+          {/* ロック中でも、解錠せずにプライバシーポリシーを開ける。 */}
+          <Route path="/privacy" element={<PrivacyPage />} />
           <Route path="*" element={<LockPage />} />
         </Routes>
         <Toaster />
@@ -160,6 +165,7 @@ export function App() {
           <Route path="/trash" element={<TrashPage />} />
           <Route path="/print" element={<PrintSheetPage />} />
           <Route path="/sync" element={<SyncPage />} />
+          <Route path="/privacy" element={<PrivacyPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>

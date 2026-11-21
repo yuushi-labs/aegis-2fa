@@ -3,6 +3,7 @@ import {
   accountFingerprint,
   findDuplicates,
   mergeDevices,
+  mergePasskeyInfos,
   mergeTombstones,
   mergeVaultData,
 } from '../../shared/merge';
@@ -214,5 +215,93 @@ describe('同期マージ', () => {
     ];
     expect(mergeDevices(older, newer)).toEqual(mergeDevices(newer, older));
     expect(mergeDevices(older, newer)[0]?.name).toBe('new');
+  });
+});
+
+describe('パスキーのメタ情報のマージ', () => {
+  it('id 単位の union で、名前は新しい createdAt を採る', () => {
+    const merged = mergePasskeyInfos(
+      [{ id: 'k1', name: 'Pixel', createdAt: '2026-01-01T00:00:00.000Z', deviceId: 'phone' }],
+      [
+        { id: 'k1', name: 'Pixel 8', createdAt: '2026-02-01T00:00:00.000Z', deviceId: 'phone' },
+        { id: 'k2', name: 'YubiKey', createdAt: '2026-01-15T00:00:00.000Z', deviceId: 'pc' },
+      ],
+    );
+    expect(merged.map((info) => [info.id, info.name])).toEqual([
+      ['k1', 'Pixel 8'],
+      ['k2', 'YubiKey'],
+    ]);
+  });
+
+  it('削除の印は取り消さない（古い端末の「生きている」情報で復活させない）', () => {
+    const deleted = [
+      { id: 'k1', name: 'Pixel', createdAt: '2026-01-01T00:00:00.000Z', deletedAt: '2026-03-01T00:00:00.000Z' },
+    ];
+    const alive = [
+      { id: 'k1', name: 'Pixel', createdAt: '2026-01-01T00:00:00.000Z', deletedAt: undefined },
+    ];
+    for (const [a, b] of [
+      [deleted, alive],
+      [alive, deleted],
+    ] as const) {
+      const merged = mergePasskeyInfos(a, b);
+      expect(merged).toHaveLength(1);
+      expect(merged[0]?.deletedAt).toBe('2026-03-01T00:00:00.000Z');
+    }
+  });
+
+  it('壊れた要素は落とし、入力順に依存しない', () => {
+    const left = [
+      { id: '', name: 'x', createdAt: '2026-01-01T00:00:00.000Z' },
+      { id: 'k1', name: 'Pixel', createdAt: '2026-01-01T00:00:00.000Z' },
+    ];
+    const right = [
+      { id: 'k2', name: 'YubiKey', createdAt: '2026-01-02T00:00:00.000Z' },
+      { id: 'k1', name: 'Pixel', createdAt: '2026-01-01T00:00:00.000Z' },
+    ];
+    expect(mergePasskeyInfos(left, right)).toEqual(mergePasskeyInfos(right, left));
+    expect(mergePasskeyInfos(left, right).map((info) => info.id)).toEqual(['k1', 'k2']);
+  });
+
+  it('登録日時が同じで端末名だけ違うときは、入力順に依存せず同じ結果になる', () => {
+    const a = [
+      {
+        id: 'k1',
+        name: 'Pixel',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        deviceId: 'phone',
+        deviceName: 'Pixel',
+      },
+    ];
+    const b = [
+      {
+        id: 'k1',
+        name: 'Pixel',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        deviceId: 'phone',
+        deviceName: 'Pixel 8',
+      },
+    ];
+    // 端末名を変えても登録日時は変わらないので、名前で決めて両端末で同じ結果にする。
+    expect(mergePasskeyInfos(a, b)).toEqual(mergePasskeyInfos(b, a));
+    expect(mergePasskeyInfos(a, b)[0]?.deviceName).toBe('Pixel 8');
+  });
+
+  it('ボルトのマージ結果にもパスキーのメタ情報が残る（空なら書かない）', () => {
+    const base: VaultData = {
+      accounts: [],
+      passkeyInfos: [
+        { id: 'k1', name: 'Pixel', createdAt: '2026-01-01T00:00:00.000Z', deviceId: 'phone' },
+      ],
+    };
+    const incoming: VaultData = {
+      accounts: [],
+      passkeyInfos: [
+        { id: 'k2', name: 'YubiKey', createdAt: '2026-01-02T00:00:00.000Z', deviceId: 'pc' },
+      ],
+    };
+    const result = mergeVaultData(base, incoming);
+    expect(result.data.passkeyInfos?.map((info) => info.name)).toEqual(['Pixel', 'YubiKey']);
+    expect(mergeVaultData({ accounts: [] }, { accounts: [] }).data.passkeyInfos).toBeUndefined();
   });
 });

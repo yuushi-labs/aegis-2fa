@@ -75,7 +75,7 @@ sequenceDiagram
   V-->>S: 200 { revision }
 ```
 
-## 同期の競合解決
+## 同期の流れと競合解決
 
 ```mermaid
 stateDiagram-v2
@@ -84,21 +84,38 @@ stateDiagram-v2
   pending --> synced: PUT 200
   synced --> pending: ローカル変更（デバウンス 2s）
   pending --> synced: PUT 200
-  pending --> conflict: PUT 409
-  synced --> conflict: GET で remote.revision > local
+  pending --> conflict: PUT 409（別端末が先に進めた）
   conflict --> synced: 上書き / 取り込み / マージ
-  pending --> error: ネットワーク断
+  synced --> pending: GET でサーバーが新しい（自動で取り込む）
+  pending --> error: ネットワーク断 / 4xx
   error --> pending: 再送
 ```
 
 - サーバーは **楽観ロック** を行います。`body.revision` が現在の revision と一致しない場合は
-  `409` と `currentRevision` を返します。
-- クライアントは黙って上書きせず、`conflict` 状態にして 3 択を提示します。
+  `409` と `currentRevision` を返します。PHP 版はさらに、`envelope.revision` が
+  基準以下（進まない書き込み）を `400 revision_must_advance` で拒否します。
+- クライアントは **送る前に「ローカルに未送信の変更があるか」を見ます**。
+  `envelope.revision <= syncedRevision` のときは PUT を送らず、`GET` でサーバーの状態を
+  取りに行きます（同期待ちのまま PUT を投げて 400 になる、という不具合の原因でした）。
+  - 同じ revision で内容も同じ → `synced`
+  - サーバーが新しい → アンロック中は復号して `mergeVaultData` でマージし、差分があれば
+    `remote.revision + 1` で再暗号化して `base = remote.revision` で PUT。差分が無ければ
+    サーバーの envelope をそのまま採用。ロック中は復号できないので暗号文だけ採用
+  - サーバーにボルトが無い（404） → `base = 0` で作り直す
+  - `400 revision_must_advance` → `GET` で合わせ直し、それでも拒否されたら往復を止めて
+    エラー表示（同じ送信を繰り返さない）
+  - 封筒の鍵ラップ（`kdf.salt` / `wrappedKey`）が食い違う＝どちらかでマスターパスワードが
+    変更されている → 自動では取り込まず、3 択の競合として提示する（取り込むと変更を
+    取り消して古いパスワードが有効に戻るため）
+- `PUT` が `409` を返したときだけ 3 択を提示します。
   - **上書き**: ローカルの envelope を新しい revision で PUT
   - **取り込み**: サーバーの envelope をローカルに保存（要アンロック）
   - **マージ**: 同じ DEK で両方を復号し、`updatedAt` の新しい方を採用
-- マージはアカウント単位の和集合です。削除は「削除済み」フラグを持たないため、
-  両端末で削除と編集が交差した場合は編集が勝ちます（制約として許容）。
+- マージはアカウント単位の和集合です。削除は `tombstones`（`id` + `deletedAt`）で表し、
+  `deletedAt >= account.updatedAt` ならそのアカウントは結果から除きます（削除が復活しない）。
+- パスキーは解除に使う情報を端末内だけに置きます。表示名・登録日時・端末名だけを
+  `VaultData.passkeyInfos` として暗号化ボルトの中で共有し、`mergePasskeyInfos` で
+  統合します（削除の印は取り消さない）。
 
 ## 鍵のライフサイクル
 
