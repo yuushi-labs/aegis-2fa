@@ -16,6 +16,8 @@ export default tseslint.config(
       'drizzle/**',
       // Xserver 用の配信物はビルド生成物（dist/ と deploy/xserver/site のコピー）。
       'deploy/xserver/build/**',
+      // Android アプリは Kotlin（Gradle がビルド）。生成物・レポートは ESLint の対象外。
+      'android/**',
     ],
   },
   js.configs.recommended,
