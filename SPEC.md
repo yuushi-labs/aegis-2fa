@@ -436,7 +436,8 @@ type PasskeyRecord = {
 23. アプリでログイン: 未同期のボルトで押すと同期コードが自動発行され「同期済み」になり、案内が出る
     （既に同期済みならコードを作り直さない）。設定と同期画面の両方から押せる。
 
-E2E は `pnpm build && pnpm start`（一時 DB）に対して `playwright.config.ts` の `webServer` で実行。`reuseExistingServer: !process.env.CI`。
+E2E は `pnpm build && pnpm start`（一時 DB）に対して `playwright.config.ts` の `webServer` で実行。
+既存サーバーは再利用しない（`reuseExistingServer: false`。今回のビルドとテスト用の設定を必ず効かせる）。
 全テストが同じ IP（127.0.0.1）から短時間に作る・更新するため、E2E のサーバーだけ `AEGIS_DISABLE_RATE_LIMIT=true` で
 レート制限を外す（20 PUT/分に当たると無関係なテストが落ちる）。制限そのものは integration と PHP 版テストで検証する。
 

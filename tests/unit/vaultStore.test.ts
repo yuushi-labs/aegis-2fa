@@ -1801,6 +1801,23 @@ describe('ボルトストア: アプリでログイン', () => {
     expect(store.getState().syncState).toBe('synced');
   });
 
+  it('再送がオフラインで止まったら、過去の送信実績があっても渡さない', async () => {
+    const { vault, store } = await unlockedStore({ accounts: [], token: TOKEN, syncedRevision: 1 });
+    // 一度失敗させて error 状態にしておく。
+    H.server.put = async () => {
+      throw new H.errors.SyncHttpError(503, null);
+    };
+    await store.getState().upsertAccount(account('a'));
+    await vi.advanceTimersByTimeAsync(2000);
+    await settle();
+    expect(store.getState().syncState).toBe('error');
+
+    // 押し直しのときはオフライン（runSync は送らずに pending / offline で終わる）。
+    vi.stubGlobal('navigator', { onLine: false });
+    await expect(store.getState().prepareAppLogin()).rejects.toBeInstanceOf(vault.AppLoginSyncError);
+    expect(store.getState().syncState).toBe('pending');
+  });
+
   it('初回同期に失敗したら AppLoginSyncError を投げる（アプリへは渡さない）', async () => {
     const { vault, store } = await unlockedStore({ accounts: [], token: null });
     H.server.put = async () => {

@@ -82,8 +82,9 @@ export default defineConfig({
     // 本番ビルドを配信する（pnpm build 済みが前提）。
     command: `node dist-server/index.js`,
     url: `http://${HOST}:${PORT}/api/health`,
-    // CI では既存サーバーを再利用しない（今回のビルドを必ず検証する）。
-    reuseExistingServer: !IS_CI,
+    // 既存サーバーは再利用しない。今回のビルドとテスト用の設定
+    // （AEGIS_DISABLE_RATE_LIMIT 等）を必ず効かせるため。
+    reuseExistingServer: false,
     timeout: 120_000,
     stdout: 'pipe',
     stderr: 'pipe',

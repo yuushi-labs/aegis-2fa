@@ -1178,9 +1178,12 @@ export const useVaultStore = create<VaultStore>((set, get) => {
         const revision = state.syncedRevision;
         return { sent: revision !== null && revision > 0 && state.syncState !== 'error' };
       };
-      if (!current().sent) await get().syncNow();
+      const needsUpload = !current().sent;
+      if (needsUpload) await get().syncNow();
       // 送信中に別のボルトへ切り替わった・消えた場合、そのコードは渡さない。
       if (!stillCurrent() || get().token !== token) throw new VaultChangedError();
+      // 今回の再送が通ったときだけ渡す（オフラインで pending のまま・失敗は渡さない）。
+      if (needsUpload && get().syncState !== 'synced') throw new AppLoginSyncError();
       if (!current().sent) throw new AppLoginSyncError();
       const unlocked = get();
       if (unlocked.dek === null || unlocked.status !== 'unlocked') throw new VaultLockedError();
