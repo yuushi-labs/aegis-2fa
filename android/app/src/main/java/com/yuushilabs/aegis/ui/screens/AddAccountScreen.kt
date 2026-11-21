@@ -2,31 +2,46 @@ package com.yuushilabs.aegis.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.yuushilabs.aegis.core.Account
 import com.yuushilabs.aegis.core.Base32
@@ -43,6 +58,7 @@ import com.yuushilabs.aegis.ui.QrScannerPane
 import com.yuushilabs.aegis.ui.components.AegisCard
 import com.yuushilabs.aegis.ui.components.ErrorBanner
 import com.yuushilabs.aegis.ui.components.MutedText
+import com.yuushilabs.aegis.ui.components.VisibilityToggle
 import com.yuushilabs.aegis.ui.components.SectionTitle
 
 private val ISSUER_SUGGESTIONS = listOf(
@@ -50,7 +66,7 @@ private val ISSUER_SUGGESTIONS = listOf(
     "Microsoft", "Apple", "Steam", "Cloudflare", "Notion",
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AddAccountScreen(
     onBack: () -> Unit,
@@ -69,6 +85,7 @@ fun AddAccountScreen(
     var period by rememberSaveable { mutableStateOf("30") }
     var counter by rememberSaveable { mutableStateOf("0") }
     var notes by rememberSaveable { mutableStateOf("") }
+    var revealSecret by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var duplicates by remember { mutableStateOf<List<DuplicateMatch>?>(null) }
 
@@ -111,12 +128,61 @@ fun AddAccountScreen(
         }
     }
 
+    fun draft(): Account = Account(
+        type = type,
+        issuer = issuer.trim(),
+        label = label.trim(),
+        secret = runCatching { Base32.canonical(secret) }.getOrElse { secret },
+        algorithm = algorithm,
+        digits = digits,
+        period = period.toIntOrNull() ?: 30,
+        counter = counter.toLongOrNull() ?: 0L,
+        notes = notes.trim().ifEmpty { null },
+    )
+
+    fun submit() {
+        val normalized = runCatching { Base32.canonical(secret) }.getOrNull()
+        val periodValue = period.toIntOrNull() ?: 30
+        error = when {
+            normalized.isNullOrEmpty() -> "秘密鍵が正しい Base32 ではありません"
+            issuer.isBlank() && label.isBlank() -> "サービス名かアカウント名を入れてください"
+            type == "totp" && periodValue !in Totp.MIN_PERIOD..Totp.MAX_PERIOD ->
+                "周期は ${Totp.MIN_PERIOD}〜${Totp.MAX_PERIOD} 秒にしてください"
+            else -> null
+        }
+        if (error != null) return
+        val candidate = draft().copy(secret = normalized!!, period = periodValue)
+        val matches = onCheckDuplicates(candidate)
+        if (matches.isNotEmpty()) {
+            duplicates = matches
+        } else {
+            onAdd(candidate, false)
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
                 title = { Text("アカウントを追加") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("戻る") } },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Filled.ArrowBack, contentDescription = "戻る")
+                    }
+                },
             )
+        },
+        bottomBar = {
+            if (tab == "manual") {
+                Surface(color = MaterialTheme.colorScheme.background, tonalElevation = 2.dp) {
+                    Button(
+                        onClick = { submit() },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                    ) { Text("追加する") }
+                }
+            }
         },
     ) { padding ->
         Column(
@@ -125,7 +191,7 @@ fun AddAccountScreen(
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
                 .imePadding()
-                .padding(16.dp),
+                .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -184,22 +250,18 @@ fun AddAccountScreen(
                     AegisCard {
                         SectionTitle("種別")
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(selected = type == "totp", onClick = { type = "totp" }, label = { Text("TOTP（時間ベース）") })
-                            FilterChip(selected = type == "hotp", onClick = { type = "hotp" }, label = { Text("HOTP（カウンタ）") })
+                            FilterChip(selected = type == "totp", onClick = { type = "totp" }, label = { Text("時間ベース（TOTP）") })
+                            FilterChip(selected = type == "hotp", onClick = { type = "hotp" }, label = { Text("カウンタ（HOTP）") })
                         }
                     }
 
                     AegisCard {
                         SectionTitle("サービス")
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                ISSUER_SUGGESTIONS.take(5).forEach { name ->
-                                    AssistChip(onClick = { issuer = name }, label = { Text(name) })
-                                }
-                            }
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                            ISSUER_SUGGESTIONS.drop(5).forEach { name ->
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            ISSUER_SUGGESTIONS.forEach { name ->
                                 AssistChip(onClick = { issuer = name }, label = { Text(name) })
                             }
                         }
@@ -208,6 +270,7 @@ fun AddAccountScreen(
                             onValueChange = { issuer = it },
                             label = { Text("サービス名（例: GitHub）") },
                             singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                             modifier = Modifier.fillMaxWidth(),
                         )
                         OutlinedTextField(
@@ -215,6 +278,7 @@ fun AddAccountScreen(
                             onValueChange = { label = it },
                             label = { Text("アカウント名（メールなど）") },
                             singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
@@ -227,6 +291,9 @@ fun AddAccountScreen(
                             onValueChange = { secret = it },
                             label = { Text("秘密鍵（Base32）") },
                             singleLine = true,
+                            visualTransformation = if (revealSecret) VisualTransformation.None else PasswordVisualTransformation(),
+                            trailingIcon = { VisibilityToggle(revealed = revealSecret) { revealSecret = !revealSecret } },
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                             modifier = Modifier.fillMaxWidth(),
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -248,7 +315,7 @@ fun AddAccountScreen(
                                 onValueChange = { period = it.filter(Char::isDigit) },
                                 label = { Text("周期（秒・通常 30）") },
                                 singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         } else {
@@ -257,7 +324,7 @@ fun AddAccountScreen(
                                 onValueChange = { counter = it.filter(Char::isDigit) },
                                 label = { Text("カウンタ") },
                                 singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         }
@@ -265,44 +332,10 @@ fun AddAccountScreen(
                             value = notes,
                             onValueChange = { notes = it },
                             label = { Text("メモ（任意）") },
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                            minLines = 2,
                             modifier = Modifier.fillMaxWidth(),
                         )
-                    }
-
-                    Button(
-                        onClick = {
-                            val normalized = runCatching { Base32.canonical(secret) }.getOrNull()
-                            val periodValue = period.toIntOrNull() ?: 30
-                            error = when {
-                                normalized.isNullOrEmpty() -> "秘密鍵が正しい Base32 ではありません"
-                                issuer.isBlank() && label.isBlank() -> "サービス名かアカウント名を入れてください"
-                                type == "totp" && periodValue !in Totp.MIN_PERIOD..Totp.MAX_PERIOD ->
-                                    "周期は ${Totp.MIN_PERIOD}〜${Totp.MAX_PERIOD} 秒にしてください"
-                                else -> null
-                            }
-                            if (error == null) {
-                                val draft = Account(
-                                    type = type,
-                                    issuer = issuer.trim(),
-                                    label = label.trim(),
-                                    secret = normalized!!,
-                                    algorithm = algorithm,
-                                    digits = digits,
-                                    period = periodValue,
-                                    counter = counter.toLongOrNull() ?: 0L,
-                                    notes = notes.trim().ifEmpty { null },
-                                )
-                                val matches = onCheckDuplicates(draft)
-                                if (matches.isNotEmpty()) {
-                                    duplicates = matches
-                                } else {
-                                    onAdd(draft, false)
-                                }
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("追加する")
                     }
                 }
             }
@@ -310,7 +343,7 @@ fun AddAccountScreen(
     }
 
     duplicates?.let { matches ->
-        androidx.compose.material3.AlertDialog(
+        AlertDialog(
             onDismissRequest = { duplicates = null },
             title = { Text("同じアカウントがあります") },
             text = {
@@ -323,19 +356,8 @@ fun AddAccountScreen(
             },
             confirmButton = {
                 TextButton(onClick = {
-                    val draft = Account(
-                        type = type,
-                        issuer = issuer.trim(),
-                        label = label.trim(),
-                        secret = runCatching { Base32.canonical(secret) }.getOrElse { secret },
-                        algorithm = algorithm,
-                        digits = digits,
-                        period = period.toIntOrNull() ?: 30,
-                        counter = counter.toLongOrNull() ?: 0L,
-                        notes = notes.trim().ifEmpty { null },
-                    )
                     duplicates = null
-                    onAdd(draft, true)
+                    onAdd(draft(), true)
                 }) { Text("それでも追加する") }
             },
             dismissButton = { TextButton(onClick = { duplicates = null }) { Text("やめる") } },

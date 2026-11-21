@@ -244,7 +244,7 @@ Android 版はブラウザではなく OS の機能で同じゼロ知識設計�
 | バックアップ | `android:allowBackup="false"`、`data_extraction_rules` で全ドメイン除外 | クラウドバックアップ・端末間移行にボルトを載せない |
 | 生体認証 | Keystore の認証必須鍵（`aegis-biometric-key-v1`）で DEK をラップし、BiometricPrompt の `CryptoObject`（BIOMETRIC_STRONG のみ）でのみ開く | 生体認証を経ずに DEK を取り出す経路が無い。新しい指紋を登録しても鍵は無効化しない（`setInvalidatedByBiometricEnrollment(false)`） |
 | サイトからの引き渡し | `aegis://login#code=…&dek=…&name=…` を `singleTask` の Activity で受け、復号（verifier 検証）に成功したときだけ保存。処理後は `Intent.setData(null)` で値を消す | 受け取った直後に他アプリが Intent を読み直せない。フラグメントは元々サーバーへ送られない |
-| 権限 | `INTERNET` / `CAMERA` / `USE_BIOMETRIC` / `USE_FINGERPRINT`（API 26–27 の指紋用）のみ | 解析 SDK・位置情報・連絡先が無い |
+| 権限 | `INTERNET` / `CAMERA` / `USE_BIOMETRIC` / `USE_FINGERPRINT`（API 26–27 の指紋用）/ `REQUEST_INSTALL_PACKAGES`（アプリ内アップデート）のみ | 解析 SDK・位置情報・連絡先が無い。APK は GitHub Releases から取得し、サイズと `sha256` ダイジェスト（添付時）を照合。署名が違えば Android がインストールを拒否する |
 | 通信 | 接続先は `https://yuushi0911.xsrv.jp/aegis` 固定、`usesCleartextTraffic="false"` | 設定ミスで平文へ落ちる経路を作らない |
 | 画面 | スクリーンショット抑止はしない（Web 版と同じ）。ロック画面に注意書きを出す | 端末の画面録画・撮影は OS の範囲 |
 
@@ -273,7 +273,7 @@ Android 版はブラウザではなく OS の機能で同じゼロ知識設計�
 
 ### 外部監査を依頼する場合の前提
 
-- 対象は `v1.1.0` タグ時点のソース（Web / PHP / Android）、`Dockerfile`、本ドキュメントの脅威モデル。
+- 対象は `v1.1.1` タグ時点のソース（Web / PHP / Android）、`Dockerfile`、本ドキュメントの脅威モデル。
 - 秘密情報は含まれない（サーバーは暗号文と `tokenHash` のみ保持）。再現手順は README の
   Docker 手順で完結し、外部サービスへの依存はない。
 - 監査で判明した問題は、修正版を `v1.0.1` 以降として公開し、本ドキュメントに追記する。

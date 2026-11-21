@@ -35,8 +35,10 @@ KEK と DEK）はアンロック中のメモリにしか存在しません。
   `aegis://login#code=…&dek=…&name=…` として渡し、アプリでパスワードを入れ直さずに同じボルトを開く
   （鍵はフラグメントに置くのでサーバー・ログに残らない。未同期なら自動で初回同期してから渡す）
 - **Android ネイティブアプリ**: Kotlin + Jetpack Compose。同じゼロ知識同期・TOTP/HOTP・
-  QR・移行・ゴミ箱・複数ボルトに加え、指紋/顔認証で解錠。接続先は
-  `https://yuushi0911.xsrv.jp/aegis` 固定。詳細は [docs/ANDROID.md](docs/ANDROID.md)
+  QR・移行・ゴミ箱・複数ボルトに加え、指紋/顔認証で解錠、引っ張って同期、ワンタップコピー。
+  接続先は `https://yuushi0911.xsrv.jp/aegis` 固定。GitHub Releases からの
+  **アプリ内アップデート**（ETag 付き確認・進捗表示・FileProvider 経由のインストーラ）に対応。
+  詳細は [docs/ANDROID.md](docs/ANDROID.md)
 - **PWA**: インストール可能、オフラインでコード生成（ビルドしたエントリ JS / CSS も install 時にプリキャッシュ）。
   外部 CDN・外部フォント・解析タグなし
 - **UI**: アイボリー×チャコール、セリフ見出し＋等幅コード、控えめなモーション。ライト/ダーク、375px 対応
@@ -133,7 +135,7 @@ cd android && ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
 | integration | 実 SQLite + `app.request`。PUT/GET/meta/DELETE、楽観ロック 409、404 秘匿、バリデーション、413、レート制限 429、セキュリティヘッダ、**DB とペイロードに平文秘密鍵が無いこと**、ログに秘密が出ないこと |
 | unit（client） | ボルトストアの世代カウンタ・保存の直列化・競合解決・バックアップ取り込み、IndexedDB 永続化、同期クライアント、表示整形・設定・i18n |
 | e2e | 作成 → 追加 → 時刻固定でコード一致、ロック/解錠、検索/ピン、バックアップ書き出しと復元、移行 URI 一括インポート、2 端末同期、アプリでログイン（同期コードの自動発行と案内）、375px レイアウト、ダークのコントラスト、セキュリティヘッダ |
-| android（JVM） | RFC 4226 / 6238 の全ベクタ、Base32、`otpauth` 往復、移行 Protobuf（未知 enum・負の batch_id）、**Web 版で作った封筒の復号と verifier 一致**、AAD 改ざん検出、マージ / tombstones、ゴミ箱 30 日、重複、同期コードの抽出、`aegis://login` のフラグメント解析（88 件） |
+| android（JVM） | RFC 4226 / 6238 の全ベクタ、Base32、`otpauth` 往復、移行 Protobuf（未知 enum・負の batch_id）、**Web 版で作った封筒の復号と verifier 一致**、AAD 改ざん検出、マージ / tombstones、ゴミ箱 30 日、重複、同期コードの抽出、`aegis://login` のフラグメント解析、同期の判断（未変更なら GET・取り込み・マージ）、`PUT` body の契約、更新判定（143 件） |
 
 カバレッジは `pnpm test:coverage` で `shared`・`server`・`src/lib` を対象に計測し、
 2026-11 時点で行 92.4% / 分岐 83.3% / 関数 94.9%。下限（行 85%）を下回ると CI が失敗します。
@@ -154,6 +156,8 @@ smoke test（`/api/health`・devDependencies 非同梱の検証）を push と p
 APK は「提供元不明のアプリ」を許可して端末で開いてインストールします。上書き更新するには
 同じ署名鍵が必要なため、CI はリポジトリの `android/keystore/` の鍵で署名します
 （Secrets があれば差し替え。詳細は [docs/ANDROID.md](docs/ANDROID.md)）。
+v1.1.1 からはアプリ内の「新しいバージョンがあります」からも更新できます（GitHub Releases の
+`aegis-android-*.apk` を取得してインストーラに渡します）。
 
 ## デプロイ
 

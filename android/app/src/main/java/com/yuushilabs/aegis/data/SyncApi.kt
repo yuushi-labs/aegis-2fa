@@ -1,5 +1,6 @@
 package com.yuushilabs.aegis.data
 
+import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.yuushilabs.aegis.core.VaultEnvelope
 import com.yuushilabs.aegis.core.VaultJson
@@ -15,65 +16,79 @@ object ServerConfig {
     const val APP_NAME = "Aegis 2FA"
 }
 
-class SyncHttpException(val status: Int) : Exception("sync request failed: $status")
+/**
+ * 2xx 以外の応答。`error` はサーバー（Node 版 / PHP 版）が返す機械可読な理由で、
+ * 画面には出さずに [SyncFailure] で日本語に置き換える。
+ */
+class SyncHttpException(
+    val status: Int,
+    val code: String? = null,
+    val issues: List<String> = emptyList(),
+) : Exception(buildString {
+    append("sync request failed: ").append(status)
+    if (!code.isNullOrBlank()) append(' ').append(code)
+})
+
 class SyncConflictException(val currentRevision: Int) : Exception("sync conflict")
+
 class SyncNotFoundException : Exception("vault not found")
 
 /**
  * 同期 API クライアント。送るのは暗号文封筒だけ（Web 版 `src/lib/syncClient.ts` と同じ）。
  * `Authorization: Bearer <token>`、`PUT` の body は `{ envelope, revision }`。
+ *
+ * PUT body の形はサーバー側の検証（PHP 版 `Validation.php` / Node 版 `server/routes/vault.ts`）と
+ * 完全一致している必要がある。[SyncBodies.putBody] が唯一の組み立て場所で、
+ * `SyncBodyContractTest` がキーの過不足を検査する。
  */
 class SyncApi(
     private val baseUrl: String = ServerConfig.API_PREFIX,
     private val connectTimeoutMs: Int = 15_000,
     private val readTimeoutMs: Int = 30_000,
-) {
-    data class RemoteVault(val envelope: VaultEnvelope, val revision: Int)
+) : SyncTransport {
 
     data class RemoteMeta(val revision: Int, val updatedAt: String)
 
-    fun get(vaultId: String, token: String): RemoteVault {
+    override fun get(vaultId: String, token: String): RemoteVaultSnapshot {
         val response = request("GET", "$baseUrl/$vaultId", token, null)
         if (response.status == 404) throw SyncNotFoundException()
-        if (response.status !in 200..299) throw SyncHttpException(response.status)
-        val root = parse(response.body) ?: throw SyncHttpException(response.status)
+        if (response.status !in 200..299) throw httpError(response)
+        val root = parse(response.body) ?: throw SyncHttpException(response.status, "invalid_response")
         val envelopeJson = root.getAsJsonObject("envelope")
-            ?: throw SyncHttpException(response.status)
+            ?: throw SyncHttpException(response.status, "invalid_response")
         val envelope = VaultJson.readEnvelope(envelopeJson)
         val revision = root.get("revision")?.takeIf { it.isJsonPrimitive }?.asInt ?: envelope.revision
-        return RemoteVault(envelope = envelope, revision = revision)
+        return RemoteVaultSnapshot(envelope = envelope, revision = revision)
     }
 
     fun getMeta(vaultId: String, token: String): RemoteMeta {
         val response = request("GET", "$baseUrl/$vaultId/meta", token, null)
         if (response.status == 404) throw SyncNotFoundException()
-        if (response.status !in 200..299) throw SyncHttpException(response.status)
-        val root = parse(response.body) ?: throw SyncHttpException(response.status)
+        if (response.status !in 200..299) throw httpError(response)
+        val root = parse(response.body) ?: throw SyncHttpException(response.status, "invalid_response")
         return RemoteMeta(
             revision = root.get("revision")?.asInt ?: 0,
             updatedAt = root.get("updatedAt")?.asString.orEmpty(),
         )
     }
 
-    class PutResult(val revision: Int)
-
-    fun put(vaultId: String, token: String, envelope: VaultEnvelope, baseRevision: Int): PutResult {
-        val body = Yamlish.writePutBody(envelope, baseRevision)
+    override fun put(vaultId: String, token: String, envelope: VaultEnvelope, baseRevision: Int): Int {
+        val body = SyncBodies.putBody(envelope, baseRevision)
         val response = request("PUT", "$baseUrl/$vaultId", token, body)
         if (response.status == 409) {
             val root = parse(response.body)
             throw SyncConflictException(root?.get("currentRevision")?.asInt ?: baseRevision)
         }
         if (response.status == 404) throw SyncNotFoundException()
-        if (response.status !in 200..299) throw SyncHttpException(response.status)
+        if (response.status !in 200..299) throw httpError(response)
         val root = parse(response.body)
-        return PutResult(root?.get("revision")?.asInt ?: (baseRevision + 1))
+        return root?.get("revision")?.asInt ?: (baseRevision + 1)
     }
 
     fun remove(vaultId: String, token: String) {
         val response = request("DELETE", "$baseUrl/$vaultId", token, null)
         if (response.status == 404) return
-        if (response.status !in 200..299) throw SyncHttpException(response.status)
+        if (response.status !in 200..299) throw httpError(response)
     }
 
     fun isHealthy(): Boolean = try {
@@ -89,6 +104,12 @@ class SyncApi(
     }
 
     private data class Response(val status: Int, val body: String)
+
+    /** エラー応答の `error` / `issues` を拾って例外にする（画面の日本語化に使う）。 */
+    private fun httpError(response: Response): SyncHttpException {
+        val failure = SyncErrors.fromBody(response.status, response.body)
+        return SyncHttpException(response.status, failure.serverCode, failure.issues)
+    }
 
     private fun request(method: String, url: String, token: String, body: String?): Response {
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
@@ -123,15 +144,19 @@ class SyncApi(
     } catch (_: Exception) {
         null
     }
+}
 
-    /** PUT の body（`{ envelope, revision }`）。 */
-    private object Yamlish {
-        fun writePutBody(envelope: VaultEnvelope, revision: Int): String {
-            val envelopeJson = VaultJson.gson.toJsonTree(envelope)
-            val root = com.google.gson.JsonObject()
-            root.add("envelope", envelopeJson)
-            root.addProperty("revision", revision)
-            return VaultJson.gson.toJson(root)
-        }
+/** 同期 API の JSON 組み立て（テストから形を検査できるように分けてある）。 */
+object SyncBodies {
+
+    /** `PUT /api/vault/:id` の body（`{ envelope, revision }`）。 */
+    fun putBody(envelope: VaultEnvelope, revision: Int): String = putBodyJson(envelope, revision).toString()
+
+    fun putBodyJson(envelope: VaultEnvelope, revision: Int): JsonObject {
+        val envelopeJson = VaultJson.gson.toJsonTree(envelope)
+        val root = JsonObject()
+        root.add("envelope", envelopeJson)
+        root.addProperty("revision", revision)
+        return root
     }
 }
