@@ -234,9 +234,46 @@ OpenHands 上で `security-audit` スキル（Cloudflare の `security-audit-ski
 | Low: `db_path` に相対パスを書くと公開領域内に DB を作る | `error_log` に警告を出す（配置の既定は変えない） |
 | Info: `X-Powered-By: PHP/<version>` の削除が `.htaccess` 頼み | 修正（`bootstrap.php` でも `header_remove`） |
 
+## Android アプリ（`android/`）の追加の前提
+
+Android 版はブラウザではなく OS の機能で同じゼロ知識設計を守ります。追加で次を前提にします。
+
+| 要素 | 実装 | 意味 |
+| --- | --- | --- |
+| 保存ファイル | アプリ専用領域の `vault-store.bin` を Android Keystore の AES-256-GCM 鍵（`aegis-store-key-v1`）で暗号化 | 端末の root 化・バックアップ吸い上げが無い限り、平文の秘密鍵はファイルに残らない。鍵は Keystore から出せない |
+| バックアップ | `android:allowBackup="false"`、`data_extraction_rules` で全ドメイン除外 | クラウドバックアップ・端末間移行にボルトを載せない |
+| 生体認証 | Keystore の認証必須鍵（`aegis-biometric-key-v1`）で DEK をラップし、BiometricPrompt の `CryptoObject`（BIOMETRIC_STRONG のみ）でのみ開く | 生体認証を経ずに DEK を取り出す経路が無い。新しい指紋を登録しても鍵は無効化しない（`setInvalidatedByBiometricEnrollment(false)`） |
+| サイトからの引き渡し | `aegis://login#code=…&dek=…&name=…` を `singleTask` の Activity で受け、復号（verifier 検証）に成功したときだけ保存。処理後は `Intent.setData(null)` で値を消す | 受け取った直後に他アプリが Intent を読み直せない。フラグメントは元々サーバーへ送られない |
+| 権限 | `INTERNET` / `CAMERA` / `USE_BIOMETRIC` / `USE_FINGERPRINT`（API 26–27 の指紋用）のみ | 解析 SDK・位置情報・連絡先が無い |
+| 通信 | 接続先は `https://yuushi0911.xsrv.jp/aegis` 固定、`usesCleartextTraffic="false"` | 設定ミスで平文へ落ちる経路を作らない |
+| 画面 | スクリーンショット抑止はしない（Web 版と同じ）。ロック画面に注意書きを出す | 端末の画面録画・撮影は OS の範囲 |
+
+### 配布用の署名鍵について（重要）
+
+`android/keystore/aegis-debug.keystore`（alias `androiddebugkey`、パスワード `android`）は
+**リポジトリにコミットしている公開鍵**です。秘密情報ではありません。
+
+- 目的: Android は「同じアプリ ID を上書きインストールできるのは同じ鍵で署名された APK だけ」
+  なので、CI のランナーごとに作り直される debug 鍵では更新できない。固定の配布 ID が必要。
+- 何を守らないか: この鍵は**ボルトの暗号を解く力を持ちません**。OTP の秘密鍵とマスターパスワードは
+  端末の外に出ず、サーバーにも署名鍵にも依存しません。第三者がこの鍵で別 APK を作ることは
+  技術的には可能なので、配布物は GitHub Releases の URL とリリースノートのビルド元コミットで確認してください。
+- 自分の鍵に差し替える: Secrets に `ANDROID_KEYSTORE_BASE64` / `ANDROID_KEYSTORE_PASSWORD` /
+  `ANDROID_KEY_ALIAS` / `ANDROID_KEY_PASSWORD` を置くと、CI はそちらで署名します。
+  差し替え後は `versionCode` を増やし、旧鍵で署名した版からの上書き更新はできません。
+  アンインストールするとアプリ専用領域のボルト（未同期のものを含む）は OS が削除します。
+  先に全ボルトを別端末（同期・QR・`otpauth://`）へ移し、**復元できることを確認してから**
+  アンインストールしてください。
+
+### Android 版で保証しないこと
+
+- 侵害された端末（root・マルウェア・画面録画）での秘密の保護。
+- ユーザーが自ら QR / `otpauth://` を書き出して共有した場合の漏洩。
+- 署名鍵を第三者が入手して別 APK を配る「なりすまし配布」（上記のとおり既知の制約）。
+
 ### 外部監査を依頼する場合の前提
 
-- 対象は `v1.0.0` タグ時点のソース、`Dockerfile`、本ドキュメントの脅威モデル。
+- 対象は `v1.1.0` タグ時点のソース（Web / PHP / Android）、`Dockerfile`、本ドキュメントの脅威モデル。
 - 秘密情報は含まれない（サーバーは暗号文と `tokenHash` のみ保持）。再現手順は README の
   Docker 手順で完結し、外部サービスへの依存はない。
 - 監査で判明した問題は、修正版を `v1.0.1` 以降として公開し、本ドキュメントに追記する。

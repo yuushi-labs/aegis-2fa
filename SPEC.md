@@ -379,7 +379,54 @@ type PasskeyRecord = {
 - 設定画面の同期セクションに「同期されたデバイス」を表示し、自端末の名前変更と、
   不要になった古い端末エントリの一覧からの削除ができる（端末側のボルトは消さない）。
 
+### 2.15 Android ネイティブアプリ（`android/`）
+
+Web 版と 100% 互換のボルトを開くネイティブアプリ。Kotlin + Jetpack Compose（Material 3）、
+`minSdk 26` / `targetSdk 35` / `compileSdk 35`。実装の詳細は [docs/ANDROID.md](ANDROID.md)。
+
+- **接続先はハードコード**: `https://yuushi0911.xsrv.jp/aegis`（サーバー URL を変える UI は作らない）。
+- **暗号は Web 版と同一**: PBKDF2-HMAC-SHA-256 600,000 回 / AES-256-GCM / AAD
+  `aegis-vault-v1`・`aegis-data-v1:<revision>` / verifier `HMAC-SHA256(DEK,"aegis-verify-v1")[0:16]` /
+  `vaultId = hex(SHA-256(token))[0:32]` / `Authorization: Bearer <token>`。
+  `app/src/test/.../CryptoCompatTest` が Web 版で生成した封筒を復号して一致を確認する。
+- **同期**: `GET/PUT/DELETE /api/vault/{vaultId}`（既存 API をそのまま使う。パスは複数形ではない）。
+  409 は再取得して同一封筒かを確かめ、違えば「マージ / この端末を残す / サーバーを残す」を選ばせる。
+  マージは `tombstones` を含む id 単位 union。送信は 2 秒デバウンス、失敗は小さく表示して再送可能。
+- **サイトからの引き渡し**: `aegis://login#code=<base64url(token)>&dek=<base64url(DEK)>&name=<name>`
+  を `singleTask` の Activity で受ける。`code` を base64url デコードして 43 文字の同期トークン、
+  `dek` を 32 バイトの DEK として取り出し、サーバーから最新の封筒を取得して復号（verifier 検証）。
+  成功したときだけ保存し、アンロック済みの一覧へ遷移する。処理後は Intent のデータを消す。
+  既に同じトークンのボルトがあればそれを開き、無ければ新しいプロファイルとして追加する（既存を壊さない）。
+- **追加手段**: 手入力（TOTP/HOTP・サービス候補）・QR（CameraX + ZXing、画像選択）・
+  Google Authenticator 移行（Protobuf を自前デコード）。`otpauth://` の手入力欄は作らない。
+- **ロック**: マスターパスワード（12 文字以上）・生体認証（BiometricPrompt + Keystore の
+  認証必須鍵で DEK をラップ）・自動ロック（0/1/5/15/30 分）・アプリを離れたら即ロック。
+- **その他**: ゴミ箱（30 日）・メモ・復旧コード・複数ボルト・重複チェック・並び順・端末一覧。
+  端末内の保存ファイルは Android Keystore の AES-256-GCM で暗号化し、バックアップには出さない。
+- **権限**: `INTERNET` / `CAMERA` / `USE_BIOMETRIC` / `USE_FINGERPRINT`（API 26–27 の指紋用）。
+- **署名**: 配布用の固定鍵を `android/keystore/` に置く（公開情報。理由は SECURITY.md）。
+  Secrets があれば差し替え。
+
+### 2.16 リリース自動化
+
+`.github/workflows/release.yml`（Pickle の GitHub App に Workflows 権限が無いあいだは
+`docs/ci/release.yml` に置いてある。有効化手順は `docs/ci/README.md`）は
+`v*` タグの push（と `workflow_dispatch`）で次を作り、
+GitHub Release に添付して公開する。
+
+- `aegis-php-xserver-<tag>.zip`: `pnpm build:xserver` の成果物（`aegis/` をルートに含む）。
+- `aegis-android-<tag>.apk`: `./gradlew :app:assembleRelease` の署名済み APK。
+
+`docs/releases/<tag>.md` があればリリースノートに使い、無ければ既定の文面を生成する。
+
 ## 3. テスト要件
+
+### 3.0 Android（JVM, `android/app/src/test`）
+
+RFC 4226 / 6238 の全ベクタ、Base32、`otpauth` 往復、移行 Protobuf（未知 enum・負の batch_id・
+壊れた counter）、**Web 版で作った封筒の復号と verifier 一致**、AAD 改ざん検出、マージ・
+tombstones・端末一覧、ゴミ箱 30 日、重複、同期コード抽出、`aegis://login` のフラグメント解析。
+CI は `:app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleRelease` を実行する。
 
 ### 3.1 単体（Vitest, `shared/`）
 - RFC 4226 の 10 ベクタすべて一致（6 桁）。
@@ -451,6 +498,8 @@ E2E は `pnpm build && pnpm start`（一時 DB）に対して `playwright.config
 2. `test`: `pnpm test -- --coverage`（unit + integration）
 3. `e2e`: `pnpm exec playwright install --with-deps chromium` → `pnpm build` → `pnpm test:e2e`（成果物: レポート）
 4. `docker`: `docker/build-push-action` でビルドのみ（push なし）、`cache-from/to: gha`
+5. `android`: `.github/workflows/android.yml`（Unit テスト・Lint・debug/release APK ビルド。
+   権限の都合でいまは `docs/ci/android.yml` に同梱）
 
 - concurrency で同一ブランチの古い実行をキャンセル。`permissions: contents: read`。
 - すべて緑でなければマージ不可（ブランチ保護は main に要求）。
@@ -463,6 +512,7 @@ E2E は `pnpm build && pnpm start`（一時 DB）に対して `playwright.config
 - `docs/SECURITY.md`: 脅威モデル（サーバー侵害・DB 漏洩・XSS・クリップボード・端末紛失）、保証すること/しないこと、既知の制約（ブラウザ拡張、メモリダンプ）、鍵導出パラメータの根拠。
 - `docs/DEPLOY.md`: Docker Compose / Fly.io / Render / VPS + Caddy の手順、バックアップ、TLS 前提。
 - `docs/ARCHITECTURE.md`: データフロー図（Mermaid）、モジュール責務、同期の競合解決。
+- `docs/ANDROID.md`: Android アプリの構成・機能・ビルド・署名・リリース。
 
 ---
 

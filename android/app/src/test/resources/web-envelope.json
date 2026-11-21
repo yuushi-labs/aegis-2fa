@@ -1,0 +1,25 @@
+{
+  "password": "correct horse battery staple",
+  "dekHex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+  "plaintext": "{\"accounts\":[{\"id\":\"11111111-2222-3333-4444-555555555555\",\"type\":\"totp\",\"issuer\":\"GitHub\",\"label\":\"yuushi@example.com\",\"secret\":\"JBSWY3DPEHPK3PXP\",\"algorithm\":\"SHA1\",\"digits\":6,\"period\":30,\"counter\":0,\"pinned\":true,\"order\":0,\"createdAt\":\"2026-11-21T00:00:00.000Z\",\"updatedAt\":\"2026-11-21T00:00:00.000Z\",\"notes\":\"メモ\",\"recoveryCodes\":[{\"id\":\"code-1\",\"code\":\"AAAA-BBBB\",\"used\":false}],\"useCount\":3,\"lastUsedAt\":\"2026-11-21T00:01:00.000Z\"}],\"tombstones\":[{\"id\":\"deadbeef\",\"deletedAt\":\"2026-11-20T00:00:00.000Z\"}],\"devices\":[{\"id\":\"device-1\",\"name\":\"Android\",\"platform\":\"Android\",\"lastSyncedAt\":\"2026-11-21T00:02:00.000Z\"}]}",
+  "envelope": {
+    "format": "aegis-vault",
+    "version": 1,
+    "kdf": {
+      "name": "PBKDF2-SHA256",
+      "iterations": 600000,
+      "salt": "AQIDBAUGBwgJCgsMDQ4PEA=="
+    },
+    "wrappedKey": {
+      "iv": "y9h6SHrFfMyxDrzH",
+      "ciphertext": "d3AnfUpUVIIhGULE20ZxC4Bt3IuQwECh537XjjvoZ65b/XQlxiefvc1TEV2j8hnQ"
+    },
+    "data": {
+      "iv": "/AL6gZLnOrLStBfL",
+      "ciphertext": "oGBJu0gXv2AJbFae7rJsAVRBkFVRIzFrpon1zy5H4IM75sLUZ9D1DyTHlFvdwkbsfpqnEa12+19cfcUJDzvFLXfabiYDrJf4LUDc5SYBeSvvzqi6CFh4dlRGsMmETfbWkgOJYqT4uM+j3yQuxRqy67NQwa9+O+ZIPxYVOli4yyyWNw1oC7cd7vmWhdvSaNd68oC/bDuiHTsLeKYo83xW0hu8zG8tv2iIhbf5hPRekLlN90jA+TrTYUSYm1MqCQE13AJ8y7wlEW6ip6d7ek9SNUvlWCr3mCvrldhZFC7vKmBKI6TGHBYEHBWriCUtnvquag8o+MO+Q91Clg9RscAWuFoELdSqEWqk0Pi65BerzPakrj0PxU3WBX0Rjp635rku8mbzstV3ZXLMMoZGlOTf560YmvjNBUjpGG+5wyQfflZ0aAzdyXjg4v7E2Uy8svgN+1UJUZH9ON7O3OQXvenP0dSv7/3Fh+bRYNSYMGMGYwUB+JlEUhnJ9KnK7OU0XAab9R0nCYlN3qHD34S+JsWj57cZnIm7L698wdeuifHQXano9S9mvIHByz+V1ce+BADBEHtRUoYrpbrlxxbJ4+fh6XNjHfpTY2ddZDjMYlHrOBsfT9x1qGHI+23TB4dzmnlYkfsXKhRJOG0y6uCV2ezVc0dp62hkmeYHj6GQUUS/miNC57nq4yL+yMmeTrUDCpwlssKeX5gQPBB1B3Z2aGoF7fekilDE1ckL2jFOhAWmCN/fKmEXAsBOU+x/IHR48ozuAIF2DpHMSD5BR5t/I89oAKahbbBuybIfRombRa7+xrNnRJetR0qt5BbdpjfpjngtAhVgec7CVSgur3yT6+Il"
+    },
+    "verifier": "C1b/mbq+ZsLuGqHL813Hhg==",
+    "revision": 7,
+    "updatedAt": "2026-11-21T00:03:00.000Z"
+  }
+}

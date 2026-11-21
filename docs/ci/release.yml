@@ -1,0 +1,126 @@
+name: Release
+
+# タグ（v1.1.0 など）を push すると、PHP（Xserver 用）ZIP と Android APK の両方を
+# ビルドして GitHub Release に添付する。手動実行もできる。
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'リリースするタグ（例: v1.1.0）。既存のタグを指定する。'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}-${{ inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  CI: 'true'
+
+jobs:
+  android:
+    name: android apk
+    uses: ./.github/workflows/android.yml
+    with:
+      upload-artifact: true
+    secrets: inherit
+
+  php:
+    name: php xserver zip
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      # workflow_dispatch では inputs.tag、タグ push できはタグのコミットをビルドする。
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build:xserver
+      - name: Package the Xserver build
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag || github.ref_name }}"
+          cd deploy/xserver/build
+          test -f aegis/index.html
+          test -f aegis/api/index.php
+          zip -r "aegis-php-xserver-${TAG}.zip" aegis
+          unzip -l "aegis-php-xserver-${TAG}.zip" | head -20
+      - uses: actions/upload-artifact@v7
+        with:
+          name: aegis-php-zip
+          path: deploy/xserver/build/*.zip
+          if-no-files-found: error
+
+  publish:
+    name: publish release
+    needs: [android, php]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Collect assets
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          cp dist/aegis-php-zip/*.zip release-assets/
+          cp dist/aegis-android-apk/app-release.apk "release-assets/aegis-android-${TAG}.apk"
+          ls -la release-assets
+      - name: Write release notes
+        run: |
+          set -euo pipefail
+          NOTES_FILE="docs/releases/${TAG}.md"
+          if [ -f "$NOTES_FILE" ]; then
+            cp "$NOTES_FILE" release-notes.md
+          else
+            {
+              echo "## Aegis 2FA ${TAG}"
+              echo
+              echo "- PHP（Xserver 用）: \`aegis-php-xserver-${TAG}.zip\` を \`public_html/aegis/\` に展開して使います。"
+              echo "- Android: \`aegis-android-${TAG}.apk\` を端末で開いてインストールします。"
+            } > release-notes.md
+          fi
+          {
+            echo
+            echo "### 添付ファイル"
+            echo
+            echo "| ファイル | 用途 |"
+            echo "|---|---|"
+            echo "| aegis-php-xserver-${TAG}.zip | Xserver（PHP 8.1+ / SQLite）版。Web 版と同じ画面・同じ API。 |"
+            echo "| aegis-android-${TAG}.apk | Android アプリ（minSdk 26 / targetSdk 35）。サイト版から「アプリでログイン」で引き継げます。 |"
+            echo
+            echo "ビルド元: \`${GITHUB_SHA}\`"
+          } >> release-notes.md
+          cat release-notes.md
+      - name: Create or update the release
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release-assets/* --clobber
+          else
+            gh release create "$TAG" release-assets/* \
+              --title "Aegis 2FA ${TAG}" \
+              --notes-file release-notes.md \
+              --verify-tag
+          fi
+      - name: Show the published release
+        run: |
+          set -euo pipefail
+          gh release view "$TAG" --json url,assets \
+            --jq '{url: .url, assets: [.assets[] | {name: .name, size: .size}]}'
