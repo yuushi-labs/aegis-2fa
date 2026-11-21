@@ -119,6 +119,50 @@ class MergeTest {
     }
 
     @Test
+    fun `unparseable timestamps have a fixed order so merges are associative`() {
+        val a = account("a", "2026-11-21T00:00:00.000Z", label = "A")
+        val b = account("a", "2026-11-21T01:00:00.000+02:00", label = "B")
+        val c = account("a", "2026-11-21T00:30:00.invalid", label = "C")
+        val left = VaultMerge.merge(
+            VaultMerge.merge(VaultData(listOf(a), emptyList()), VaultData(listOf(b), emptyList()), now = 0).data,
+            VaultData(listOf(c), emptyList()),
+            now = 0,
+        )
+        val right = VaultMerge.merge(
+            VaultData(listOf(a), emptyList()),
+            VaultMerge.merge(VaultData(listOf(b), emptyList()), VaultData(listOf(c), emptyList()), now = 0).data,
+            now = 0,
+        )
+        // A（11-21 00:00Z）が最も新しく、B は前日 23:00Z。壊れた日時は常に古い側。
+        assertEquals("A", left.data.accounts.single().label)
+        assertEquals(left.data.accounts.single().label, right.data.accounts.single().label)
+    }
+
+    @Test
+    fun `duplicate ids on the base side keep the newest version`() {
+        val older = account("a", "2026-11-20T00:00:00.000Z", label = "old")
+        val newer = account("a", "2026-11-21T00:00:00.000Z", label = "new")
+        val result = VaultMerge.merge(
+            VaultData(listOf(newer, older), emptyList()),
+            VaultData(listOf(newer), emptyList()),
+            now = 0,
+        )
+        assertEquals("new", result.data.accounts.single().label)
+        val reversed = VaultMerge.merge(
+            VaultData(listOf(older, newer), emptyList()),
+            VaultData(listOf(newer), emptyList()),
+            now = 0,
+        )
+        assertEquals("new", reversed.data.accounts.single().label)
+    }
+
+    @Test
+    fun `canonical json escapes control characters like JSON stringify`() {
+        val json = com.google.gson.JsonParser.parseString("""{"a":"x\u0001\b\f\n\t\"y"}""")
+        assertEquals("""{"a":"x\u0001\b\f\n\t\"y"}""", VaultMerge.canonicalJson(json))
+    }
+
+    @Test
     fun `canonical json ignores key order`() {
         val a = com.google.gson.JsonParser.parseString("""{"b":1,"a":[1,2]}""")
         val b = com.google.gson.JsonParser.parseString("""{"a":[1,2],"b":1}""")

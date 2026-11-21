@@ -27,19 +27,24 @@ object Otpauth {
     fun isMigrationUri(value: String): Boolean =
         value.trim().startsWith("otpauth-migration://", ignoreCase = true)
 
-    /** "Issuer:account" を分解する。区切りが無ければ issuer は空。 */
+    /**
+     * "Issuer:account" を分解する。区切りが無ければ issuer は空。
+     *
+     * 区切りは**エスケープ前の生の ':'** で探し、両側を別々にデコードする。
+     * こうしないと issuer に含まれる ":"（%3A）を区切りと誤認し、
+     * build → parse の往復でラベルが変わる。
+     */
     fun splitLabel(pathLabel: String): kotlin.Pair<String, String> {
-        val decoded = try {
-            Bytes.percentDecode(pathLabel)
-        } catch (_: IllegalArgumentException) {
-            pathLabel
-        }
-        val index = decoded.indexOf(':')
-        return if (index == -1) {
-            "" to decoded.trim()
-        } else {
-            decoded.substring(0, index).trim() to decoded.substring(index + 1).trim()
-        }
+        val index = pathLabel.indexOf(':')
+        val rawIssuer = if (index == -1) "" else pathLabel.substring(0, index)
+        val rawLabel = if (index == -1) pathLabel else pathLabel.substring(index + 1)
+        return decodeOrRaw(rawIssuer).trim() to decodeOrRaw(rawLabel).trim()
+    }
+
+    private fun decodeOrRaw(value: String): String = try {
+        Bytes.percentDecode(value)
+    } catch (_: IllegalArgumentException) {
+        value
     }
 
     private fun parseStrictInteger(raw: String, param: String): Long {

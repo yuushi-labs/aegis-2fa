@@ -5,11 +5,10 @@
     <!-- 通信（ゼロ知識同期）と QR 読み取りだけ。解析 SDK・位置情報・連絡先などの権限は取らない。 -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />
-    <!-- 生体認証（BiometricPrompt）に必要。旧 API 用の USE_FINGERPRINT は明示的に外す。 -->
+    <!-- 生体認証（BiometricPrompt）。API 26–27 の指紋は USE_FINGERPRINT が必要で、
+         USE_BIOMETRIC では代替できない（androidx.biometric が内部で切り替える）。 -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
-    <uses-permission
-        android:name="android.permission.USE_FINGERPRINT"
-        tools:node="remove" />
+    <uses-permission android:name="android.permission.USE_FINGERPRINT" />
 
     <uses-feature
         android:name="android.hardware.camera"

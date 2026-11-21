@@ -85,27 +85,37 @@ object Bytes {
     fun percentDecode(text: String, plusAsSpace: Boolean = false): String {
         val out = java.io.ByteArrayOutputStream(text.length)
         var index = 0
+        var literalStart = 0
+
+        fun flushLiteral(until: Int) {
+            if (until <= literalStart) return
+            // サロゲートペア（絵文字など）を 1 文字ずつ壊さないよう、まとめて UTF-8 にする。
+            val bytes = text.substring(literalStart, until).toByteArray(Charsets.UTF_8)
+            out.write(bytes, 0, bytes.size)
+        }
+
         while (index < text.length) {
             val char = text[index]
             when {
                 char == '%' -> {
+                    flushLiteral(index)
                     if (index + 2 >= text.length) throw IllegalArgumentException("パーセントエンコードが不正です")
                     val code = text.substring(index + 1, index + 3).toIntOrNull(16)
                         ?: throw IllegalArgumentException("パーセントエンコードが不正です")
                     out.write(code)
                     index += 3
+                    literalStart = index
                 }
                 char == '+' && plusAsSpace -> {
+                    flushLiteral(index)
                     out.write(' '.code)
                     index += 1
+                    literalStart = index
                 }
-                else -> {
-                    val bytes = char.toString().toByteArray(Charsets.UTF_8)
-                    out.write(bytes, 0, bytes.size)
-                    index += 1
-                }
+                else -> index += 1
             }
         }
+        flushLiteral(text.length)
         return fromUtf8(out.toByteArray())
     }
 

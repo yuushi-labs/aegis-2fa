@@ -403,7 +403,7 @@ Web 版と 100% 互換のボルトを開くネイティブアプリ。Kotlin + J
   認証必須鍵で DEK をラップ）・自動ロック（0/1/5/15/30 分）・アプリを離れたら即ロック。
 - **その他**: ゴミ箱（30 日）・メモ・復旧コード・複数ボルト・重複チェック・並び順・端末一覧。
   端末内の保存ファイルは Android Keystore の AES-256-GCM で暗号化し、バックアップには出さない。
-- **権限**: `INTERNET` / `CAMERA` / `USE_BIOMETRIC` のみ。
+- **権限**: `INTERNET` / `CAMERA` / `USE_BIOMETRIC` / `USE_FINGERPRINT`（API 26–27 の指紋用）。
 - **署名**: 配布用の固定鍵を `android/keystore/` に置く（公開情報。理由は SECURITY.md）。
   Secrets があれば差し替え。
 

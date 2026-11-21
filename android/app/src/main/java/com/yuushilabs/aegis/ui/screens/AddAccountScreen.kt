@@ -332,7 +332,7 @@ fun AddAccountScreen(
                         digits = digits,
                         period = period.toIntOrNull() ?: 30,
                         counter = counter.toLongOrNull() ?: 0L,
-                        notes = null,
+                        notes = notes.trim().ifEmpty { null },
                     )
                     duplicates = null
                     onAdd(draft, true)

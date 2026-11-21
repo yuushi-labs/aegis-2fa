@@ -42,7 +42,8 @@ android/
   同期コードで最新の封筒を取得 → DEK で復号（verifier 検証）→ Keystore で保護して保存 →
   そのままアンロック済み一覧へ。処理後は Intent のデータを消す
 - **ロック**: マスターパスワード（12 文字以上）・指紋/顔（BiometricPrompt + Keystore の
-  認証必須鍵で DEK をラップ）・自動ロック（なし/1/5/15/30 分）・アプリを離れたら即ロック
+  認証必須鍵で DEK をラップ。`CryptoObject` を使うため BIOMETRIC_STRONG のみ）・
+  自動ロック（なし/1/5/15/30 分）・アプリを離れたら即ロック
 - **ゴミ箱**: 削除 → 30 日間は復元可 → 完全削除で tombstone。メモと復旧コード、複数ボルト、
   重複チェック、よく使う順 / 名前順 / 手動順、ピン留め
 - **保存**: 端末内のファイルは Android Keystore の AES-256-GCM で暗号化。バックアップ
@@ -50,9 +51,9 @@ android/
 
 ## 権限
 
-`INTERNET`（同期）・`CAMERA`（QR）・`USE_BIOMETRIC`（指紋/顔）だけです。解析 SDK、
-位置情報、連絡先、外部ストレージは取りません。`USE_FINGERPRINT`（旧 API 用）は
-マニフェストで明示的に外しています。
+`INTERNET`（同期）・`CAMERA`（QR）・`USE_BIOMETRIC`（指紋/顔）・`USE_FINGERPRINT`
+（API 26–27 の指紋は `USE_BIOMETRIC` では代替できない）だけです。解析 SDK、
+位置情報、連絡先、外部ストレージは取りません。
 
 ## ビルドとテスト
 

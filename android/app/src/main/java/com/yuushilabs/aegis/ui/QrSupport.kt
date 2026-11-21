@@ -58,6 +58,8 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
+private const val RESCAN_DELAY_MS = 1_500L
+
 /** QR の生成と画像からの読み取り。 */
 object QrImages {
     fun encode(content: String, size: Int = 720): Bitmap {
@@ -88,13 +90,25 @@ object QrImages {
 
     suspend fun decodeUri(context: Context, uri: Uri): String? = withContext(Dispatchers.IO) {
         try {
+            // 原寸で展開すると巨大な写真で OutOfMemory になるため、寸法だけ先に読んで縮小する。
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null
+            var sample = 1
+            while (bounds.outWidth / sample > MAX_IMAGE_EDGE || bounds.outHeight / sample > MAX_IMAGE_EDGE) {
+                sample *= 2
+            }
+            val options = BitmapFactory.Options().apply { inSampleSize = sample }
             val input = context.contentResolver.openInputStream(uri) ?: return@withContext null
-            val bitmap = input.use { BitmapFactory.decodeStream(it) } ?: return@withContext null
+            val bitmap = input.use { BitmapFactory.decodeStream(it, null, options) } ?: return@withContext null
             decode(bitmap)
         } catch (_: Exception) {
             null
         }
     }
+
+    /** 読み取る画像の長辺の上限（QR は十分に大きいので、これ以上は縮小して読む）。 */
+    private const val MAX_IMAGE_EDGE = 2048
 }
 
 @Composable
@@ -180,6 +194,8 @@ fun QrScannerPane(
                 proxy.close()
                 if (text != null && handled.compareAndSet(false, true)) {
                     previewView.post { onResult(text) }
+                    // 読み取った値が受け付けられなかった場合に、もう一度スキャンできるようにする。
+                    previewView.postDelayed({ handled.set(false) }, RESCAN_DELAY_MS)
                 }
             }
             cameraProvider.bindToLifecycle(
@@ -225,28 +241,76 @@ private fun decodeProxy(proxy: ImageProxy): String? {
     val buffer = plane.buffer
     val width = image.width
     val height = image.height
-    val data = ByteArray(buffer.remaining())
-    buffer.get(data)
+    val rowStride = plane.rowStride
+    val pixelStride = plane.pixelStride
+
+    // 行のパディング（rowStride）を詰めて、幅 × 高さの輝度面にする。
+    val packed = ByteArray(width * height)
+    val row = ByteArray(rowStride)
+    for (y in 0 until height) {
+        val start = y * rowStride
+        if (start + rowStride > buffer.limit()) break
+        buffer.position(start)
+        buffer.get(row, 0, rowStride)
+        for (x in 0 until width) {
+            packed[y * width + x] = row[x * pixelStride]
+        }
+    }
+
+    val rotated = rotateLuminance(packed, width, height, proxy.imageInfo.rotationDegrees)
     val source = PlanarYUVLuminanceSource(
-        data,
-        width,
-        height,
+        rotated.data,
+        rotated.width,
+        rotated.height,
         0,
         0,
-        width,
-        height,
+        rotated.width,
+        rotated.height,
         false,
     )
-    val rotated = when (proxy.imageInfo.rotationDegrees) {
-        90 -> source.rotateCounterClockwise()
-        180 -> source.rotateCounterClockwise().rotateCounterClockwise()
-        270 -> source.rotateCounterClockwise().rotateCounterClockwise().rotateCounterClockwise()
-        else -> source
-    }
     return try {
-        MultiFormatReader().decode(BinaryBitmap(HybridBinarizer(rotated))).text
+        MultiFormatReader().decode(BinaryBitmap(HybridBinarizer(source))).text
     } catch (_: Exception) {
         null
+    }
+}
+
+private data class Luminance(val data: ByteArray, val width: Int, val height: Int)
+
+/** カメラの回転（0/90/180/270）に合わせて輝度面を回す。 */
+private fun rotateLuminance(data: ByteArray, width: Int, height: Int, degrees: Int): Luminance {
+    if (degrees == 0 || degrees == -360) return Luminance(data, width, height)
+    val normalized = ((degrees % 360) + 360) % 360
+    if (normalized == 0) return Luminance(data, width, height)
+    return when (normalized) {
+        90 -> {
+            // 反時計回りに 90 度（カメラの rotationDegrees は「右に 90 度回して戻す」意味）。
+            val out = ByteArray(width * height)
+            for (y in 0 until height) {
+                for (x in 0 until width) {
+                    out[(width - 1 - x) * height + y] = data[y * width + x]
+                }
+            }
+            Luminance(out, height, width)
+        }
+        180 -> {
+            val out = ByteArray(width * height)
+            for (y in 0 until height) {
+                for (x in 0 until width) {
+                    out[(height - 1 - y) * width + (width - 1 - x)] = data[y * width + x]
+                }
+            }
+            Luminance(out, width, height)
+        }
+        else -> {
+            val out = ByteArray(width * height)
+            for (y in 0 until height) {
+                for (x in 0 until width) {
+                    out[x * height + (height - 1 - y)] = data[y * width + x]
+                }
+            }
+            Luminance(out, height, width)
+        }
     }
 }
 

@@ -280,9 +280,9 @@ fun JsonObject.longOrNull(key: String): Long? {
     if (!element.isJsonPrimitive) return null
     val primitive = element.asJsonPrimitive
     if (!primitive.isNumber) return null
+    // Double を経由すると 2^53 を超える整数が丸まるので、Long として直接読む。
     return try {
-        val value = primitive.asString.toDouble()
-        if (value.isNaN() || value.isInfinite()) null else value.toLong()
+        primitive.asLong
     } catch (_: NumberFormatException) {
         null
     }

@@ -13,14 +13,17 @@
 権限を付与したあと、次のどちらかで有効化してください。
 
 ```bash
-# 1) ファイルを置いてコミットする
+# 1) ファイルを置く
 git mv docs/ci/android.yml .github/workflows/android.yml
 git mv docs/ci/release.yml .github/workflows/release.yml
-# 2) ci.yml の docker ジョブの前に android ジョブを足す
+
+# 2) ci.yml の docker ジョブの前に android ジョブを足して、両方ステージする
 #      android:
 #        name: android unit test / lint / apk
 #        uses: ./.github/workflows/android.yml
 #        secrets: inherit
+
+git add .github/workflows
 git commit -m "ci: Android と Release のワークフローを有効化" && git push
 ```
 

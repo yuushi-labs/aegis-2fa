@@ -1,6 +1,5 @@
 package com.yuushilabs.aegis.core
 
-import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 
@@ -26,25 +25,26 @@ object VaultMerge {
         return left.compareTo(right)
     }
 
-    private fun isNewer(candidate: Account, current: Account): Boolean {
-        val a = IsoTime.parseOrNull(candidate.updatedAt)
-        val b = IsoTime.parseOrNull(current.updatedAt)
-        if (a == null || b == null) {
-            if (candidate.updatedAt != current.updatedAt) return candidate.updatedAt > current.updatedAt
-        } else if (a != b) {
-            return a > b
-        }
-        return compareAccountContent(candidate, current) > 0
-    }
-
+    /**
+     * 日時の全順序。解析できる日時は時刻で比べ、解析できない日時は
+     * **常に古い側**として扱う（同じ規則を isNewer と tombstone 比較で使う）。
+     * 規則を混ぜると比較が循環し、マージの順序で結果が変わってしまう。
+     */
     private fun compareTimestamps(a: String, b: String): Int {
         val ta = IsoTime.parseOrNull(a)
         val tb = IsoTime.parseOrNull(b)
-        if (ta == null || tb == null) {
-            if (a == b) return 0
-            return a.compareTo(b)
+        return when {
+            ta != null && tb != null -> ta.compareTo(tb)
+            ta != null -> 1
+            tb != null -> -1
+            else -> a.compareTo(b)
         }
-        return ta.compareTo(tb)
+    }
+
+    private fun isNewer(candidate: Account, current: Account): Boolean {
+        val byTime = compareTimestamps(candidate.updatedAt, current.updatedAt)
+        if (byTime != 0) return byTime > 0
+        return compareAccountContent(candidate, current) > 0
     }
 
     fun mergeTombstones(vararg lists: List<Tombstone>?): List<Tombstone> {
@@ -96,7 +96,11 @@ object VaultMerge {
 
         val baseIds = base.accounts.map { it.id }.toSet()
         val byId = LinkedHashMap<String, Account>()
-        for (account in baseAccounts) byId[account.id] = account
+        // base 側に同じ id が複数あっても、新しい方を残す（incoming 側と同じ規則）。
+        for (account in baseAccounts) {
+            val current = byId[account.id]
+            if (current == null || isNewer(account, current)) byId[account.id] = account
+        }
 
         var added = 0
         var updated = 0
@@ -162,11 +166,11 @@ object VaultMerge {
                 '\n' -> append("\\n")
                 '\r' -> append("\\r")
                 '\t' -> append("\\t")
-                else -> if (char < ' ') append("\\u%04x".format(char.code)) else append(char)
+                '\b' -> append("\\b")
+                '\u000C' -> append("\\f")
+                // JSON.stringify と同じく、制御文字は小文字 4 桁の \uXXXX にする。
+                else -> if (char < ' ') append("\\u" + char.code.toString(16).padStart(4, '0')) else append(char)
             }
         }
     }
-
-    /** 使い勝手のため JsonArray を型として残す（Gson の型解決を助ける）。 */
-    private fun JsonArray.sizeSafe(): Int = size()
 }

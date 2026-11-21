@@ -106,6 +106,14 @@ class MigrationTest {
     }
 
     @Test
+    fun `totp entries are imported even when the counter field is odd`() {
+        val totp = otpParameters("Hello!\u0001".toByteArray(), "GitHub:user", "GitHub", 1, 1, 2, counter = -1L)
+        val result = Migration.decodePayload(payload(listOf(totp)))
+        assertEquals(1, result.entries.size)
+        assertEquals(0L, result.entries.first().counter)
+    }
+
+    @Test
     fun `parses a migration uri with unpadded base64url`() {
         val entry = otpParameters("Hello!\u0001".toByteArray(), "GitHub:user", "GitHub", 1, 1, 2)
         val encoded = Bytes.base64Url(payload(listOf(entry)))

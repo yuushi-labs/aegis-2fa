@@ -170,9 +170,6 @@ object Migration {
         val algorithmEnum = asInt32(last(fields, 4))
         val digitsEnum = asInt32(last(fields, 5))
         val typeEnum = asInt32(last(fields, 6))
-        val counterValue = asInt64(last(fields, 7))
-        if (counterValue == null || counterValue < 0) return null to "HOTP のカウンタが不正です"
-
         if (algorithmEnum == 4) return null to "MD5 は未対応です"
         val algorithm = when (algorithmEnum) {
             1 -> "SHA1"
@@ -190,6 +187,13 @@ object Migration {
             2 -> "totp"
             else -> return null to "不明な種別です ($typeEnum)"
         }
+        // counter は HOTP だけが使う。TOTP の値が壊れていても取り込みは止めない
+        // （Google Authenticator は TOTP に 0 を書くが、値の範囲は意味を持たない）。
+        val counterValue = asInt64(last(fields, 7))
+        if (type == "hotp" && (counterValue == null || counterValue < 0)) {
+            return null to "HOTP のカウンタが不正です"
+        }
+
         val name = asString(last(fields, 2))
         val issuer = asString(last(fields, 3))
         return MigrationEntry(
@@ -199,7 +203,7 @@ object Migration {
             algorithm = algorithm,
             digits = digits,
             type = type,
-            counter = if (type == "hotp") counterValue else 0L,
+            counter = if (type == "hotp") (counterValue ?: 0L) else 0L,
         ) to null
     }
 

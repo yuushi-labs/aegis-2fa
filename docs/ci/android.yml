@@ -10,8 +10,10 @@ on:
         type: boolean
         default: false
 
+# CI からも Release からも呼ばれるため、呼び出し元のワークフロー名もグループに入れる
+# （同じ ref で互いの実行を取り消さない）。
 concurrency:
-  group: android-${{ github.ref }}
+  group: android-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -48,16 +50,25 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       # 署名鍵はリポジトリの keystore/ にある固定鍵を使う（Secrets があればそちらを優先）。
+      # `if:` は secrets を直接参照できないので、環境変数に落としてから判定する。
+      # パスワードはシェルに再展開されないよう、引用した変数からそのまま書き出す。
       - name: Decode signing keystore from secrets
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
+          set -euo pipefail
+          if [ -z "${KEYSTORE_BASE64:-}" ]; then
+            echo "署名鍵の Secret は未設定。リポジトリの固定鍵（android/keystore/）で署名します。"
+            exit 0
+          fi
           printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/aegis-release.jks"
-          echo "AEGIS_KEYSTORE_PATH=$RUNNER_TEMP/aegis-release.jks" >> "$GITHUB_ENV"
-          echo "AEGIS_KEYSTORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
-          echo "AEGIS_KEY_ALIAS=${{ secrets.ANDROID_KEY_ALIAS }}" >> "$GITHUB_ENV"
-          echo "AEGIS_KEY_PASSWORD=${{ secrets.ANDROID_KEY_PASSWORD }}" >> "$GITHUB_ENV"
+          { echo "AEGIS_KEYSTORE_PATH=$RUNNER_TEMP/aegis-release.jks"; } >> "$GITHUB_ENV"
+          { echo "AEGIS_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"; } >> "$GITHUB_ENV"
+          { echo "AEGIS_KEY_ALIAS=$KEY_ALIAS"; } >> "$GITHUB_ENV"
+          { echo "AEGIS_KEY_PASSWORD=$KEY_PASSWORD"; } >> "$GITHUB_ENV"
 
       - name: Unit tests
         run: ./gradlew :app:testDebugUnitTest --stacktrace

@@ -37,6 +37,16 @@ class Base32Test {
     }
 
     @Test
+    fun `percent decoding keeps surrogate pairs`() {
+        assertEquals("🔐 Service", Bytes.percentDecode("%F0%9F%94%90%20Service"))
+        assertEquals("ゆうし🔑", Bytes.percentDecode("%E3%82%86%E3%81%86%E3%81%97🔑"))
+        assertEquals("a b", Bytes.percentDecode("a+b", plusAsSpace = true))
+        assertEquals("a+b", Bytes.percentDecode("a+b"))
+        // 不完全なユーティリティエンコードは置換文字になる（例外にはしない）。
+        assertEquals("\uFFFD", Bytes.percentDecode("%E3"))
+    }
+
+    @Test
     fun `invalid characters and lengths are rejected`() {
         assertThrows(Base32.Base32Exception::class.java) { Base32.decode("ABC1") }
         assertThrows(Base32.Base32Exception::class.java) { Base32.decode("A") }

@@ -242,9 +242,9 @@ Android 版はブラウザではなく OS の機能で同じゼロ知識設計�
 | --- | --- | --- |
 | 保存ファイル | アプリ専用領域の `vault-store.bin` を Android Keystore の AES-256-GCM 鍵（`aegis-store-key-v1`）で暗号化 | 端末の root 化・バックアップ吸い上げが無い限り、平文の秘密鍵はファイルに残らない。鍵は Keystore から出せない |
 | バックアップ | `android:allowBackup="false"`、`data_extraction_rules` で全ドメイン除外 | クラウドバックアップ・端末間移行にボルトを載せない |
-| 生体認証 | Keystore の認証必須鍵（`aegis-biometric-key-v1`）で DEK をラップし、BiometricPrompt の `CryptoObject` でのみ開く | 生体認証を経ずに DEK を取り出す経路が無い。新しい指紋を登録しても鍵は無効化しない（`setInvalidatedByBiometricEnrollment(false)`） |
+| 生体認証 | Keystore の認証必須鍵（`aegis-biometric-key-v1`）で DEK をラップし、BiometricPrompt の `CryptoObject`（BIOMETRIC_STRONG のみ）でのみ開く | 生体認証を経ずに DEK を取り出す経路が無い。新しい指紋を登録しても鍵は無効化しない（`setInvalidatedByBiometricEnrollment(false)`） |
 | サイトからの引き渡し | `aegis://login#code=…&dek=…&name=…` を `singleTask` の Activity で受け、復号（verifier 検証）に成功したときだけ保存。処理後は `Intent.setData(null)` で値を消す | 受け取った直後に他アプリが Intent を読み直せない。フラグメントは元々サーバーへ送られない |
-| 権限 | `INTERNET` / `CAMERA` / `USE_BIOMETRIC` のみ（`USE_FINGERPRINT` は明示的に除外） | 解析 SDK・位置情報・連絡先が無い |
+| 権限 | `INTERNET` / `CAMERA` / `USE_BIOMETRIC` / `USE_FINGERPRINT`（API 26–27 の指紋用）のみ | 解析 SDK・位置情報・連絡先が無い |
 | 通信 | 接続先は `https://yuushi0911.xsrv.jp/aegis` 固定、`usesCleartextTraffic="false"` | 設定ミスで平文へ落ちる経路を作らない |
 | 画面 | スクリーンショット抑止はしない（Web 版と同じ）。ロック画面に注意書きを出す | 端末の画面録画・撮影は OS の範囲 |
 
@@ -260,7 +260,10 @@ Android 版はブラウザではなく OS の機能で同じゼロ知識設計�
   技術的には可能なので、配布物は GitHub Releases の URL とリリースノートのビルド元コミットで確認してください。
 - 自分の鍵に差し替える: Secrets に `ANDROID_KEYSTORE_BASE64` / `ANDROID_KEYSTORE_PASSWORD` /
   `ANDROID_KEY_ALIAS` / `ANDROID_KEY_PASSWORD` を置くと、CI はそちらで署名します。
-  差し替え後は `versionCode` を増やし、旧鍵で署名した版からの上書き更新はできません（一度アンインストール）。
+  差し替え後は `versionCode` を増やし、旧鍵で署名した版からの上書き更新はできません。
+  アンインストールするとアプリ専用領域のボルト（未同期のものを含む）は OS が削除します。
+  先に全ボルトを別端末（同期・QR・`otpauth://`）へ移し、**復元できることを確認してから**
+  アンインストールしてください。
 
 ### Android 版で保証しないこと
 

@@ -23,6 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -77,6 +78,19 @@ fun AccountDetailScreen(
         mutableStateOf(account.recoveryCodes.orEmpty().joinToString("\n") { it.code })
     }
     var error by remember { mutableStateOf<String?>(null) }
+
+    // 編集を始めるときは、その時点の最新の値（同期で変わっている可能性がある）から入力を初期化する。
+    LaunchedEffect(editing, account.id, account.updatedAt) {
+        if (!editing) return@LaunchedEffect
+        issuer = account.issuer
+        label = account.label
+        secret = account.secret
+        algorithm = account.algorithm
+        digits = account.digits
+        period = account.period.toString()
+        counter = account.counter.toString()
+        notes = account.notes.orEmpty()
+    }
     var confirmDelete by remember { mutableStateOf(false) }
     var confirmPurge by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
@@ -220,11 +234,13 @@ fun AccountDetailScreen(
                     Button(
                         onClick = {
                             val normalized = runCatching { Base32.canonical(secret) }.getOrNull()
-                            val periodValue = period.toIntOrNull() ?: 30
-                            val counterValue = counter.toLongOrNull() ?: 0L
+                            val periodValue = period.toIntOrNull()
+                            val counterValue = counter.toLongOrNull()
                             error = when {
                                 normalized == null || normalized.isEmpty() -> "秘密鍵が正しい Base32 ではありません"
-                                account.isTotp && periodValue !in Totp.MIN_PERIOD..Totp.MAX_PERIOD ->
+                                account.isTotp && periodValue == null -> "周期は秒単位の整数で入力してください"
+                                !account.isTotp && counterValue == null -> "カウンタは 0 以上の整数で入力してください"
+                                account.isTotp && periodValue != null && periodValue !in Totp.MIN_PERIOD..Totp.MAX_PERIOD ->
                                     "周期は ${Totp.MIN_PERIOD}〜${Totp.MAX_PERIOD} 秒にしてください"
                                 else -> {
                                     onSave(
@@ -234,8 +250,8 @@ fun AccountDetailScreen(
                                             secret = normalized,
                                             algorithm = algorithm,
                                             digits = digits,
-                                            period = periodValue,
-                                            counter = counterValue,
+                                            period = periodValue ?: account.period,
+                                            counter = counterValue ?: account.counter,
                                             notes = notes.trim().ifEmpty { null },
                                         ),
                                     )
@@ -364,11 +380,15 @@ private fun RecoveryCodesCard(
             )
             Button(
                 onClick = {
+                    // 既にあるコードは id と used を引き継ぐ（保存のたびに「未使用」に戻さない）。
+                    val existing = account.recoveryCodes.orEmpty()
                     val parsed = codesText.split('\n', ',', ' ', '\t')
                         .map { it.trim() }
                         .filter { it.isNotEmpty() && it.length <= 128 }
                         .take(50)
-                        .map { RecoveryCode(UUID.randomUUID().toString(), it, false) }
+                        .map { text ->
+                            existing.firstOrNull { it.code == text } ?: RecoveryCode(UUID.randomUUID().toString(), text, false)
+                        }
                     onSaveCodes(parsed)
                     expanded = false
                 },

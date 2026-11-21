@@ -100,9 +100,10 @@ private fun rememberBiometricGate(
     val activity = context as? FragmentActivity
     val cipherCallback by rememberUpdatedState(onCipher)
     val errorCallback by rememberUpdatedState(onError)
+    // CryptoObject を使う認証は BIOMETRIC_STRONG のみ（Class 2 の顔認証では鍵を解けない）。
     val available = remember {
         BiometricManager.from(context).canAuthenticate(
-            BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.BIOMETRIC_WEAK,
+            BiometricManager.Authenticators.BIOMETRIC_STRONG,
         ) == BiometricManager.BIOMETRIC_SUCCESS
     }
     val prompt = remember(activity) {
@@ -127,10 +128,7 @@ private fun rememberBiometricGate(
         BiometricPrompt.PromptInfo.Builder()
             .setTitle("Aegis 2FA")
             .setSubtitle("生体認証で解錠します")
-            .setAllowedAuthenticators(
-                BiometricManager.Authenticators.BIOMETRIC_STRONG or
-                    BiometricManager.Authenticators.BIOMETRIC_WEAK,
-            )
+            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
             .setNegativeButtonText("キャンセル")
             .build()
     }
@@ -247,7 +245,8 @@ fun AegisRoot(viewModel: AegisViewModel) {
                                     onBack = { viewModel.navigate(Route.Accounts) },
                                     onSave = viewModel::updateAccount,
                                     onCopy = { text ->
-                                        copyCode(context, text, null)
+                                        // 秘密鍵を含む otpauth:// や復旧コードもコピーするので、一覧と同じ設定を適用する。
+                                        copyCode(context, text, if (state.settings.clearClipboard) 30 else null)
                                         viewModel.showMessage("コピーしました")
                                     },
                                     onAdvanceHotp = viewModel::advanceHotp,

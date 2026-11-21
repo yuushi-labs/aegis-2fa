@@ -55,6 +55,12 @@ class VaultJsonTest {
     }
 
     @Test
+    fun `large counters keep full precision`() {
+        val parsed = VaultJson.parse("""{"accounts":[{"id":"x","secret":"JBSWY3DPEHPK3PXP","counter":9007199254740993}]}""")
+        assertEquals(9_007_199_254_740_993L, parsed.accounts.single().counter)
+    }
+
+    @Test
     fun `missing fields fall back to defaults instead of null`() {
         val parsed = VaultJson.parse("""{"accounts":[{"id":"x","secret":"JBSWY3DPEHPK3PXP"}]}""")
         val account = parsed.accounts.single()

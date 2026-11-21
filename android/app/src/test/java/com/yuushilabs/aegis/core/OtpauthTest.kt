@@ -50,10 +50,40 @@ class OtpauthTest {
     @Test
     fun `percent encoded labels are decoded`() {
         val params = Otpauth.parse(
-            "otpauth://totp/My%20Service%3A%E3%82%86%E3%81%86%E3%81%97?secret=JBSWY3DPEHPK3PXP",
+            "otpauth://totp/My%20Service:%E3%82%86%E3%81%86%E3%81%97?secret=JBSWY3DPEHPK3PXP",
         )
         assertEquals("My Service", params.issuer)
         assertEquals("ゆうし", params.label)
+    }
+
+    @Test
+    fun `encoded colon inside the issuer does not split the label`() {
+        val params = Otpauth.parse(
+            "otpauth://totp/Corp%3AInternal:user?secret=JBSWY3DPEHPK3PXP",
+        )
+        assertEquals("Corp:Internal", params.issuer)
+        assertEquals("user", params.label)
+    }
+
+    @Test
+    fun `issuer containing a colon survives build and parse`() {
+        val original = Account(
+            type = "totp",
+            issuer = "Corp:Internal",
+            label = "user",
+            secret = "JBSWY3DPEHPK3PXP",
+        )
+        val parsed = Otpauth.parse(Otpauth.build(original))
+        assertEquals("Corp:Internal", parsed.issuer)
+        assertEquals("user", parsed.label)
+    }
+
+    @Test
+    fun `emoji labels survive the round trip`() {
+        val original = Account(type = "totp", issuer = "🔐 Service", label = "ゆうし🔑", secret = "JBSWY3DPEHPK3PXP")
+        val parsed = Otpauth.parse(Otpauth.build(original))
+        assertEquals("🔐 Service", parsed.issuer)
+        assertEquals("ゆうし🔑", parsed.label)
     }
 
     @Test

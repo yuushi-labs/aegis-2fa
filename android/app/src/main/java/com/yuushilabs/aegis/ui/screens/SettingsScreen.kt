@@ -32,6 +32,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -127,6 +129,7 @@ fun SettingsScreen(
                     Switch(
                         checked = state.settings.lockOnHide,
                         onCheckedChange = { value -> onSettings { it.copy(lockOnHide = value) } },
+                        modifier = Modifier.semantics { contentDescription = "アプリを離れたら即ロック" },
                     )
                 }
                 Row(
@@ -143,6 +146,7 @@ fun SettingsScreen(
                         onCheckedChange = { value ->
                             if (value) onEnableBiometric() else onDisableBiometric()
                         },
+                        modifier = Modifier.semantics { contentDescription = "指紋 / 顔で解錠" },
                     )
                 }
                 Row(
@@ -179,6 +183,7 @@ fun SettingsScreen(
                     Switch(
                         checked = state.settings.clearClipboard,
                         onCheckedChange = { value -> onSettings { it.copy(clearClipboard = value) } },
+                        modifier = Modifier.semantics { contentDescription = "コピーしたコードを30秒で消す" },
                     )
                 }
                 OutlinedButton(onClick = { showPasswordDialog = true }, modifier = Modifier.fillMaxWidth()) {
@@ -312,6 +317,7 @@ private fun ChangePasswordDialog(
                     label = { Text("現在のパスワード") },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
@@ -320,6 +326,7 @@ private fun ChangePasswordDialog(
                     label = { Text("新しいパスワード（${Crypto.MIN_PASSWORD_LENGTH}文字以上）") },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
@@ -328,6 +335,7 @@ private fun ChangePasswordDialog(
                     label = { Text("新しいパスワード（確認）") },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
