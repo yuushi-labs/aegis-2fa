@@ -177,13 +177,6 @@ fun AccountDetailScreen(
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text("QR を表示") },
-                                onClick = {
-                                    menu = false
-                                },
-                                enabled = false,
-                            )
-                            DropdownMenuItem(
                                 text = { Text("ゴミ箱に移す", color = MaterialTheme.colorScheme.error) },
                                 onClick = {
                                     menu = false
