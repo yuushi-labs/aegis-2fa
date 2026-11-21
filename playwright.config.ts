@@ -92,6 +92,9 @@ export default defineConfig({
       // 実行ごとの一時 DB。テスト終了後の掃除は globalTeardown で行う。
       DATABASE_PATH: databasePath,
       NODE_ENV: 'test',
+      // 全テストが 127.0.0.1 から短時間に作る・更新するため、レート制限は切る
+      // （20 PUT/分を超えると無関係なテストが 429 で落ちる。制限は integration で検証する）。
+      AEGIS_DISABLE_RATE_LIMIT: 'true',
     },
   },
 });

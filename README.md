@@ -74,6 +74,7 @@ curl -fsS http://localhost:3000/api/health
 | `MAX_VAULT_BYTES` | `268435456`（256 MiB） | 保存できる暗号文の総量。超過する書き込みは `507` |
 | `AEGIS_HTTPS` | `false` | TLS 終端が前段にある場合 `true`（HSTS 付与） |
 | `CORS_ORIGIN` | 未設定 | 通常は未設定。別オリジンから API を使う場合のみ |
+| `AEGIS_DISABLE_RATE_LIMIT` | `false` | E2E 用。`true` で `/api/vault/*` のレート制限を外す（本番では使わない） |
 
 秘密情報の環境変数はありません。サーバーは復号鍵を持たない設計です。
 

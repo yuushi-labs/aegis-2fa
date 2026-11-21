@@ -1,6 +1,7 @@
 /**
  * エントリ。設定は process.env からのみ読む。
- * PORT / DATABASE_PATH / TRUST_PROXY / CORS_ORIGIN / AEGIS_HTTPS
+ * PORT / DATABASE_PATH / TRUST_PROXY / CORS_ORIGIN / AEGIS_HTTPS /
+ * AEGIS_DISABLE_RATE_LIMIT（E2E 用。1 つの IP から大量に作るため）
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -26,6 +27,9 @@ const trustProxyHops = Number.parseInt(process.env.TRUST_PROXY_HOPS ?? '1', 10);
 const maxVaultBytes = Number.parseInt(process.env.MAX_VAULT_BYTES ?? String(256 * 1024 * 1024), 10);
 const corsOrigin = process.env.CORS_ORIGIN;
 const https = process.env.AEGIS_HTTPS === 'true';
+// E2E は同じ IP（127.0.0.1）から短時間に多くのボルトを作る・更新するため、
+// レート制限に当たると無関係なテストが落ちる。制限そのものは integration で検証する。
+const disableRateLimit = process.env.AEGIS_DISABLE_RATE_LIMIT === 'true';
 
 const database = createDatabase(databasePath);
 runMigrations(database);
@@ -40,6 +44,7 @@ const app = createApp({
   trustProxyHops: Number.isFinite(trustProxyHops) ? trustProxyHops : 1,
   maxVaultBytes: Number.isFinite(maxVaultBytes) && maxVaultBytes > 0 ? maxVaultBytes : 256 * 1024 * 1024,
   https,
+  disableRateLimit,
   ...(corsOrigin === undefined ? {} : { corsOrigin }),
   ...(staticRoot === undefined ? {} : { staticRoot }),
   log: (line) => console.log(line),

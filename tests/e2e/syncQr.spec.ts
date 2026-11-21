@@ -52,13 +52,15 @@ test.describe('同期コードの QR 読み取り', () => {
     const file = test.info().outputPath('sync-url-qr.png');
     await writeFile(file, png);
 
+    // ボルトの無い端末は、読み取った時点で接続まで進んで画面が変わる。
+    // ここでは「?sync= からコードを取り出せること」を見たいので、ボルトのある端末で読み取る。
     const contextB = await browser.newContext(CONTEXT);
     const pageB = await contextB.newPage();
+    await createVault(pageB, { sync: false });
     await pageB.goto('/sync');
     await pageB.getByTestId('sync-scan-toggle').click();
     await pageB.getByTestId('sync-qr-image-input').setInputFiles(file);
     await expect(pageB.getByTestId('sync-code-input')).toHaveValue(token ?? '');
-    await expect(pageB.getByRole('heading', { name: 'ロック中' })).toBeVisible();
     await contextA.close();
     await contextB.close();
   });
