@@ -6,6 +6,9 @@ export type ThemeMode = 'system' | 'light' | 'dark';
 
 export type AutoLockMinutes = 1 | 5 | 15 | 30 | 0;
 
+/** 一覧の並べ替え（選択は端末に保存する）。 */
+export type SortMode = 'manual' | 'usage' | 'name';
+
 export type Settings = {
   theme: ThemeMode;
   autoLockMinutes: AutoLockMinutes;
@@ -15,6 +18,8 @@ export type Settings = {
   clearClipboard: boolean;
   announceCodes: boolean;
   language: 'ja' | 'en' | 'auto';
+  /** 一覧の並べ替え */
+  sortMode: SortMode;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -25,9 +30,11 @@ export const DEFAULT_SETTINGS: Settings = {
   clearClipboard: true,
   announceCodes: false,
   language: 'auto',
+  sortMode: 'manual',
 };
 
 export const AUTO_LOCK_OPTIONS: readonly AutoLockMinutes[] = [1, 5, 15, 30, 0];
+export const SORT_MODE_OPTIONS: readonly SortMode[] = ['manual', 'usage', 'name'];
 
 export function normalizeSettings(value: unknown): Settings {
   if (typeof value !== 'object' || value === null) return { ...DEFAULT_SETTINGS };
@@ -44,5 +51,8 @@ export function normalizeSettings(value: unknown): Settings {
     clearClipboard: raw.clearClipboard !== false,
     announceCodes: raw.announceCodes === true,
     language: raw.language === 'ja' || raw.language === 'en' ? raw.language : 'auto',
+    sortMode: SORT_MODE_OPTIONS.includes(raw.sortMode as SortMode)
+      ? (raw.sortMode as SortMode)
+      : DEFAULT_SETTINGS.sortMode,
   };
 }

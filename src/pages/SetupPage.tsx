@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { MIN_PASSWORD_LENGTH } from '../../shared/types';
 import { useI18n } from '../lib/hooks';
 import { useVaultStore } from '../lib/vaultStore';
@@ -8,6 +8,7 @@ import { passwordStrength } from '../lib/format';
 
 export function SetupPage() {
   const { t } = useI18n();
+  const navigate = useNavigate();
   const createVault = useVaultStore((state) => state.createVault);
 
   const [password, setPassword] = useState('');
@@ -31,6 +32,8 @@ export function SetupPage() {
       await createVault(password, { sync });
       setPassword('');
       setConfirm('');
+      // 2 つ目以降のボルトは設定画面から作るため、作成後は一覧へ移る。
+      navigate('/');
     } catch {
       setError(t('common.error'));
     } finally {

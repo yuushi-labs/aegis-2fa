@@ -57,8 +57,17 @@ export type SyncClientOptions = {
   fetchImpl?: typeof fetch;
 };
 
+/**
+ * API の基準 URL。ルート配信なら ''、サブディレクトリ配信（/aegis/）なら '/aegis'。
+ * 既定値は Vite の BASE_URL から作るので、配置先が変わっても呼び出し側の変更は要らない。
+ */
+function defaultBaseUrl(): string {
+  const base = import.meta.env.BASE_URL ?? '/';
+  return base === '/' ? '' : base.replace(/\/+$/, '');
+}
+
 export function createSyncClient(options: SyncClientOptions = {}) {
-  const baseUrl = options.baseUrl ?? '';
+  const baseUrl = options.baseUrl ?? defaultBaseUrl();
   const doFetch = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
 
   return {

@@ -11,3 +11,4 @@ playwright-report/
 .DS_Store
 .openhands/
 .pr-body.md
+deploy/xserver/build/

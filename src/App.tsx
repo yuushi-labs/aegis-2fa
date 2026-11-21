@@ -11,6 +11,8 @@ import { AccountDetailPage } from './pages/AccountDetailPage';
 import { AddPage } from './pages/AddPage';
 import { LockPage } from './pages/LockPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { TrashPage } from './pages/TrashPage';
+import { PrintSheetPage } from './pages/PrintSheetPage';
 import { SetupPage } from './pages/SetupPage';
 import { SyncPage } from './pages/SyncPage';
 
@@ -99,12 +101,14 @@ export function App() {
   }, [syncState, toast, t]);
 
   // アンマウント時（タブを閉じる）にロックする。
+  // ただし自動ロック「なし」のときは、再読み込みでアンロックを維持するためにロックしない
+  // （セッション継続用の鍵はタブを閉じると消えるので、開きっぱなしにはならない）。
   useEffect(() => {
     const onPageHide = (): void => {
       const state = useVaultStore.getState();
       if (state.status !== 'unlocked') return;
       state.flushSync();
-      lock();
+      if (state.settings.autoLockMinutes !== 0) lock();
     };
     window.addEventListener('pagehide', onPageHide);
     return () => window.removeEventListener('pagehide', onPageHide);
@@ -153,6 +157,8 @@ export function App() {
           <Route path="/add" element={<AddPage />} />
           <Route path="/account/:id" element={<AccountDetailPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/trash" element={<TrashPage />} />
+          <Route path="/print" element={<PrintSheetPage />} />
           <Route path="/sync" element={<SyncPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

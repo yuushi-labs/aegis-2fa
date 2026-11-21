@@ -10,16 +10,20 @@ import { App } from './App';
 const container = document.getElementById('root');
 if (container === null) throw new Error('#root が見つかりません');
 
+// 配置先がサブディレクトリ（/aegis/ など）でも動くように、基準は Vite の BASE_URL から取る。
+const baseUrl = import.meta.env.BASE_URL;
+const basename = baseUrl === '/' ? undefined : baseUrl.replace(/\/+$/, '');
+
 // PWA: 本番ビルドのみ Service Worker を登録する（dev では HMR を邪魔しない）。
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    void navigator.serviceWorker.register('/sw.js').catch(() => undefined);
+    void navigator.serviceWorker.register(`${baseUrl}sw.js`).catch(() => undefined);
   });
 }
 
 createRoot(container).render(
   <StrictMode>
-    <BrowserRouter>
+    <BrowserRouter basename={basename}>
       <App />
     </BrowserRouter>
   </StrictMode>,

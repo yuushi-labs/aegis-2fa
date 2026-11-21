@@ -14,6 +14,8 @@ export default tseslint.config(
       'test-results/**',
       'node_modules/**',
       'drizzle/**',
+      // Xserver 用の配信物はビルド生成物（dist/ と deploy/xserver/site のコピー）。
+      'deploy/xserver/build/**',
     ],
   },
   js.configs.recommended,

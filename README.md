@@ -28,6 +28,8 @@ KEK と DEK）はアンロック中のメモリにしか存在しません。
 - **ゼロ知識同期**: PBKDF2-HMAC-SHA-256 600,000 回 + AES-256-GCM（DEK ラップ + データ暗号）
 - **ローカル完結モード**: 同期を使わなければネットワーク通信はゼロ
 - **ロック / 自動ロック**: 既定 5 分、タブ非表示で即ロック（任意）、クリップボードは 30 秒で自動クリア
+- **パスキー / セキュリティキー解除**: WebAuthn PRF 拡張で、指紋・顔認証・FIDO2 キーからも解錠
+  （登録情報は端末内のみ。マスターパスワードはそのまま使える）
 - **エクスポート**: 暗号化バックアップ（`.aegis`）、CSV（平文・警告付き）、移行 QR
 - **PWA**: インストール可能、オフラインでコード生成。外部 CDN・外部フォント・解析タグなし
 - **UI**: アイボリー×チャコール、セリフ見出し＋等幅コード、控えめなモーション。ライト/ダーク、375px 対応
@@ -96,6 +98,7 @@ shared/   純粋ロジック（base32 / hotp / totp / otpauth / migration / cryp
 server/   Hono + SQLite(Drizzle)。暗号文の保存と配信のみ
 src/      React 19 + Vite + Tailwind 4 のクライアント
 tests/    unit（Vitest）/ integration（Hono app.request）/ e2e（Playwright）
+deploy/xserver/  PHP + SQLite 版バックエンド（共用サーバー向け。Composer 不要）
 ```
 
 データフローと競合解決は [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
@@ -108,6 +111,8 @@ pnpm typecheck    # tsc --noEmit（client + server）
 pnpm test         # Vitest（unit + integration）
 pnpm build        # SPA + サーバー
 pnpm test:e2e     # Playwright（要 pnpm build）
+pnpm build:xserver   # Xserver 用の配信物（deploy/xserver/build/aegis/）
+pnpm test:xserver    # PHP 版 API の互換テスト（php -S 上で実行）
 ```
 
 ## テスト
@@ -129,6 +134,8 @@ smoke test（`/api/health`・devDependencies 非同梱の検証）を push と p
 ## デプロイ
 
 Docker Compose / Fly.io / Render / VPS + Caddy の手順は [docs/DEPLOY.md](docs/DEPLOY.md)。
+Node を使えない共用サーバー（Xserver など）向けの PHP + SQLite 版は
+[deploy/xserver/README.md](deploy/xserver/README.md)。
 
 ## ライセンス
 

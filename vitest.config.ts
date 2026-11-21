@@ -25,6 +25,9 @@ export default defineConfig({
         'src/lib/qr.ts',
         'src/lib/hooks.ts',
         'src/lib/useQrDataUrl.ts',
+        // WebAuthn（navigator.credentials）そのもの。鍵導出・ラップは shared/passkey.ts で
+        // 単体テストし、画面の流れは Playwright の E2E（仮想オーセンティケータ）で検証する。
+        'src/lib/passkeys.ts',
       ],
       // 下回ったら CI を赤くする（現状: 行 92% / 文 90% / 分岐 83% / 関数 95%）。
       thresholds: {

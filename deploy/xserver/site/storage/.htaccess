@@ -1,0 +1,9 @@
+# ローカル設定（config.local.php）の置き場。直接アクセスは 403。
+# DB は公開ディレクトリの外（aegis-config.php の db_path）を推奨する。README 参照。
+<IfModule mod_authz_core.c>
+  Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+  Order allow,deny
+  Deny from all
+</IfModule>

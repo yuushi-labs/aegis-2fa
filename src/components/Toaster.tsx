@@ -14,6 +14,7 @@ export function Toaster() {
   return (
     <div
       className="pointer-events-none fixed inset-x-0 bottom-4 z-[60] flex flex-col items-center gap-2 px-4"
+      style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       role="status"
       aria-live="polite"
     >

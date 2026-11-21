@@ -7,12 +7,19 @@ import { Modal } from '../components/Modal';
 export function LockPage() {
   const { t } = useI18n();
   const unlock = useVaultStore((state) => state.unlock);
+  const unlockWithPasskey = useVaultStore((state) => state.unlockWithPasskey);
   const wipe = useVaultStore((state) => state.wipe);
   const token = useVaultStore((state) => state.token);
+  const passkeys = useVaultStore((state) => state.passkeys);
+  const profiles = useVaultStore((state) => state.profiles);
+  const activeProfileId = useVaultStore((state) => state.activeProfileId);
+  const switchProfile = useVaultStore((state) => state.switchProfile);
 
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [passkeyError, setPasskeyError] = useState<string | null>(null);
   const [cooldown, setCooldown] = useState(0);
   const [resetOpen, setResetOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -45,6 +52,30 @@ export function LockPage() {
     }
   }
 
+  async function handlePasskey(): Promise<void> {
+    if (passkeyBusy || busy) return;
+    setPasskeyBusy(true);
+    setPasskeyError(null);
+    setError(null);
+    try {
+      const result = await unlockWithPasskey();
+      if (!result.ok) {
+        // キャンセルは失敗ではないので、同じ文言で赤くしない。
+        setPasskeyError(
+          result.reason === 'cancelled'
+            ? t('lock.passkeyCancelled')
+            : result.reason === 'mismatch'
+              ? t('lock.passkeyMismatch')
+              : result.reason === 'unavailable' || result.reason === 'prf_unsupported'
+                ? t('lock.passkeyUnsupported')
+                : t('lock.passkeyFailed'),
+        );
+      }
+    } finally {
+      setPasskeyBusy(false);
+    }
+  }
+
   return (
     <main className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center px-5 py-10">
       <div className="rise-in">
@@ -52,6 +83,25 @@ export function LockPage() {
         <p className="mt-1.5 text-[0.88rem]" style={{ color: 'var(--text-muted)' }}>
           {t('lock.lead')}
         </p>
+        {profiles.length > 1 && (
+          <div className="mt-4">
+            <label className="field-label" htmlFor="lock-profile">
+              {t('profiles.switch')}
+            </label>
+            <select
+              id="lock-profile"
+              value={activeProfileId ?? ''}
+              onChange={(event) => void switchProfile(event.target.value)}
+              data-testid="lock-profile-switch"
+            >
+              {profiles.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       <form onSubmit={(event) => void handleSubmit(event)} className="card mt-6 p-5" noValidate>
@@ -82,6 +132,32 @@ export function LockPage() {
         <button type="submit" className="btn btn-primary mt-4 w-full" disabled={busy || cooldown > 0 || password === ''}>
           {busy ? t('lock.unlocking') : t('lock.unlock')}
         </button>
+
+        {passkeys.length > 0 && (
+          <>
+            <div className="mt-4 flex items-center gap-3" aria-hidden="true">
+              <hr className="rule flex-1" />
+              <span className="text-[0.74rem]" style={{ color: 'var(--text-faint)' }}>
+                {t('lock.passkeyOr')}
+              </span>
+              <hr className="rule flex-1" />
+            </div>
+            <button
+              type="button"
+              className="btn btn-secondary mt-3 w-full"
+              onClick={() => void handlePasskey()}
+              disabled={passkeyBusy || busy}
+              data-testid="passkey-unlock"
+            >
+              {passkeyBusy ? t('lock.passkeyBusy') : t('lock.passkey')}
+            </button>
+            {passkeyError !== null && (
+              <p className="field-error mt-2" role="alert" data-testid="passkey-error">
+                {passkeyError}
+              </p>
+            )}
+          </>
+        )}
       </form>
 
       <p className="mt-4 text-center text-[0.74rem] leading-relaxed" style={{ color: 'var(--text-faint)' }}>

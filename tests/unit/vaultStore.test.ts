@@ -7,7 +7,16 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Account, Tombstone, VaultEnvelope } from '../../shared/types';
+import { bytesToBase64 } from '../../shared/encoding';
+import { envelopeFingerprint } from '../../src/lib/sessionKey';
+import type {
+  Account,
+  PasskeyRecord,
+  SyncDevice,
+  Tombstone,
+  VaultEnvelope,
+  VaultProfile,
+} from '../../shared/types';
 import type * as CryptoModule from '../../shared/crypto';
 import type * as VaultStoreModule from '../../src/lib/vaultStore';
 
@@ -39,15 +48,76 @@ const H = vi.hoisted(() => {
     }
   }
 
+  class PasskeyCancelledError extends Error {
+    constructor() {
+      super('cancelled');
+      this.name = 'PasskeyCancelledError';
+    }
+  }
+
+  class PasskeyPrfUnsupportedError extends Error {
+    constructor() {
+      super('prf unsupported');
+      this.name = 'PasskeyPrfUnsupportedError';
+    }
+  }
+
+  class PasskeyUnavailableError extends Error {
+    constructor() {
+      super('unavailable');
+      this.name = 'PasskeyUnavailableError';
+    }
+  }
+
+  /** base64 → バイト列（hoisted の中では import できないので自前で解決する）。 */
+  function decodeBase64(input: string): Uint8Array {
+    const binary = atob(input);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  }
+
+  /**
+   * テスト用の PRF 出力。同じ salt からは必ず同じ 32B を返す（実際の認証器も
+   * credential + salt に対して安定した値を返す）。
+   */
+  async function fakePrf(salt: Uint8Array): Promise<Uint8Array> {
+    const buffer = new ArrayBuffer(salt.byteLength);
+    new Uint8Array(buffer).set(salt);
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', buffer);
+    return new Uint8Array(digest);
+  }
+
   type StoredVault = { envelope: VaultEnvelope; syncedRevision: number | null; savedAt: string };
   type Remote = { envelope: VaultEnvelope; revision: number };
 
   const harness = {
     vault: null as StoredVault | null,
     token: null as string | null,
+    /** プロファイル（テストでは 1 つだけ使う単一ボルトの代替） */
+    profiles: [] as VaultProfile[],
+    activeProfileId: 'main' as string | null,
     settings: null as unknown,
     writes: [] as VaultEnvelope[],
     deletions: 0,
+    passkeys: {
+      records: [] as Array<{ id: string; [key: string]: unknown }>,
+      /** 登録した認証器の数（credentialId の連番に使う） */
+      issued: 0,
+      /** PRF 出力を差し替える（食い違いの再現用） */
+      outputOverride: null as Uint8Array | null,
+      /** 未対応・キャンセルを再現する */
+      createError: null as Error | null,
+      assertError: null as Error | null,
+      /** 提示させたい credentialId（既定は先頭） */
+      chosenId: null as string | null,
+      available: true,
+      CancelledError: PasskeyCancelledError,
+      PrfUnsupportedError: PasskeyPrfUnsupportedError,
+      UnavailableError: PasskeyUnavailableError,
+      fakePrf,
+      decodeBase64,
+    },
     server: {
       get: async (_vaultId: string, _token: string): Promise<Remote> => {
         throw new SyncNotFoundError();
@@ -88,10 +158,32 @@ const H = vi.hoisted(() => {
 
 vi.mock('../../src/lib/storage', () => ({
   DB_NAME: 'aegis-test',
-  DB_VERSION: 1,
+  DB_VERSION: 3,
+  DEFAULT_PROFILE_ID: 'main',
   resetStorageCache: () => undefined,
-  readVault: async () => (H.vault === null ? null : { ...H.vault, envelope: structuredClone(H.vault.envelope) }),
-  writeVault: async (envelope: VaultEnvelope, syncedRevision: number | null) => {
+  listProfiles: async () =>
+    H.profiles.length === 0
+      ? [{ id: 'main', name: 'メイン', createdAt: '2026-01-01T00:00:00.000Z' }]
+      : structuredClone(H.profiles),
+  readProfile: async (id: string) => H.profiles.find((profile) => profile.id === id) ?? null,
+  putProfile: async (profile: VaultProfile) => {
+    H.profiles = [...H.profiles.filter((item) => item.id !== profile.id), structuredClone(profile)];
+  },
+  deleteProfileRecord: async (id: string) => {
+    H.profiles = H.profiles.filter((profile) => profile.id !== id);
+    if (H.activeProfileId === id) {
+      H.vault = null;
+      H.token = null;
+      H.passkeys.records = [];
+    }
+  },
+  readActiveProfileId: async () => H.activeProfileId,
+  writeActiveProfileId: async (id: string) => {
+    H.activeProfileId = id;
+  },
+  readVault: async (_profileId?: string) =>
+    H.vault === null ? null : { ...H.vault, envelope: structuredClone(H.vault.envelope) },
+  writeVault: async (_profileId: string, envelope: VaultEnvelope, syncedRevision: number | null) => {
     H.writes.push(structuredClone(envelope));
     H.vault = {
       envelope: structuredClone(envelope),
@@ -99,24 +191,70 @@ vi.mock('../../src/lib/storage', () => ({
       savedAt: new Date().toISOString(),
     };
   },
-  updateSyncedRevision: async (revision: number | null) => {
+  updateSyncedRevision: async (_profileId: string, revision: number | null) => {
     if (H.vault !== null) H.vault = { ...H.vault, syncedRevision: revision };
   },
-  deleteVault: async () => {
+  deleteVault: async (_profileId?: string) => {
     H.deletions += 1;
     H.vault = null;
     H.token = null;
+    H.passkeys.records = [];
   },
-  readToken: async () => H.token,
-  writeToken: async (token: string) => {
+  readToken: async (_profileId?: string) => H.token,
+  writeToken: async (_profileId: string, token: string) => {
     H.token = token;
   },
-  deleteToken: async () => {
+  deleteToken: async (_profileId?: string) => {
     H.token = null;
   },
   readSettings: async <T,>() => H.settings as T | null,
   writeSettings: async (value: unknown) => {
     H.settings = value;
+  },
+  readPasskeys: async (_profileId?: string) => structuredClone(H.passkeys.records),
+  putPasskey: async (_profileId: string, record: { id: string; [key: string]: unknown }) => {
+    H.passkeys.records = [...H.passkeys.records.filter((item) => item.id !== record.id), structuredClone(record)];
+  },
+  deletePasskey: async (id: string, _profileId?: string) => {
+    H.passkeys.records = H.passkeys.records.filter((item) => item.id !== id);
+  },
+  replacePasskeys: async (_profileId: string, records: Array<{ id: string; [key: string]: unknown }>) => {
+    H.passkeys.records = structuredClone(records);
+  },
+  deleteAllPasskeys: async (_profileId?: string) => {
+    H.passkeys.records = [];
+  },
+}));
+
+vi.mock('../../src/lib/passkeys', () => ({
+  PasskeyCancelledError: H.passkeys.CancelledError,
+  PasskeyPrfUnsupportedError: H.passkeys.PrfUnsupportedError,
+  PasskeyUnavailableError: H.passkeys.UnavailableError,
+  isPasskeyAvailable: () => H.passkeys.available,
+  createPasskeyCredential: async (options: { prfSalt: Uint8Array }) => {
+    const error = H.passkeys.createError;
+    if (error !== null) {
+      H.passkeys.createError = null;
+      throw error;
+    }
+    H.passkeys.issued += 1;
+    const credentialId = `credential-${H.passkeys.issued}`;
+    const prfOutput = H.passkeys.outputOverride ?? (await H.passkeys.fakePrf(options.prfSalt));
+    return { credentialId, prfOutput, transports: ['internal'] };
+  },
+  getPasskeyAssertion: async (candidates: Array<{ id: string; prfSalt: string }>) => {
+    const error = H.passkeys.assertError;
+    if (error !== null) {
+      H.passkeys.assertError = null;
+      throw error;
+    }
+    const chosen =
+      H.passkeys.chosenId === null
+        ? candidates[0]
+        : candidates.find((candidate) => candidate.id === H.passkeys.chosenId) ?? candidates[0];
+    if (chosen === undefined) throw new H.passkeys.UnavailableError();
+    const prfOutput = H.passkeys.outputOverride ?? (await H.passkeys.fakePrf(H.passkeys.decodeBase64(chosen.prfSalt)));
+    return { credentialId: chosen.id, prfOutput };
   },
 }));
 
@@ -263,7 +401,11 @@ async function settle(ms = 25): Promise<void> {
 
 async function decrypted(envelope: VaultEnvelope, crypto: Modules['crypto'], password = PASSWORD) {
   const unlocked = await crypto.unlockVaultEnvelope(envelope, password);
-  return JSON.parse(unlocked.plaintext) as { accounts: Account[]; tombstones: Tombstone[] };
+  return JSON.parse(unlocked.plaintext) as {
+    accounts: Account[];
+    tombstones: Tombstone[];
+    devices?: SyncDevice[];
+  };
 }
 
 beforeEach(() => {
@@ -271,11 +413,20 @@ beforeEach(() => {
   vi.setSystemTime(new Date('2026-02-01T00:00:00.000Z'));
   H.vault = null;
   H.token = null;
+  H.profiles = [];
+  H.activeProfileId = 'main';
   H.settings = null;
   H.writes = [];
   H.deletions = 0;
   H.crypto.gate = null;
   H.crypto.onEntry = null;
+  H.passkeys.records = [];
+  H.passkeys.issued = 0;
+  H.passkeys.outputOverride = null;
+  H.passkeys.createError = null;
+  H.passkeys.assertError = null;
+  H.passkeys.chosenId = null;
+  H.passkeys.available = true;
   H.server.get = async () => {
     throw new H.errors.SyncNotFoundError();
   };
@@ -388,6 +539,7 @@ describe('ボルトストア: initialize', () => {
       clearClipboard: false,
       announceCodes: false,
       language: 'auto',
+      sortMode: 'manual',
     });
   });
 });
@@ -555,11 +707,25 @@ describe('ボルトストア: 保存の直列化と世代管理', () => {
     expect(store.getState().accounts).toHaveLength(3);
   });
 
-  it('削除はアカウントを取り除き tombstone を残す', async () => {
+  it('ふつうの削除はゴミ箱へ移し、tombstone はまだ作らない', async () => {
     const { store, crypto } = await unlockedStore({
       accounts: [account('keep'), account('drop')],
     });
     await store.getState().removeAccount('drop');
+    const persisted = await decrypted(H.vault!.envelope, crypto);
+    // 行は残る（復元できる）が、deletedAt が付いて通常の一覧から外れる。
+    expect(persisted.accounts.map((item) => item.id)).toEqual(['keep', 'drop']);
+    expect(persisted.accounts.find((item) => item.id === 'drop')?.deletedAt).toBe(
+      '2026-02-01T00:00:00.000Z',
+    );
+    expect(persisted.tombstones).toHaveLength(0);
+  });
+
+  it('完全削除はアカウントを取り除き tombstone を残す', async () => {
+    const { store, crypto } = await unlockedStore({
+      accounts: [account('keep'), account('drop')],
+    });
+    await store.getState().purgeAccount('drop');
     const persisted = await decrypted(H.vault!.envelope, crypto);
     expect(persisted.accounts.map((item) => item.id)).toEqual(['keep']);
     expect(persisted.tombstones).toHaveLength(1);
@@ -1254,5 +1420,291 @@ describe('ボルトストア: パスワード変更と設定', () => {
     expect(store.getState().settings.theme).toBe('dark');
     expect(store.getState().settings.autoLockMinutes).toBe(1);
     expect(H.settings).toMatchObject({ theme: 'dark', autoLockMinutes: 1 });
+  });
+});
+
+describe('ボルトストア: パスキー / セキュリティキー', () => {
+  /** 別ボルトの登録などを直接仕込むための最小レコード。 */
+  function storedPasskey(overrides: Partial<PasskeyRecord> = {}): PasskeyRecord {
+    return {
+      v: 1,
+      id: 'credential-external',
+      name: '古いキー',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      prfSalt: bytesToBase64(new Uint8Array(32).fill(5)),
+      wrappedDek: { iv: bytesToBase64(new Uint8Array(12).fill(6)), ciphertext: 'd3JhcHBlZA==' },
+      vaultFingerprint: 'old-fingerprint',
+      verifier: 'other-verifier',
+      transports: ['internal'],
+      ...overrides,
+    };
+  }
+
+  it('登録すると封筒の verifier と指紋を保存し、一覧に入る', async () => {
+    const { store, envelope } = await unlockedStore();
+    const result = await store.getState().registerPasskey('Pixel の指紋');
+    expect(result.ok).toBe(true);
+    expect(store.getState().passkeys).toHaveLength(1);
+    const record = store.getState().passkeys[0] as PasskeyRecord;
+    expect(record.name).toBe('Pixel の指紋');
+    expect(record.verifier).toBe(envelope.verifier);
+    expect(record.vaultFingerprint).toBe(envelopeFingerprint(envelope));
+    expect(record.transports).toEqual(['internal']);
+    expect(record.wrappedDek.ciphertext).not.toBe('');
+    // 端末の保存層にも書かれている（サーバーへは送らない）。
+    expect(H.passkeys.records).toHaveLength(1);
+  });
+
+  it('表示名が空なら既定名で登録する', async () => {
+    const { store } = await unlockedStore();
+    await store.getState().registerPasskey('   ');
+    expect(store.getState().passkeys[0]?.name).toBe('パスキー');
+  });
+
+  it('複数登録でき、2 つ目以降は同じ PRF salt を共有する', async () => {
+    const { store } = await unlockedStore();
+    await store.getState().registerPasskey('Pixel');
+    await store.getState().registerPasskey('YubiKey');
+    const [first, second] = store.getState().passkeys;
+    expect(store.getState().passkeys).toHaveLength(2);
+    expect(first?.id).not.toBe(second?.id);
+    // 1 回の get でどの認証器を選んでも同じ KEK になるよう、salt は共通にする。
+    expect(first?.prfSalt).toBe(second?.prfSalt);
+  });
+
+  it('登録したパスキーでロック中でも解除できる', async () => {
+    const { store } = await unlockedStore({ accounts: [account('a')] });
+    await store.getState().registerPasskey('Pixel');
+    store.getState().lock();
+    expect(store.getState().status).toBe('locked');
+    // ロック中も解除ボタンを出せるよう、登録は状態に残す。
+    expect(store.getState().passkeys).toHaveLength(1);
+
+    const result = await store.getState().unlockWithPasskey();
+    expect(result).toEqual({ ok: true });
+    expect(store.getState().status).toBe('unlocked');
+    expect(store.getState().accounts).toHaveLength(1);
+    expect(H.vault?.envelope.revision).toBe(1);
+  });
+
+  it('2 つ目のパスキーを選んでも解除できる', async () => {
+    const { store } = await unlockedStore();
+    await store.getState().registerPasskey('Pixel');
+    await store.getState().registerPasskey('YubiKey');
+    const second = store.getState().passkeys[1] as PasskeyRecord;
+    H.passkeys.chosenId = second.id;
+    store.getState().lock();
+    expect(await store.getState().unlockWithPasskey()).toEqual({ ok: true });
+  });
+
+  it('パスキーを削除すると一覧からも保存層からも消える', async () => {
+    const { store } = await unlockedStore();
+    await store.getState().registerPasskey('Pixel');
+    const record = store.getState().passkeys[0] as PasskeyRecord;
+    await store.getState().removePasskey(record.id);
+    expect(store.getState().passkeys).toEqual([]);
+    expect(H.passkeys.records).toEqual([]);
+  });
+
+  it('PRF 非対応の認証器では登録せず、理由を返す', async () => {
+    const { store } = await unlockedStore();
+    H.passkeys.createError = new H.passkeys.PrfUnsupportedError();
+    const result = await store.getState().registerPasskey('古いキー');
+    expect(result).toEqual({ ok: false, reason: 'prf_unsupported' });
+    expect(store.getState().passkeys).toEqual([]);
+    expect(H.passkeys.records).toEqual([]);
+  });
+
+  it('利用者がキャンセルしたら cancelled を返し、登録しない', async () => {
+    const { store } = await unlockedStore();
+    H.passkeys.createError = new H.passkeys.CancelledError();
+    const result = await store.getState().registerPasskey('Pixel');
+    expect(result).toEqual({ ok: false, reason: 'cancelled' });
+    expect(H.passkeys.records).toEqual([]);
+  });
+
+  it('WebAuthn を使えない環境では unavailable を返す', async () => {
+    const { store } = await unlockedStore();
+    H.passkeys.available = false;
+    expect(await store.getState().registerPasskey('Pixel')).toEqual({ ok: false, reason: 'unavailable' });
+    expect(await store.getState().unlockWithPasskey()).toEqual({ ok: false, reason: 'unavailable' });
+  });
+
+  it('ロック中に解除をキャンセルされたら cancelled を返し、ロックのまま', async () => {
+    const { store } = await unlockedStore();
+    await store.getState().registerPasskey('Pixel');
+    store.getState().lock();
+    H.passkeys.assertError = new H.passkeys.CancelledError();
+    expect(await store.getState().unlockWithPasskey()).toEqual({ ok: false, reason: 'cancelled' });
+    expect(store.getState().status).toBe('locked');
+    expect(store.getState().dek).toBeNull();
+  });
+
+  it('PRF 出力が食い違えば解除せず、理由を返す（状態はロックのまま）', async () => {
+    const { store } = await unlockedStore({ accounts: [account('a')] });
+    await store.getState().registerPasskey('Pixel');
+    store.getState().lock();
+    // 登録時とは違う PRF 出力（別の認証器・別のボルト相当）。
+    H.passkeys.outputOverride = new Uint8Array(32).fill(0xab);
+    expect(await store.getState().unlockWithPasskey()).toEqual({ ok: false, reason: 'mismatch' });
+    expect(store.getState().status).toBe('locked');
+    expect(store.getState().dek).toBeNull();
+  });
+
+  it('登録が無ければ解除できない（no_passkeys）', async () => {
+    const { store } = await unlockedStore();
+    store.getState().lock();
+    expect(await store.getState().unlockWithPasskey()).toEqual({ ok: false, reason: 'no_passkeys' });
+  });
+
+  it('別ボルトの登録は初期化時に捨てる（封筒の verifier で紐づけ）', async () => {
+    const modules = await loadModules();
+    const envelope = await writeFixture(modules.crypto);
+    H.passkeys.records = [
+      storedPasskey({ id: 'stale', verifier: 'other-verifier' }),
+      storedPasskey({ id: 'mine', verifier: envelope.verifier }),
+    ];
+    const store = modules.vault.useVaultStore;
+    await store.getState().initialize();
+    expect(store.getState().passkeys.map((record) => record.id)).toEqual(['mine']);
+    expect(H.passkeys.records.map((record) => record.id)).toEqual(['mine']);
+  });
+
+  it('パスワード変更後も同じパスキーで解除でき、保存の指紋が付け替わる', async () => {
+    const { store } = await unlockedStore();
+    await store.getState().registerPasskey('Pixel');
+    const before = store.getState().passkeys[0] as PasskeyRecord;
+
+    expect(await store.getState().changePassword(PASSWORD, OTHER_PASSWORD)).toBe(true);
+    await settle(10);
+    const updated = H.vault?.envelope as VaultEnvelope;
+    const after = store.getState().passkeys[0] as PasskeyRecord;
+    expect(store.getState().passkeys).toHaveLength(1);
+    // DEK は変わらないので解除に使える。指紋だけ新しい封筒へ付け替える。
+    expect(after.vaultFingerprint).toBe(envelopeFingerprint(updated));
+    expect(after.vaultFingerprint).not.toBe(before.vaultFingerprint);
+
+    store.getState().lock();
+    expect(await store.getState().unlockWithPasskey()).toEqual({ ok: true });
+    expect(store.getState().status).toBe('unlocked');
+  });
+
+  it('自動ロック「なし」なら、パスキーで解除した DEK をセッション継続用に預ける', async () => {
+    const { store } = await unlockedStore({ accounts: [account('a')] });
+    await store.getState().updateSettings({ autoLockMinutes: 0 });
+    await store.getState().registerPasskey('Pixel');
+    // sessionStorage はこのテスト環境（node）には無いので、保存先だけ差し替える。
+    const items = new Map<string, string>();
+    vi.stubGlobal('sessionStorage', {
+      getItem: (key: string) => items.get(key) ?? null,
+      setItem: (key: string, value: string) => void items.set(key, value),
+      removeItem: (key: string) => void items.delete(key),
+    });
+    store.getState().lock();
+    expect(items.size).toBe(0);
+    expect(await store.getState().unlockWithPasskey()).toEqual({ ok: true });
+    // マスターパスワードは保存せず、DEK と封筒の指紋だけを預ける。
+    const stored = items.get('aegis.session.dek.v1') ?? '';
+    expect(stored).not.toBe('');
+    expect(stored).not.toContain(PASSWORD);
+    expect(JSON.parse(stored)).toMatchObject({ v: 1 });
+  });
+
+  it('ボルトを消すと登録も消える', async () => {
+    const { store } = await unlockedStore();
+    await store.getState().registerPasskey('Pixel');
+    await store.getState().wipe();
+    expect(store.getState().passkeys).toEqual([]);
+    expect(H.passkeys.records).toEqual([]);
+  });
+
+  it('別ボルトのバックアップで置き換えると、旧ボルトの登録を残さない', async () => {
+    const { store, crypto } = await unlockedStore();
+    await store.getState().registerPasskey('Pixel');
+    const other = await crypto.createVaultEnvelope({
+      password: OTHER_PASSWORD,
+      plaintext: JSON.stringify({ accounts: [], tombstones: [] }),
+      iterations: TEST_ITERATIONS,
+    });
+    await store.getState().importEnvelope(other, 'replace', OTHER_PASSWORD);
+    expect(store.getState().passkeys).toEqual([]);
+    expect(H.passkeys.records).toEqual([]);
+  });
+
+  it('同じボルトのバックアップ（同じ DEK）なら登録は残る', async () => {
+    const { store, envelope, crypto } = await unlockedStore();
+    await store.getState().registerPasskey('Pixel');
+    const backup = await crypto.createVaultEnvelope({
+      password: PASSWORD,
+      dek: (store.getState().dek as Uint8Array),
+      plaintext: JSON.stringify({ accounts: [], tombstones: [] }),
+      revision: envelope.revision,
+      iterations: TEST_ITERATIONS,
+      salt: undefined,
+    });
+    await store.getState().importEnvelope(backup, 'replace', PASSWORD);
+    expect(store.getState().passkeys.map((record) => record.name)).toEqual(['Pixel']);
+  });
+});
+
+describe('ボルトストア: ゴミ箱・使用回数・同期端末', () => {
+  it('ゴミ箱へ移したアカウントは復元できる', async () => {
+    const { store, crypto } = await unlockedStore({ accounts: [account('a')] });
+    await store.getState().removeAccount('a');
+    expect(store.getState().accounts[0]?.deletedAt).toBe('2026-02-01T00:00:00.000Z');
+
+    await store.getState().restoreAccount('a');
+    const persisted = await decrypted(H.vault!.envelope, crypto);
+    expect(persisted.accounts[0]?.deletedAt).toBeUndefined();
+  });
+
+  it('30 日を過ぎたゴミ箱は解錠時に完全削除される', async () => {
+    const deletedAt = '2025-12-01T00:00:00.000Z';
+    const { store, crypto } = await unlockedStore({
+      accounts: [account('keep'), account('old', { deletedAt, updatedAt: deletedAt })],
+    });
+    await settle(30);
+    const persisted = await decrypted(H.vault!.envelope, crypto);
+    expect(persisted.accounts.map((item) => item.id)).toEqual(['keep']);
+    expect(persisted.tombstones).toEqual([{ id: 'old', deletedAt }]);
+    expect(store.getState().accounts.map((item) => item.id)).toEqual(['keep']);
+  });
+
+  it('ゴミ箱を空にすると全部 tombstone になり、復活しない', async () => {
+    const { store, crypto } = await unlockedStore({
+      accounts: [
+        account('keep'),
+        account('t1', { deletedAt: '2026-01-20T00:00:00.000Z' }),
+        account('t2', { deletedAt: '2026-01-21T00:00:00.000Z' }),
+      ],
+    });
+    await store.getState().emptyTrash();
+    const persisted = await decrypted(H.vault!.envelope, crypto);
+    expect(persisted.accounts.map((item) => item.id)).toEqual(['keep']);
+    expect(persisted.tombstones.map((item) => item.id).sort()).toEqual(['t1', 't2']);
+  });
+
+  it('使用回数を記録するが updatedAt は変えない（同期を騒がせない）', async () => {
+    const { store, crypto } = await unlockedStore({ accounts: [account('a')] });
+    await store.getState().recordUsage('a');
+    await store.getState().recordUsage('a');
+    const persisted = await decrypted(H.vault!.envelope, crypto);
+    expect(persisted.accounts[0]?.useCount).toBe(2);
+    expect(persisted.accounts[0]?.lastUsedAt).toBe('2026-02-01T00:00:00.000Z');
+    expect(persisted.accounts[0]?.updatedAt).toBe('2026-01-01T00:00:00.000Z');
+  });
+
+  it('端末名の変更と、端末一覧からの削除ができる', async () => {
+    const { store, crypto } = await unlockedStore({ accounts: [] });
+    await store.getState().renameDevice('My phone');
+    expect(store.getState().deviceName).toBe('My phone');
+    const afterRename = await decrypted(H.vault!.envelope, crypto);
+    expect(afterRename.devices?.some((device) => device.name === 'My phone')).toBe(true);
+
+    const self = store.getState().deviceId;
+    // 自端末は消せない代わりに、他の端末の記録は消せる。
+    await store.getState().forgetDevice('other-device');
+    expect(store.getState().devices.some((device) => device.id === 'other-device')).toBe(false);
+    expect(store.getState().devices.some((device) => device.id === self)).toBe(true);
   });
 });

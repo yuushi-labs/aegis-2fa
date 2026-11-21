@@ -1,0 +1,5 @@
+# このディレクトリは空でも残す（DB の置き場）。
+# 中身（*.db, *.db-wal, *.db-shm）はコミットしない。
+*
+!.gitignore
+!.htaccess

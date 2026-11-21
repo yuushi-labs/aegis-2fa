@@ -91,7 +91,7 @@ export function Modal({ open, title, onClose, children, footer, width = 'md', de
         aria-label={title}
         aria-describedby={describedBy}
         tabIndex={-1}
-        className={`rise-in card relative w-full ${WIDTH_CLASS[width]} max-h-[92dvh] overflow-y-auto rounded-b-none sm:rounded-b-[12px]`}
+        className={`rise-in card relative w-full ${WIDTH_CLASS[width]} max-h-[92dvh] overflow-y-auto overscroll-contain rounded-b-none sm:rounded-b-[12px]`}
         style={{ boxShadow: 'var(--shadow-float)' }}
       >
         <div className="flex items-start justify-between gap-4 px-5 pt-4 pb-3">

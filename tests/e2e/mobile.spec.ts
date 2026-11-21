@@ -68,3 +68,23 @@ test.describe('モバイル 375px', () => {
     expect(contrast).toBeGreaterThan(4.5);
   });
 });
+
+test.describe('モバイル 375px（削除導線とセッション）', () => {
+  test('行から削除でき、自動ロック「なし」はリロードでも解錠が続く', async ({ page }) => {
+    await createVault(page, { sync: false });
+    await addManualAccount(page, { issuer: 'MobileCo', label: 'mobile@example.com', secret: RFC_SECRET });
+
+    // なし にすると、リロードしてもロック画面に戻らない。
+    await page.getByRole('link', { name: '設定', exact: true }).click();
+    await page.getByTestId('auto-lock-select').selectOption('0');
+    await page.reload();
+    await page.getByRole('link', { name: 'Aegis' }).click();
+    await expect(page.getByTestId('otp-code').first()).toBeVisible();
+
+    // 行の「削除」は 1 タップで確認ダイアログを開く。
+    await page.getByTestId('account-row').first().getByTestId('delete-account').click();
+    await expect(page.getByRole('dialog', { name: 'アカウントを削除' })).toBeVisible();
+    await page.getByTestId('confirm-delete-account').click();
+    await expect(page.getByTestId('account-row')).toHaveCount(0);
+  });
+});

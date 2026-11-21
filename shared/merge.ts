@@ -9,7 +9,8 @@
  * そのアカウントはマージ結果から取り除く（削除したアカウントが別端末から復活しない）。
  */
 
-import type { Account, Tombstone, VaultData } from './types';
+import { purgeExpiredTrash } from './trash';
+import type { Account, SyncDevice, Tombstone, VaultData } from './types';
 
 export type MergeResult = {
   data: VaultData;
@@ -88,13 +89,24 @@ function isDeleted(account: Account, tombstones: Map<string, Tombstone>): boolea
   return compareTimestamps(tombstone.deletedAt, account.updatedAt) >= 0;
 }
 
-export function mergeVaultData(base: VaultData, incoming: VaultData): MergeResult {
-  const tombstones = mergeTombstones(base.tombstones, incoming.tombstones);
+export function mergeVaultData(
+  base: VaultData,
+  incoming: VaultData,
+  options: { now?: number } = {},
+): MergeResult {
+  const now = options.now ?? Date.now();
+  // ゴミ箱に 30 日以上置かれたものは、マージの前に完全削除へ進める
+  // （どちらの端末からも期限切れの平文が残らないように）。
+  const purgedBase = purgeExpiredTrash(base.accounts, base.tombstones ?? [], now);
+  const purgedIncoming = purgeExpiredTrash(incoming.accounts, incoming.tombstones ?? [], now);
+  const tombstones = mergeTombstones(purgedBase.tombstones, purgedIncoming.tombstones);
   const tombstoneIndex = new Map(tombstones.map((tombstone) => [tombstone.id, tombstone]));
 
   // 削除済みは最初から対象外にする（件数にも数えない）。
-  const baseAccounts = base.accounts.filter((account) => !isDeleted(account, tombstoneIndex));
-  const incomingAccounts = incoming.accounts.filter((account) => !isDeleted(account, tombstoneIndex));
+  const baseAccounts = purgedBase.accounts.filter((account) => !isDeleted(account, tombstoneIndex));
+  const incomingAccounts = purgedIncoming.accounts.filter(
+    (account) => !isDeleted(account, tombstoneIndex),
+  );
 
   // 削除記録で除外した「元のローカル id」も覚えておく（作り直しは追加ではなく更新として数える）。
   const baseIds = new Set(base.accounts.map((account) => account.id));
@@ -124,10 +136,11 @@ export function mergeVaultData(base: VaultData, incoming: VaultData): MergeResul
   }
 
   // 削除記録で取り除かれた件数（base 側と、incoming で新規だったもの）。
+  // ゴミ箱の期限切れで完全削除された件数もここに含める。
   const deleted =
     base.accounts.length -
     baseAccounts.length +
-    incoming.accounts.filter((account) => isDeleted(account, tombstoneIndex) && !baseIds.has(account.id))
+    purgedIncoming.accounts.filter((account) => isDeleted(account, tombstoneIndex) && !baseIds.has(account.id))
       .length;
 
   const accounts = [...byId.values()].sort((a, b) => {
@@ -136,7 +149,40 @@ export function mergeVaultData(base: VaultData, incoming: VaultData): MergeResul
     return a.createdAt.localeCompare(b.createdAt);
   });
 
-  return { data: { accounts, tombstones }, added, updated, overwritten, deleted };
+  const devices = mergeDevices(base.devices, incoming.devices);
+  return {
+    data: {
+      accounts,
+      tombstones,
+      ...(devices.length === 0 ? {} : { devices }),
+    },
+    added,
+    updated,
+    overwritten,
+    deleted,
+  };
+}
+
+/** 端末一覧を id 単位に統合する（同じ端末は lastSyncedAt が新しい方を採る）。 */
+export function mergeDevices(
+  ...lists: readonly (readonly SyncDevice[] | undefined)[]
+): SyncDevice[] {
+  const byId = new Map<string, SyncDevice>();
+  for (const list of lists) {
+    for (const device of list ?? []) {
+      if (typeof device?.id !== 'string' || device.id === '') continue;
+      const current = byId.get(device.id);
+      if (current === undefined || compareTimestamps(device.lastSyncedAt, current.lastSyncedAt) > 0) {
+        byId.set(device.id, {
+          id: device.id,
+          name: typeof device.name === 'string' && device.name !== '' ? device.name : 'Device',
+          platform: typeof device.platform === 'string' ? device.platform : '',
+          lastSyncedAt: typeof device.lastSyncedAt === 'string' ? device.lastSyncedAt : '',
+        });
+      }
+    }
+  }
+  return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 
 /** 重複判定キー: issuer + label + secret。 */

@@ -1,0 +1,9 @@
+# アプリ本体（PHP）は配信対象ではない。直接アクセスは 403。
+# api/index.php からの読み込みだけを許可する。
+<IfModule mod_authz_core.c>
+  Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+  Order allow,deny
+  Deny from all
+</IfModule>
