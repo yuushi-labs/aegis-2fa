@@ -46,7 +46,7 @@ class SyncBodyContractTest {
             setOf("format", "version", "kdf", "wrappedKey", "data", "verifier", "revision", "updatedAt"),
             body.keys(),
         )
-        assertEquals("zekey-vault", body.get("format").asString)
+        assertEquals("aegis-vault", body.get("format").asString)
         assertEquals(1, body.get("version").asInt)
         assertEquals(7, body.get("revision").asInt)
 

@@ -142,7 +142,7 @@ type VaultData = {
 
 ```json
 {
-  "format": "zekey-vault",
+  "format": "aegis-vault",
   "version": 1,
   "kdf": { "name": "PBKDF2-SHA256", "iterations": 600000, "salt": "b64" },
   "wrappedKey": { "iv": "b64", "ciphertext": "b64" },

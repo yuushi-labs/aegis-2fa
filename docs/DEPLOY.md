@@ -42,6 +42,30 @@ curl -fsS http://localhost:3000/api/health
 
 ボリュームは `docker compose down` では消えません。完全削除は `docker compose down -v`。
 
+### 旧 Aegis 2FA（aegis サービス）の Compose 環境からの移行
+
+サービス名とボリューム名が変わったため、**旧コンテナを止めてから**起動しないとホストの 3000 番が競合します。
+データは旧ボリューム（Compose のプロジェクト名が頭に付く。例: `zekey-2fa_aegis-data`）に残っています。
+
+```bash
+# 1. 旧サービスを停止・削除（ボリュームは残る）
+docker compose down --remove-orphans
+
+# 2. 旧ボリューム名を確かめて、新しいボリュームへ中身を写す
+docker volume ls | grep -E 'aegis-data|zekey-data'
+docker run --rm \
+  -v <旧ボリューム名>:/from \
+  -v <新ボリューム名>:/to \
+  alpine sh -c 'cp -a /from/. /to/'
+
+# 3. 起動
+docker compose up --build -d
+```
+
+旧 DB のファイル名が `aegis.db` のままなら、`docker-compose.yml` の `DATABASE_PATH` を
+`/data/aegis.db` にするか、写したあとで `mv /data/aegis.db /data/zekey.db` に相当する操作をしてください。
+旧環境を使っていない（新規インストール）場合は 1〜2 は不要です。
+
 ## Fly.io
 
 ```bash

@@ -83,17 +83,25 @@ public_html/zekey/
 その場合 `.htaccess` の 403 が効きません（`app/` の PHP は Apache が処理するので 403 が効きます）。
 
 `config.example.php` をコピーして、公開ディレクトリの 1 つ上に `zekey-config.php` として置きます。
+`db_path` は **`null` のまま（自動）を推奨**します。旧 `/aegis/` の DB がある場合の引き継ぎが効きます。
 
 ```php
 <?php
 // /home/<サーバーID>/<ドメイン>/zekey-config.php
 return [
-    'db_path' => '/home/<サーバーID>/zekey-data/zekey.db',
+    'db_path' => null,   // 既定: DOCUMENT_ROOT の親/zekey-data/zekey.db（旧 DB は自動で引き継ぎ）
 ];
+```
+
+DB を別の場所に置きたい場合だけ、絶対パスを書きます（その場合は自動引き継ぎを行いません）。
+
+```php
+    'db_path' => '/home/<サーバーID>/zekey-data/zekey.db',
 ```
 
 - この場所は配信されません（`public_html` の外）。
 - 置き場所を変えるときは `.htaccess` に `SetEnv ZEKEY_CONFIG /path/to/zekey-config.php` を追加します。
+  旧名の `aegis-config.php` / `AEGIS_CONFIG` も読みます（新しい名前があればそちらを優先）。
 - 設定しない場合は、`DOCUMENT_ROOT` の親の `zekey-data/zekey.db` に自動で作ります。
   **旧 `/aegis/` の DB（`aegis-data/aegis.db`）が残っている場合は、初回アクセス時に
   `VACUUM INTO` で `zekey-data/zekey.db` へ写してから新しい場所を使います**（下記 §3.1）。

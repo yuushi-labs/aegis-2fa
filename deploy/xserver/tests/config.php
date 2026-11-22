@@ -110,6 +110,26 @@ $config = Config::load($appDir);
 $client->check('公開ディレクトリの 1 つ上の設定ファイルが読まれる', $config->dbPath === $rootB . '/custom/zekey.db', $config->dbPath);
 $client->check('設定ファイルの max_vault_bytes が反映される', $config->maxVaultBytes === 4242, (string) $config->maxVaultBytes);
 
+// 旧名の設定ファイルも読む（カスタム db_path を見失うと、別の DB を開いてボルトが消えたように見える）。
+$rootF = $workRoot . '/f';
+$makeTree($rootF);
+file_put_contents(
+    $rootF . '/aegis-config.php',
+    "<?php\nreturn ['db_path' => '" . $rootF . "/legacy/custom.db'];\n",
+);
+$config = Config::load($appDir);
+$client->check('旧名の aegis-config.php も読む', $config->dbPath === $rootF . '/legacy/custom.db', $config->dbPath);
+
+// 両方あるときは新しい名前を優先する。
+file_put_contents(
+    $rootF . '/zekey-config.php',
+    "<?php\nreturn ['db_path' => '" . $rootF . "/new/custom.db'];\n",
+);
+$config = Config::load($appDir);
+$client->check('zekey-config.php があればそちらを優先する', $config->dbPath === $rootF . '/new/custom.db', $config->dbPath);
+unlink($rootF . '/zekey-config.php');
+unlink($rootF . '/aegis-config.php');
+
 unlink($rootB . '/zekey-config.php');
 $rootC = $workRoot . '/c';
 $makeTree($rootC, 0500);

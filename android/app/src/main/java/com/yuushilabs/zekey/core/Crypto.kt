@@ -125,7 +125,8 @@ object Crypto {
         val ciphertext = aesGcmEncrypt(importDek(key), dataIv, Bytes.utf8(plaintext), dataAad(revision))
 
         return VaultEnvelope(
-            format = "zekey-vault",
+            // 封筒の形式識別子。Web / Node / PHP 版と同じ値で検証するため旧名のまま固定する。
+            format = "aegis-vault",
             version = 1,
             kdf = VaultKdf("PBKDF2-SHA256", iterations, Bytes.base64(actualSalt)),
             wrappedKey = VaultCipher(Bytes.base64(wrapIv), Bytes.base64(wrappedKey)),
@@ -225,7 +226,7 @@ object Crypto {
     /** 封筒の形の最低限の検査（サーバー側 zod と同程度）。 */
     fun isEnvelopeShape(envelope: VaultEnvelope?): Boolean {
         if (envelope == null) return false
-        if (envelope.format != "zekey-vault" || envelope.version != 1) return false
+        if (envelope.format != "aegis-vault" || envelope.version != 1) return false
         if (envelope.kdf.name != "PBKDF2-SHA256") return false
         if (envelope.kdf.iterations !in MIN_KDF_ITERATIONS..MAX_KDF_ITERATIONS) return false
         if (envelope.kdf.salt.isEmpty()) return false

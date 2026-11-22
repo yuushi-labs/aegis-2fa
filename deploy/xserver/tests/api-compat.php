@@ -335,7 +335,7 @@ $client->check('必須フィールド欠落は 400 invalid_body', (static functi
         'PUT',
         '/api/vault/' . $missingId,
         ['Authorization' => test_bearer($token), 'Content-Type' => 'application/json'],
-        '{"envelope":{"format":"zekey-vault"},"revision":1}',
+        '{"envelope":{"format":"aegis-vault"},"revision":1}',
     );
     $issues = is_array($response['json']) && is_array($response['json']['issues'] ?? null) ? $response['json']['issues'] : [];
     return $response['status'] === 400

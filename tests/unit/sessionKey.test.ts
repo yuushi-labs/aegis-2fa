@@ -3,6 +3,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { bytesToBase64 } from '../../shared/encoding';
 import {
   SESSION_DEK_KEY,
   clearSessionDek,
@@ -106,6 +107,32 @@ describe('セッション継続用の DEK', () => {
     clearSessionDek();
     expect(globalThis.sessionStorage.getItem(SESSION_DEK_KEY)).toBeNull();
     expect(readSessionDek(envelope())).toBeNull();
+  });
+
+  it('旧名（aegis.session.dek.v1）の DEK を読み継いで新しいキーへ移す', () => {
+    const target = envelope();
+    const legacy = JSON.stringify({ v: 1, fingerprint: envelopeFingerprint(target), dek: bytesToBase64(DEK) });
+    globalThis.sessionStorage.setItem('aegis.session.dek.v1', legacy);
+
+    expect(readSessionDek(target)).toEqual(DEK);
+    expect(globalThis.sessionStorage.getItem('aegis.session.dek.v1')).toBeNull();
+    expect(globalThis.sessionStorage.getItem(SESSION_DEK_KEY)).not.toBeNull();
+  });
+
+  it('旧キーの値も clearSessionDek で消える（ロック後に旧キーから復帰できない）', () => {
+    const target = envelope();
+    globalThis.sessionStorage.setItem(
+      'aegis.session.dek.v1',
+      JSON.stringify({ v: 1, fingerprint: envelopeFingerprint(target), dek: bytesToBase64(DEK) }),
+    );
+    globalThis.sessionStorage.setItem(
+      'aegis.session.dek.v1.work',
+      JSON.stringify({ v: 1, fingerprint: envelopeFingerprint(target), dek: bytesToBase64(DEK) }),
+    );
+
+    clearSessionDek();
+    expect(globalThis.sessionStorage.getItem('aegis.session.dek.v1')).toBeNull();
+    expect(globalThis.sessionStorage.getItem('aegis.session.dek.v1.work')).toBeNull();
   });
 
   it('sessionStorage が無い環境では何もしない', () => {

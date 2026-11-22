@@ -4,14 +4,19 @@
  * 例: /home/<サーバーID>/<ドメイン>/zekey-config.php
  *
  * 置き場所を変えたい場合は .htaccess などで ZEKEY_CONFIG に絶対パスを設定する。
+ * 旧名の aegis-config.php / AEGIS_CONFIG も読む（すでにカスタムの db_path を使っている
+ * 環境で設定を見失わないため。新しい名前があればそちらを優先）。
  * このファイルは配信物に含めない（deploy/xserver/config.example.php はアップロードしない）。
  */
 
 declare(strict_types=1);
 
 return [
-    // SQLite の DB。公開ディレクトリの外を指定する（最も安全）。
-    'db_path' => '/home/<サーバーID>/zekey-data/zekey.db',
+    // SQLite の DB。
+    // null のままだと、公開ディレクトリの外（DOCUMENT_ROOT の親）の zekey-data/zekey.db を使う。
+    // 旧 /aegis/ の aegis-data/aegis.db が残っていれば、初回アクセス時に中身を写してから使う。
+    // **絶対パスを書くとそのパスをそのまま使い、上の自動引き継ぎは行わない**（DB を移したいときだけ指定する）。
+    'db_path' => null,
 
     // 保存できる暗号文の総量（バイト）。超過する書き込みは 507。
     'max_vault_bytes' => 268435456,

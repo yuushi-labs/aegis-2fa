@@ -3,7 +3,7 @@
   "dekHex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
   "plaintext": "{\"accounts\":[{\"id\":\"11111111-2222-3333-4444-555555555555\",\"type\":\"totp\",\"issuer\":\"GitHub\",\"label\":\"yuushi@example.com\",\"secret\":\"JBSWY3DPEHPK3PXP\",\"algorithm\":\"SHA1\",\"digits\":6,\"period\":30,\"counter\":0,\"pinned\":true,\"order\":0,\"createdAt\":\"2026-11-21T00:00:00.000Z\",\"updatedAt\":\"2026-11-21T00:00:00.000Z\",\"notes\":\"メモ\",\"recoveryCodes\":[{\"id\":\"code-1\",\"code\":\"AAAA-BBBB\",\"used\":false}],\"useCount\":3,\"lastUsedAt\":\"2026-11-21T00:01:00.000Z\"}],\"tombstones\":[{\"id\":\"deadbeef\",\"deletedAt\":\"2026-11-20T00:00:00.000Z\"}],\"devices\":[{\"id\":\"device-1\",\"name\":\"Android\",\"platform\":\"Android\",\"lastSyncedAt\":\"2026-11-21T00:02:00.000Z\"}]}",
   "envelope": {
-    "format": "zekey-vault",
+    "format": "aegis-vault",
     "version": 1,
     "kdf": {
       "name": "PBKDF2-SHA256",

@@ -93,7 +93,8 @@ data class VaultCipher(
 )
 
 data class VaultEnvelope(
-    val format: String = "zekey-vault",
+    /** 既存のボルトとサーバー検証に合わせた形式識別子（旧名のまま固定）。 */
+    val format: String = "aegis-vault",
     val version: Int = 1,
     val kdf: VaultKdf = VaultKdf(),
     val wrappedKey: VaultCipher = VaultCipher(),

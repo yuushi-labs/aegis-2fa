@@ -151,7 +151,7 @@ smoke test（`/api/health`・devDependencies 非同梱の検証）を push と p
 
 | 添付ファイル | 中身 |
 | --- | --- |
-| `zekey-php-xserver-<tag>.zip` | Xserver 用（`pnpm build:xserver` の成果物）。`public_html/zekey/` に展開 |
+| `zekey-php-xserver-<tag>.zip` | Xserver 用（`pnpm build:xserver` の成果物）。`public_html/` で展開（ZIP の先頭が `zekey/`） |
 | `zekey-android-<tag>.apk` | Android アプリ（`assembleRelease`、固定の配布鍵で署名） |
 
 APK は「提供元不明のアプリ」を許可して端末で開いてインストールします。上書き更新するには

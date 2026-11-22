@@ -92,7 +92,7 @@ jobs:
             {
               echo "## Zekey 2FA ${TAG}"
               echo
-              echo "- PHP（Xserver 用）: \`zekey-php-xserver-${TAG}.zip\` を \`public_html/zekey/\` に展開して使います。"
+              echo "- PHP（Xserver 用）: \`zekey-php-xserver-${TAG}.zip\` を \`public_html/\` で展開して使います（ZIP の先頭が \`zekey/\`）。"
               echo "- Android: \`zekey-android-${TAG}.apk\` を端末で開いてインストールします。"
             } > release-notes.md
           fi

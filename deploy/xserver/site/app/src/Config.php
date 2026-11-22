@@ -125,22 +125,31 @@ final class Config
     /**
      * 設定ファイルの候補（先に見つかったものだけ読む）。
      *
+     * 旧名（Aegis 2FA）の `aegis-config.php` / `AEGIS_CONFIG` も読む。すでにカスタムの
+     * `db_path` を使っている環境で、設定を見失って別の DB を開く（ボルトが見えなくなる）
+     * のを防ぐため。新しい名前があればそちらを優先する。
+     *
      * @return list<string>
      */
     private static function configFiles(string $appDir): array
     {
         $candidates = [];
-        $explicit = getenv('ZEKEY_CONFIG');
-        if (is_string($explicit) && $explicit !== '') {
-            $candidates[] = $explicit;
+        foreach (['ZEKEY_CONFIG', 'AEGIS_CONFIG'] as $env) {
+            $explicit = getenv($env);
+            if (is_string($explicit) && $explicit !== '') {
+                $candidates[] = $explicit;
+            }
         }
         // 推奨: 公開ディレクトリの 1 つ上（例: /home/<id>/<domain>/zekey-config.php）。
         $documentRoot = $_SERVER['DOCUMENT_ROOT'] ?? '';
         if (is_string($documentRoot) && $documentRoot !== '' && str_starts_with($documentRoot, '/')) {
-            $candidates[] = dirname(rtrim($documentRoot, '/')) . '/zekey-config.php';
+            $parent = dirname(rtrim($documentRoot, '/'));
+            $candidates[] = $parent . '/zekey-config.php';
+            $candidates[] = $parent . '/aegis-config.php';
         }
         // DOCUMENT_ROOT が無い環境（CLI など）向けの保険。
         $candidates[] = dirname($appDir, 3) . '/zekey-config.php';
+        $candidates[] = dirname($appDir, 3) . '/aegis-config.php';
         // サイト内で済ませたい場合（storage/ は .htaccess で 403 保護）。
         $candidates[] = dirname($appDir, 1) . '/storage/config.local.php';
 
@@ -277,8 +286,9 @@ final class Config
      * 旧 DB を新しい場所へ写す。成功したら true（旧 DB はそのまま残す）。
      *
      * 旧 `/aegis/` を開いたままでも時点が混ざらないよう、SQLite の `VACUUM INTO` で
-     * 一貫したスナップショットを作るのを優先する（WAL の未チェックポイント分も含む）。
-     * それが使えない環境では、DB ファイルと `-wal` / `-shm` をコピーする。
+     * 一貫したスナップショットを作る。ファイルの生コピーはしない（コピー中に進んだ更新や
+     * 未チェックポイントの WAL を取りこぼし、壊れた／古い DB を新しい場所に置いてしまう）。
+     * スナップショットを作れない環境では false を返し、呼び出し側が旧 DB を使い続ける。
      */
     private static function migrateLegacyDatabase(string $legacy, string $target): bool
     {
@@ -290,25 +300,15 @@ final class Config
             return true;
         }
 
-        if (self::snapshotDatabase($legacy, $target)) {
-            return true;
-        }
-
-        if (!@copy($legacy, $target)) {
-            return false;
-        }
-        foreach (['-wal', '-shm'] as $suffix) {
-            if (is_file($legacy . $suffix)) {
-                @copy($legacy . $suffix, $target . $suffix);
-            }
-        }
-        @chmod($target, 0600);
-        return true;
+        return self::snapshotDatabase($legacy, $target);
     }
 
     /**
      * `VACUUM INTO` で一貫したコピーを作り、完成してから本来の名前へ置く。
-     * 途中で失敗しても、半端なファイルを DB として残さない。
+     *
+     * 途中で失敗しても、半端なファイルを DB として残さない。また、同時に来た別の
+     * リクエストが先に `target` を置いていた場合は、それを上書きしない（書き込み済みの
+     * 新しい DB を古いスナップショットで戻さないため）。
      */
     private static function snapshotDatabase(string $source, string $target): bool
     {
@@ -321,6 +321,17 @@ final class Config
             $pdo->exec('VACUUM INTO ' . $pdo->quote($temporary));
             $pdo = null;
             @chmod($temporary, 0600);
+
+            // link() は「target が無いときだけ」成功するので、先着の DB を上書きしない。
+            // ハードリンクを使えない FS では、target の不在を確かめてから rename する。
+            if (@link($temporary, $target)) {
+                @unlink($temporary);
+                return true;
+            }
+            if (is_file($target)) {
+                @unlink($temporary);
+                return true;
+            }
             if (!@rename($temporary, $target)) {
                 @unlink($temporary);
                 return false;
@@ -329,7 +340,7 @@ final class Config
         } catch (\Throwable $error) {
             @unlink($temporary);
             error_log(
-                '[zekey] 旧 DB のスナップショット作成に失敗しました（ファイルコピーで再試行）: '
+                '[zekey] 旧 DB のスナップショット作成に失敗しました（旧 DB をそのまま使います）: '
                 . $error->getMessage(),
             );
             return false;

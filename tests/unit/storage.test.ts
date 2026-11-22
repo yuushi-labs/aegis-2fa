@@ -180,7 +180,7 @@ describe('IndexedDB 永続化', () => {
   it('v1 の DB を開いてもパスキーとプロファイルのストアが作られる（アップグレード）', async () => {
     // DB_VERSION を 1 として開いた状態を作り、そのあと通常の接続で開き直す。
     const { openDB } = await import('idb');
-    const old = await openDB('zekey-2fa', 1, {
+    const old = await openDB(DB_NAME, 1, {
       upgrade(db) {
         db.createObjectStore('vault', { keyPath: 'id' });
         db.createObjectStore('secrets', { keyPath: 'id' });
