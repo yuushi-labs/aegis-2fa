@@ -48,11 +48,13 @@ function readStored(): StoredDevice | null {
   // 旧キーだけがある場合は、新しいキーへ写してから使う（以後は新しいキーだけを見る）。
   const legacy = readKey(store, LEGACY_DEVICE_STORAGE_KEY);
   if (legacy === null) return null;
-  writeStored(legacy);
-  try {
-    store.removeItem(LEGACY_DEVICE_STORAGE_KEY);
-  } catch {
-    // 消せなくても新しいキーを優先して読むので支障はない。
+  // 新しいキーへ写せたときだけ旧キーを消す（写せない環境で消すと ID を失う）。
+  if (writeStored(legacy)) {
+    try {
+      store.removeItem(LEGACY_DEVICE_STORAGE_KEY);
+    } catch {
+      // 消せなくても、新しいキーを優先して読むので支障はない。
+    }
   }
   return legacy;
 }
@@ -70,14 +72,17 @@ function readKey(store: Storage, key: string): StoredDevice | null {
   }
 }
 
-function writeStored(value: StoredDevice): void {
+/** 保存する。ディスクに書けた（または保存先が無い）場合だけ true。 */
+function writeStored(value: StoredDevice): boolean {
   memory = value;
   const store = getStore();
-  if (store === null) return;
+  if (store === null) return true;
   try {
     store.setItem(DEVICE_STORAGE_KEY, JSON.stringify(value));
+    return true;
   } catch {
     // 容量超過などで保存できなくても、このタブでは動き続ける。
+    return false;
   }
 }
 

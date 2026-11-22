@@ -48,19 +48,24 @@ curl -fsS http://localhost:3000/api/health
 データは旧ボリューム（Compose のプロジェクト名が頭に付く。例: `zekey-2fa_aegis-data`）に残っています。
 
 ```bash
-# 1. 旧サービスを停止・削除（ボリュームは残る）
-docker compose down --remove-orphans
+# 1. 旧プロジェクト名を確かめて、そのプロジェクトを停止・削除（ボリュームは残る）
+docker compose ls                       # 例: NAME=zekey-2fa（旧名のままなら aegis-2fa など）
+docker compose -p <旧プロジェクト名> down --remove-orphans
 
-# 2. 旧ボリューム名を確かめて、新しいボリュームへ中身を写す
+# 2. 旧ボリューム名を確かめて、新しいボリュームへ中身を写す（既存の DB があるときは何もしない）
 docker volume ls | grep -E 'aegis-data|zekey-data'
 docker run --rm \
   -v <旧ボリューム名>:/from \
   -v <新ボリューム名>:/to \
-  alpine sh -c 'cp -a /from/. /to/'
+  alpine sh -c 'if [ -f /to/zekey.db ] || [ -f /to/aegis.db ]; then echo "コピー先に DB があります。上書きしないため中止しました。中身を確認してください" >&2; exit 1; fi; cp -a /from/. /to/'
 
 # 3. 起動
 docker compose up --build -d
 ```
+
+コピー先に既に DB がある場合（先に新環境を起動してしまった場合など）は、上のコマンドは上書きせずに止まります。
+`docker compose down` で止めて `docker volume inspect` で中身を確認し、必要なら退避（例: `cp -a` で別名に保存）
+してから、どちらを使うかを決めてください。
 
 旧 DB のファイル名が `aegis.db` のままなら、`docker-compose.yml` の `DATABASE_PATH` を
 `/data/aegis.db` にするか、写したあとで `mv /data/aegis.db /data/zekey.db` に相当する操作をしてください。

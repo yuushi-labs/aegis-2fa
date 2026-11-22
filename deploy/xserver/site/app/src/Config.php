@@ -204,6 +204,12 @@ final class Config
     /** 新しい DB のファイル名。 */
     private const DB_FILE = 'zekey.db';
 
+    /** 移行の判定を直列化するロックファイル（`zekey-data/` 内）。 */
+    private const MIGRATION_LOCK_FILE = '.migration.lock';
+
+    /** 移行に失敗して旧 DB を使っていることを示す印（以後の自動移行を止める）。 */
+    private const FALLBACK_MARKER_FILE = '.legacy-fallback';
+
     /**
      * 旧名（Aegis 2FA / `/aegis/` 配信）時代の DB。
      *
@@ -260,14 +266,7 @@ final class Config
 
             $legacy = $base . '/' . self::LEGACY_DATA_DIR . '/' . self::LEGACY_DB_FILE;
             if (is_file($legacy)) {
-                if (self::migrateLegacyDatabase($legacy, $target)) {
-                    return $target;
-                }
-                error_log(
-                    '[zekey] 警告: 旧 DB（' . $legacy . '）を ' . $target . ' へ写せませんでした。'
-                    . '旧 DB をそのまま使います（データは変更していません）。',
-                );
-                return $legacy;
+                return self::resolveWithLegacyDatabase(dirname($target), $target, $legacy);
             }
 
             if (self::ensureWritableDir(dirname($target))) {
@@ -280,6 +279,60 @@ final class Config
             . '/zekey-data/zekey.db）を zekey-config.php の db_path に指定してください。'
             . ' 詳しくは deploy/xserver/README.md の「設定」を参照してください。',
         );
+    }
+
+    /**
+     * 旧 DB がある場合の保存先を、１つの要求だけで決める。
+     *
+     * 決めた結果を同じ場所に残すので、あとから来た要求はそれに従う：
+     * - 移行できた → 全要求が新しい DB（`zekey-data/zekey.db`）を使う
+     * - 移行できなかった → 印（`.legacy-fallback`）を置き、**全要求が旧 DB を使う**
+     *   （ある要求が旧 DB、別の要求が新しい DB へ書くと、片方の更新が見えなくなる）
+     *
+     * 印がある状態では自動の再試行はしない。権限を直して印を消すと、次の要求で移行する。
+     */
+    private static function resolveWithLegacyDatabase(string $dir, string $target, string $legacy): string
+    {
+        if (!self::ensureWritableDir($dir)) {
+            // ロックも印も置けない環境では、移行しないまま旧 DB を使う（判断がぶれる余地を作らない）。
+            error_log(
+                '[zekey] 警告: ' . $dir . ' に書けないため、旧 DB（' . $legacy . '）を使います'
+                . '（データは変更していません）。',
+            );
+            return $legacy;
+        }
+
+        $lock = @fopen($dir . '/' . self::MIGRATION_LOCK_FILE, 'c');
+        if ($lock === false || !@flock($lock, LOCK_EX)) {
+            if (is_resource($lock)) {
+                @fclose($lock);
+            }
+            error_log('[zekey] 警告: 移行のロックを取れないため、旧 DB（' . $legacy . '）を使います。');
+            return $legacy;
+        }
+
+        try {
+            // 先に決めた要求の結果を優先する。
+            if (is_file($target)) {
+                return $target;
+            }
+            if (is_file($dir . '/' . self::FALLBACK_MARKER_FILE)) {
+                return $legacy;
+            }
+            if (self::migrateLegacyDatabase($legacy, $target)) {
+                return $target;
+            }
+            @file_put_contents($dir . '/' . self::FALLBACK_MARKER_FILE, gmdate('c') . "\n");
+            error_log(
+                '[zekey] 警告: 旧 DB（' . $legacy . '）を ' . $target . ' へ写せませんでした。'
+                . '旧 DB をそのまま使います（データは変更していません）。'
+                . '権限を直して ' . $dir . '/' . self::FALLBACK_MARKER_FILE . ' を消すと移行を再試行します。',
+            );
+            return $legacy;
+        } finally {
+            @flock($lock, LOCK_UN);
+            @fclose($lock);
+        }
     }
 
     /**

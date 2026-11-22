@@ -46,7 +46,9 @@ $client->section('設定: 旧 /aegis/ の DB 引き継ぎ');
 
 /** 旧 DB を作る（WAL に書き込みを残したまま接続を開いておく）。 */
 $makeLegacyDb = static function (string $root, string $value): PDO {
-    mkdir($root . '/aegis-data', 0700, true);
+    if (!is_dir($root . '/aegis-data')) {
+        mkdir($root . '/aegis-data', 0700, true);
+    }
     $pdo = new PDO('sqlite:' . $root . '/aegis-data/aegis.db');
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     $pdo->exec('PRAGMA journal_mode = WAL');
@@ -99,6 +101,44 @@ $client->check(
 );
 unlink($rootE . '/zekey-data');
 $client->check('フォールバックしても旧 DB を消さない', is_file($rootE . '/aegis-data/aegis.db'));
+
+// 移行に失敗したら印を置き、以後の要求は（別の要求が移行できても）旧 DB を使い続ける。
+// ある要求が旧 DB、別の要求が新しい DB へ書くと、片方の更新が見えなくなるため。
+$rootG = $workRoot . '/g';
+$makeTree($rootG);
+mkdir($rootG . '/aegis-data', 0700, true);
+file_put_contents($rootG . '/aegis-data/aegis.db', 'this is not a sqlite database');
+$config = Config::load($appDir);
+$client->check(
+    'スナップショットを作れないときは旧 DB にフォールバックする',
+    $config->dbPath === $rootG . '/aegis-data/aegis.db',
+    $config->dbPath,
+);
+$client->check(
+    'フォールバックしたことを印として残す',
+    is_file($rootG . '/zekey-data/.legacy-fallback'),
+);
+// 旧 DB を正常なものに差し替えても、印がある間は自動では移行しない。
+unlink($rootG . '/aegis-data/aegis.db');
+$repaired = $makeLegacyDb($rootG, '{"keep":"repaired"}');
+$repaired = null;
+$config = Config::load($appDir);
+$client->check(
+    '印がある間は移行を再試行しない（全要求で旧 DB）',
+    $config->dbPath === $rootG . '/aegis-data/aegis.db' && !is_file($rootG . '/zekey-data/zekey.db'),
+    $config->dbPath,
+);
+// 印を消すと移行を再試行する。
+unlink($rootG . '/zekey-data/.legacy-fallback');
+$config = Config::load($appDir);
+$copied = new PDO('sqlite:' . $config->dbPath);
+$value = $copied->query('SELECT envelope FROM vaults WHERE vault_id = \'vault-1\'')->fetchColumn();
+$copied = null;
+$client->check(
+    '印を消すと新しい DB へ移行する',
+    $config->dbPath === $rootG . '/zekey-data/zekey.db' && $value === '{"keep":"repaired"}',
+    $config->dbPath,
+);
 
 $rootB = $workRoot . '/b';
 $docRootB = $makeTree($rootB);

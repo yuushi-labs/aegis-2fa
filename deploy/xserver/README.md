@@ -145,8 +145,12 @@ DB を別の場所に置きたい場合だけ、絶対パスを書きます（�
 - **DB**: 旧 `/aegis/` の DB は既定で `DOCUMENT_ROOT` の親の `aegis-data/aegis.db` にあります。
   `zekey-data/zekey.db` がまだ無いときにそれを見つけると、`VACUUM INTO` で一貫した
   スナップショット（WAL の未チェックポイント分も含む）を作ってから新しい DB を使います。
-  コピーできない環境（権限なしなど）では、**旧 DB をそのまま使って起動**します。
-  どちらの場合も旧 DB は削除も上書きもしません。確認したら、動作を見てから手動で消してかまいません。
+  コピーできない環境（権限なしなど）では、印（`zekey-data/.legacy-fallback`）を置いて
+  **以後の要求も含めて全部旧 DB を使います**（ある要求は旧 DB、別の要求は新 DB へ書くと、
+  片方の更新が見えなくなるため）。権限を直したあと、この印を消すと次のアクセスで移行を再試行します。
+- **旧 DB の削除は、移行が成功して新しい DB で動いていることを確かめてから**にしてください。
+  印がある（＝旧 DB を使っている）間は\*\*削除しないでください\*\*。旧 `aegis` ディレクトリを消すだけなら
+  DB には影響しません（DB は `public_html` の外にあります）。
 - **リダイレクト**: 旧 `public_html/aegis/.htaccess` を `deploy/xserver/aegis-redirect.htaccess`
   （同じ内容を `downloads/aegis-2fa-deploy/aegis-redirect.htaccess` にも置いてあります）
   の内容に差し替えると、`/aegis/...` へのアクセスを `https://yuushi0911.xsrv.jp/zekey/` へ 301 します
