@@ -142,7 +142,9 @@ pnpm test:xserver                   # php -S 上で API 互換テスト
   クローラに届く。直下に WordPress などの `robots.txt` がある場合は上書きせず、生成された
   `robots.txt` の `Disallow:` 行（`base` に合わせて自動で入る）を**各 User-agent グループに**
   追記する（末尾にまとめて追記すると直前のグループにしか効かない）。`Sitemap:` 行は
-  グループに属しないので 1 行あればよい（サイトマップは Search Console から直接送信してもよい）
+  グループに属しないので 1 行あればよい（サイトマップは Search Console から直接送信してもよい）。
+  既存ルールに `Disallow: /` があるとホームと `/privacy` もクロールされないため、その場合は
+  `Allow: <base>` も追加し、より限定的な既存ルール（より限定的なものが優先される）も確認する
 - `index.html`: title / description / canonical / OGP / Twitter Card / JSON-LD（`SoftwareApplication`）
   をビルド時に絶対 URL へ解決（`%…%` ではなく `__HOME_URL__` などのプレースホルダ）
 - 公開ドメインが既定（`https://yuushi0911.xsrv.jp`）と違うときは、ビルド時に
