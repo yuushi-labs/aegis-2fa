@@ -3,12 +3,12 @@
  *
  * Xserver（共用・PHP 8.3 + SQLite）向けの配信物を組み立てる。
  *
- *   1. Vite で SPA をビルド（base は --base=/aegis/ か VITE_BASE_PATH。既定 /aegis/）
+ *   1. Vite で SPA をビルド（base は --base=/zekey/ か VITE_BASE_PATH。既定 /zekey/）
  *   2. deploy/xserver/site/（PHP バックエンド・.htaccess・storage/）を配信物のルートへ複製
  *   3. dist/ の中身を同じルートへ複製
  *   4. package.json のバージョンを app/version.php へ書き出す
  *
- * 出力: deploy/xserver/build/aegis/ ← この中身を public_html/aegis/ へアップロードする。
+ * 出力: deploy/xserver/build/zekey/ ← この中身を public_html/zekey/ へアップロードする。
  * ルート配置（ドメイン直下）にしたい場合は --base=/ を指定する。
  */
 
@@ -18,9 +18,9 @@ import { build } from 'vite';
 
 const root = process.cwd();
 const sourceSite = join(root, 'deploy/xserver/site');
-const outDir = join(root, 'deploy/xserver/build/aegis');
+const outDir = join(root, 'deploy/xserver/build/zekey');
 const baseArg = process.argv.find((arg) => arg.startsWith('--base='));
-const rawBase = baseArg === undefined ? process.env.VITE_BASE_PATH ?? '/aegis/' : baseArg.slice('--base='.length);
+const rawBase = baseArg === undefined ? process.env.VITE_BASE_PATH ?? '/zekey/' : baseArg.slice('--base='.length);
 const base = normalizeBase(rawBase);
 
 function normalizeBase(value) {

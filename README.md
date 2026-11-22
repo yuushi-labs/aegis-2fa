@@ -1,4 +1,4 @@
-# Aegis 2FA
+# Zekey 2FA
 
 **ゼロ知識 E2EE 同期対応の Web 2FA Authenticator。** 秘密鍵はブラウザから出ません。
 サーバーに置かれるのは AES-256-GCM の暗号文だけで、復号鍵（マスターパスワード由来の
@@ -30,13 +30,13 @@ KEK と DEK）はアンロック中のメモリにしか存在しません。
 - **ロック / 自動ロック**: 既定 5 分、タブ非表示で即ロック（任意）、クリップボードは 30 秒で自動クリア
 - **パスキー / セキュリティキー解除**: WebAuthn PRF 拡張で、指紋・顔認証・FIDO2 キーからも解錠
   （登録情報は端末内のみ。マスターパスワードはそのまま使える）
-- **エクスポート**: 暗号化バックアップ（`.aegis`）、CSV（平文・警告付き）、移行 QR
+- **エクスポート**: 暗号化バックアップ（`.zekey`）、CSV（平文・警告付き）、移行 QR
 - **Android アプリ連携**: 「📱 アプリでログイン」で、同期コードと DEK を
-  `aegis://login#code=…&dek=…&name=…` として渡し、アプリでパスワードを入れ直さずに同じボルトを開く
+  `zekey://login#code=…&dek=…&name=…` として渡し、アプリでパスワードを入れ直さずに同じボルトを開く
   （鍵はフラグメントに置くのでサーバー・ログに残らない。未同期なら自動で初回同期してから渡す）
 - **Android ネイティブアプリ**: Kotlin + Jetpack Compose。同じゼロ知識同期・TOTP/HOTP・
   QR・移行・ゴミ箱・複数ボルトに加え、指紋/顔認証で解錠、引っ張って同期、ワンタップコピー。
-  接続先は `https://yuushi0911.xsrv.jp/aegis` 固定。GitHub Releases からの
+  接続先は `https://yuushi0911.xsrv.jp/zekey` 固定。GitHub Releases からの
   **アプリ内アップデート**（ETag 付き確認・進捗表示・FileProvider 経由のインストーラ）に対応。
   詳細は [docs/ANDROID.md](docs/ANDROID.md)
 - **PWA**: インストール可能、オフラインでコード生成（ビルドしたエントリ JS / CSS も install 時にプリキャッシュ）。
@@ -73,13 +73,13 @@ curl -fsS http://localhost:3000/api/health
 | 変数 | 既定値 | 説明 |
 | --- | --- | --- |
 | `PORT` | `3000` | 待ち受けポート |
-| `DATABASE_PATH` | `./data/aegis.db` | SQLite ファイル（親ディレクトリは自動作成） |
+| `DATABASE_PATH` | `./data/zekey.db` | SQLite ファイル（親ディレクトリは自動作成） |
 | `TRUST_PROXY` | `false` | リバースプロキシ配下で `true`。前段が `X-Forwarded-For` を設定／上書きする構成が前提 |
 | `TRUST_PROXY_HOPS` | `1` | 信頼するプロキシの段数。`X-Forwarded-For` の**右端**から数える |
 | `MAX_VAULT_BYTES` | `268435456`（256 MiB） | 保存できる暗号文の総量。超過する書き込みは `507` |
-| `AEGIS_HTTPS` | `false` | TLS 終端が前段にある場合 `true`（HSTS 付与） |
+| `ZEKEY_HTTPS` | `false` | TLS 終端が前段にある場合 `true`（HSTS 付与） |
 | `CORS_ORIGIN` | 未設定 | 通常は未設定。別オリジンから API を使う場合のみ |
-| `AEGIS_DISABLE_RATE_LIMIT` | `false` | E2E 用。`true` で `/api/vault/*` のレート制限を外す（本番では使わない） |
+| `ZEKEY_DISABLE_RATE_LIMIT` | `false` | E2E 用。`true` で `/api/vault/*` のレート制限を外す（本番では使わない） |
 
 秘密情報の環境変数はありません。サーバーは復号鍵を持たない設計です。
 
@@ -123,7 +123,7 @@ pnpm typecheck    # tsc --noEmit（client + server）
 pnpm test         # Vitest（unit + integration）
 pnpm build        # SPA + サーバー
 pnpm test:e2e     # Playwright（要 pnpm build）
-pnpm build:xserver   # Xserver 用の配信物（deploy/xserver/build/aegis/）
+pnpm build:xserver   # Xserver 用の配信物（deploy/xserver/build/zekey/）
 pnpm test:xserver    # PHP 版 API の互換テスト（php -S 上で実行）
 cd android && ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleRelease
 ```
@@ -136,7 +136,7 @@ cd android && ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
 | integration | 実 SQLite + `app.request`。PUT/GET/meta/DELETE、楽観ロック 409、404 秘匿、バリデーション、413、レート制限 429、セキュリティヘッダ、**DB とペイロードに平文秘密鍵が無いこと**、ログに秘密が出ないこと |
 | unit（client） | ボルトストアの世代カウンタ・保存の直列化・競合解決・バックアップ取り込み、IndexedDB 永続化、同期クライアント、表示整形・設定・i18n |
 | e2e | 作成 → 追加 → 時刻固定でコード一致、ロック/解錠、検索/ピン、バックアップ書き出しと復元、移行 URI 一括インポート、2 端末同期、アプリでログイン（同期コードの自動発行と案内）、375px レイアウト、ダークのコントラスト、セキュリティヘッダ |
-| android（JVM） | RFC 4226 / 6238 の全ベクタ、Base32、`otpauth` 往復、移行 Protobuf（未知 enum・負の batch_id）、**Web 版で作った封筒の復号と verifier 一致**、AAD 改ざん検出、マージ / tombstones、ゴミ箱 30 日、重複、同期コードの抽出、`aegis://login` のフラグメント解析、同期の判断（未変更なら GET・取り込み・マージ）、`PUT` body の契約、更新判定（143 件） |
+| android（JVM） | RFC 4226 / 6238 の全ベクタ、Base32、`otpauth` 往復、移行 Protobuf（未知 enum・負の batch_id）、**Web 版で作った封筒の復号と verifier 一致**、AAD 改ざん検出、マージ / tombstones、ゴミ箱 30 日、重複、同期コードの抽出、`zekey://login` のフラグメント解析、同期の判断（未変更なら GET・取り込み・マージ）、`PUT` body の契約、更新判定（143 件） |
 
 カバレッジは `pnpm test:coverage` で `shared`・`server`・`src/lib` を対象に計測し、
 2026-11 時点で行 92.4% / 分岐 83.3% / 関数 94.9%。下限（行 85%）を下回ると CI が失敗します。
@@ -151,14 +151,26 @@ smoke test（`/api/health`・devDependencies 非同梱の検証）を push と p
 
 | 添付ファイル | 中身 |
 | --- | --- |
-| `aegis-php-xserver-<tag>.zip` | Xserver 用（`pnpm build:xserver` の成果物）。`public_html/aegis/` に展開 |
-| `aegis-android-<tag>.apk` | Android アプリ（`assembleRelease`、固定の配布鍵で署名） |
+| `zekey-php-xserver-<tag>.zip` | Xserver 用（`pnpm build:xserver` の成果物）。`public_html/zekey/` に展開 |
+| `zekey-android-<tag>.apk` | Android アプリ（`assembleRelease`、固定の配布鍵で署名） |
 
 APK は「提供元不明のアプリ」を許可して端末で開いてインストールします。上書き更新するには
 同じ署名鍵が必要なため、CI はリポジトリの `android/keystore/` の鍵で署名します
 （Secrets があれば差し替え。詳細は [docs/ANDROID.md](docs/ANDROID.md)）。
-v1.1.1 からはアプリ内の「新しいバージョンがあります」からも更新できます（GitHub Releases の
-`aegis-android-*.apk` を取得してインストーラに渡します）。
+v1.2.0 以降はアプリ内の「新しいバージョンがあります」からも更新できます（GitHub Releases の
+`zekey-android-*.apk` を取得してインストーラに渡します）。
+
+### Aegis 2FA（旧名）からの移行
+
+v1.2.0 でアプリ名と配信先を `/aegis/` から `/zekey/` へ変え、Android のアプリ ID も
+`com.yuushilabs.aegis` → `com.yuushilabs.zekey` に変えました。
+
+- Android は**別アプリ**として入るため、上書き更新ではなく新規インストールになります。
+  ボルトは「アプリでログイン」または同期コードで引き継げます。
+- 暗号形式（AAD・verifier・封筒 `format`）は旧名の識別子のままなので、これまでのボルトと
+  バックアップは同じパスワードで開けます。
+- Xserver の PHP 版は、初回アクセス時に旧 `aegis-data/aegis.db` を `zekey-data/zekey.db` へ
+  写してから起動します（写せない環境では旧 DB をそのまま使います）。
 
 ## デプロイ
 

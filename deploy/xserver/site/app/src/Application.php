@@ -10,7 +10,7 @@
 
 declare(strict_types=1);
 
-namespace Aegis;
+namespace Zekey;
 
 use RuntimeException;
 use Throwable;
@@ -37,7 +37,7 @@ final class Application
             $config = Config::load($appDir);
             $response = self::dispatch($config, $request);
         } catch (Throwable $error) {
-            error_log('[aegis] ' . $error::class . ': ' . $error->getMessage());
+            error_log('[zekey] ' . $error::class . ': ' . $error->getMessage());
             $message = $config !== null && $config->debug ? $error->getMessage() : 'internal_error';
             $response = Response::error('internal_error', 500, ['message' => $message]);
         }

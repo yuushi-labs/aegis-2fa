@@ -4,7 +4,7 @@
  * ビルド時に `vite.config.ts` が読み、配信物の直下へ
  *   - robots.txt（API だけを除外し、サイトマップの場所を書く）
  *   - sitemap.xml（公開ページの一覧）
- * を書き出す。base は Vite の `base`（Xserver は `/aegis/`、Node 版は `/`）に合わせる。
+ * を書き出す。base は Vite の `base`（Xserver は `/zekey/`、Node 版は `/`）に合わせる。
  *
  * 公開 URL の既定は本番の Xserver（`https://yuushi0911.xsrv.jp`）。
  * 別のドメインで配信するときはビルド時に `VITE_SITE_ORIGIN` を指定する。
@@ -17,9 +17,9 @@ export const DEFAULT_SITE_ORIGIN = 'https://yuushi0911.xsrv.jp';
 export const SITEMAP_PATHS = ['', 'privacy'] as const;
 
 /**
- * `base` を `/aegis/` の形に正規化する（`/` はそのまま）。
+ * `base` を `/zekey/` の形に正規化する（`/` はそのまま）。
  *
- * 空文字・`/` はルート配信、`aegis` のような指定も `/aegis/` に揃える。
+ * 空文字・`/` はルート配信、`zekey` のような指定も `/zekey/` に揃える。
  */
 export function normalizeBasePath(value: string | undefined): string {
   const trimmed = (value ?? '/').trim();
@@ -54,7 +54,7 @@ export function resolveSiteOrigin(value: string | undefined): string {
   return url.origin;
 }
 
-/** `origin + base` を末尾スラッシュ無しで返す（例: `https://example.com/aegis`）。 */
+/** `origin + base` を末尾スラッシュ無しで返す（例: `https://example.com/zekey`）。 */
 export function siteUrl(origin: string, base: string): string {
   const normalizedBase = normalizeBasePath(base);
   const root = origin.replace(/\/+$/, '');

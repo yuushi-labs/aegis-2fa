@@ -5,7 +5,7 @@
 
 declare(strict_types=1);
 
-namespace Aegis;
+namespace Zekey;
 
 final class Request
 {
@@ -35,7 +35,7 @@ final class Request
             $path = '/';
         }
 
-        // サイトがサブディレクトリ（例: /aegis/）に置かれていても
+        // サイトがサブディレクトリ（例: /zekey/）に置かれていても
         // .htaccess 経由の REQUEST_URI はサイト基準に直す。
         $base = self::appBase(self::serverString('SCRIPT_NAME') ?? '');
         if ($base !== '' && ($path === $base || str_starts_with($path, $base . '/'))) {
@@ -99,7 +99,7 @@ final class Request
         return ['body' => $body, 'tooLarge' => false];
     }
 
-    /** スクリプトの配置（/aegis/api/index.php）からサイトの基準パス（/aegis）を求める。 */
+    /** スクリプトの配置（/zekey/api/index.php）からサイトの基準パス（/zekey）を求める。 */
     private static function appBase(string $scriptName): string
     {
         if ($scriptName === '') {

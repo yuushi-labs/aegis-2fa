@@ -9,7 +9,7 @@ const HOST = process.env.E2E_HOST ?? '127.0.0.1';
 const IS_CI = Boolean(process.env.CI);
 /** 実行ごとの一時 DB（前回実行のデータを持ち越さない）。 */
 const STALE_AFTER_MS = 3 * 24 * 60 * 60 * 1000;
-const dataRoot = join(tmpdir(), 'aegis-e2e');
+const dataRoot = join(tmpdir(), 'zekey-e2e');
 
 /** 実行ごとの作業ディレクトリ。共有 tmp の細工（シンボリックリンク等）は避ける。 */
 function createRunDir(): string {
@@ -22,7 +22,7 @@ function createRunDir(): string {
   } catch {
     // 共有ディレクトリが使えない場合は tmpdir 直下に作る。
   }
-  return mkdtempSync(join(tmpdir(), 'aegis-e2e-run-'));
+  return mkdtempSync(join(tmpdir(), 'zekey-e2e-run-'));
 }
 
 const dataDir =
@@ -83,7 +83,7 @@ export default defineConfig({
     command: `node dist-server/index.js`,
     url: `http://${HOST}:${PORT}/api/health`,
     // 既存サーバーは再利用しない。今回のビルドとテスト用の設定
-    // （AEGIS_DISABLE_RATE_LIMIT 等）を必ず効かせるため。
+    // （ZEKEY_DISABLE_RATE_LIMIT 等）を必ず効かせるため。
     reuseExistingServer: false,
     timeout: 120_000,
     stdout: 'pipe',
@@ -95,7 +95,7 @@ export default defineConfig({
       NODE_ENV: 'test',
       // 全テストが 127.0.0.1 から短時間に作る・更新するため、レート制限は切る
       // （20 PUT/分を超えると無関係なテストが 429 で落ちる。制限は integration で検証する）。
-      AEGIS_DISABLE_RATE_LIMIT: 'true',
+      ZEKEY_DISABLE_RATE_LIMIT: 'true',
     },
   },
 });

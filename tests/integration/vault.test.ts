@@ -28,7 +28,7 @@ function buildEnvelope(revision: number, secret = SECRET_BASE32): Promise<VaultE
 }
 
 beforeEach(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'aegis-int-'));
+  workDir = mkdtempSync(join(tmpdir(), 'zekey-int-'));
   database = createDatabase(join(workDir, 'test.db'));
   runMigrations(database);
   app = createApp({ database, disableRateLimit: true, log: () => {} });
@@ -469,7 +469,7 @@ describe('SPA フォールバック', () => {
   it('静的ルート未指定なら 404 の簡易ページ', async () => {
     const response = await app.request('/some/deep/link');
     expect(response.status).toBe(404);
-    expect(await response.text()).toContain('Aegis 2FA');
+    expect(await response.text()).toContain('Zekey 2FA');
   });
 
   it('dist があれば index.html を返し、未知の /api/* は JSON 404', async () => {

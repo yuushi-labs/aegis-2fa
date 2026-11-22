@@ -6,7 +6,7 @@ secret もマスターパスワードも端末の外へ出ません。同期で�
 
 ```
 android/
-├── app/src/main/java/com/yuushilabs/aegis/
+├── app/src/main/java/com/yuushilabs/zekey/
 │   ├── core/        Web 版 shared/ と 1:1 の純粋ロジック（JVM でテスト）
 │   │   ├── Bytes.kt / Base32.kt       base64・base64url・hex・Base32
 │   │   ├── Crypto.kt                  PBKDF2 / AES-GCM / verifier / 封筒
@@ -14,7 +14,7 @@ android/
 │   │   ├── Otpauth.kt / Migration.kt   otpauth:// と otpauth-migration://
 │   │   ├── Model.kt / Merge.kt         ボルトの型・JSON・競合マージ
 │   │   ├── Trash.kt / Duplicates.kt    ゴミ箱（30日）・重複チェック
-│   │   ├── SyncCode.kt / AppLogin.kt   同期コード・aegis://login
+│   │   ├── SyncCode.kt / AppLogin.kt   同期コード・zekey://login
 │   │   └── IsoTime.kt                  Web の toISOString と同じ形式
 │   ├── data/
 │   │   ├── SecureStore.kt              Keystore の AES-256-GCM でファイルを暗号化
@@ -32,13 +32,13 @@ android/
   ワンタップコピー（30 秒で自動クリア）、次期コードの先出し、時計ずれ補正（±2）
 - **追加手段は 3 つだけ**: 手入力（よく使うサービス候補つき）・QR スキャン（カメラ／画像）・
   Google Authenticator 移行（`otpauth-migration://`）。`otpauth://` の手入力欄はありません
-- **ゼロ知識同期**: 接続先は `https://yuushi0911.xsrv.jp/aegis` に固定（変更 UI なし）。
+- **ゼロ知識同期**: 接続先は `https://yuushi0911.xsrv.jp/zekey` に固定（変更 UI なし）。
   PBKDF2-HMAC-SHA-256 600,000 回、AES-256-GCM、AAD `aegis-vault-v1` / `aegis-data-v1:<revision>`、
   verifier `HMAC-SHA256(DEK, "aegis-verify-v1")[0:16]`、`vaultId = hex(SHA-256(token))[0:32]`
 - **同期コード / QR**: 4 文字区切り表示・QR 表示・カメラや画像からの取り込み・手動同期・端末一覧
 - **競合**: 409 で再取得し、サーバー側と同じ封筒なら成功扱い。違えば
   「マージ / この端末を残す / サーバーを残す」を選ぶ（マージは tombstones ごと）
-- **サイトからの自動ログイン**: `aegis://login#code=…&dek=…&name=…` を受け取り、
+- **サイトからの自動ログイン**: `zekey://login#code=…&dek=…&name=…` を受け取り、
   同期コードで最新の封筒を取得 → DEK で復号（verifier 検証）→ Keystore で保護して保存 →
   そのままアンロック済み一覧へ。処理後は Intent のデータを消す
 - **ロック**: マスターパスワード（12 文字以上）・指紋/顔（BiometricPrompt + Keystore の
@@ -66,9 +66,9 @@ android/
 
 ## アプリ内アップデート（v1.1.1）
 
-- `GET /repos/yuushi-labs/aegis-2fa/releases/latest` を `ETag` 付きで確認（`304` はレート制限を消費しない）。
+- `GET /repos/yuushi-labs/zekey-2fa/releases/latest` を `ETag` 付きで確認（`304` はレート制限を消費しない）。
   起動とフォアグラウンド復帰のたびに確認し、連続発火だけ 20 秒でまとめます。
-- リリースの `tag_name` と `aegis-android-*.apk`（サイズ・`sha256` ダイジェストがあれば照合）を取り、
+- リリースの `tag_name` と `zekey-android-*.apk`（サイズ・`sha256` ダイジェストがあれば照合）を取り、
   `BuildConfig.VERSION_NAME` より新しいときだけ提示します（draft / prerelease は対象外）。
 - APK は `cacheDir/updates/` に `.part` 経由で保存し、`FileProvider`（`<cache-path name="updates">`）
   経由で `ACTION_VIEW` + `application/vnd.android.package-archive` を開きます。
@@ -97,7 +97,7 @@ cd android
 
 ## 署名と配布
 
-- `assembleRelease` は `keystore/aegis-debug.keystore`（alias `androiddebugkey`）で署名します。
+- `assembleRelease` は `keystore/zekey-debug.keystore`（alias `androiddebugkey`）で署名します。
   これは **配布 ID として公開している鍵** で、秘密情報ではありません（理由と差し替え手順は
   `android/keystore/README.md` と [SECURITY.md](SECURITY.md)）。
 - GitHub の Secrets に `ANDROID_KEYSTORE_BASE64` / `ANDROID_KEYSTORE_PASSWORD` /

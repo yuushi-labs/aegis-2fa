@@ -39,4 +39,4 @@ require_once __DIR__ . '/src/VaultRepository.php';
 require_once __DIR__ . '/src/Health.php';
 require_once __DIR__ . '/src/Application.php';
 
-\Aegis\Application::run(__DIR__);
+\Zekey\Application::run(__DIR__);

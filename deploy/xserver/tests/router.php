@@ -10,14 +10,14 @@
  *   - それ以外 → index.html（SPA フォールバック）
  *
  * 使い方:
- *   AEGIS_SITE_ROOT=/path/to/aegis AEGIS_BASE=/aegis \
+ *   ZEKEY_SITE_ROOT=/path/to/zekey ZEKEY_BASE=/zekey \
  *     php -S 127.0.0.1:8910 -t /path/to/docroot deploy/xserver/tests/router.php
  */
 
 declare(strict_types=1);
 
-$siteRoot = rtrim((string) (getenv('AEGIS_SITE_ROOT') ?: dirname(__DIR__, 2) . '/build/aegis'), '/');
-$base = rtrim((string) (getenv('AEGIS_BASE') ?: ''), '/');
+$siteRoot = rtrim((string) (getenv('ZEKEY_SITE_ROOT') ?: dirname(__DIR__, 2) . '/build/zekey'), '/');
+$base = rtrim((string) (getenv('ZEKEY_BASE') ?: ''), '/');
 
 $uri = parse_url((string) ($_SERVER['REQUEST_URI'] ?? '/'), PHP_URL_PATH);
 if (!is_string($uri) || $uri === '') {

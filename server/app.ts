@@ -153,7 +153,7 @@ export function createApp(options: AppOptions): Hono<{ Variables: BodyLimitVaria
       return c.json({ error: 'not_found' }, 404);
     }
     if (options.staticRoot === undefined) {
-      return c.html('<!doctype html><title>Aegis 2FA</title><p>クライアントは未ビルドです。</p>', 404);
+      return c.html('<!doctype html><title>Zekey 2FA</title><p>クライアントは未ビルドです。</p>', 404);
     }
     const root = resolve(options.staticRoot);
     const found = readStaticFile(root, path.replace(/^\/+/, ''));
@@ -165,7 +165,7 @@ export function createApp(options: AppOptions): Hono<{ Variables: BodyLimitVaria
     }
     const indexPath = join(root, 'index.html');
     if (!existsSync(indexPath)) {
-      return c.html('<!doctype html><title>Aegis 2FA</title><p>index.html が見つかりません。</p>', 404);
+      return c.html('<!doctype html><title>Zekey 2FA</title><p>index.html が見つかりません。</p>', 404);
     }
     return new Response(new Uint8Array(readFileSync(indexPath)), {
       status: 200,

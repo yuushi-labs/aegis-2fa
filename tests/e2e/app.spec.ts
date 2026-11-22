@@ -5,7 +5,7 @@ import { encodeMigrationPayload } from '../../shared/migration';
 /** RFC 6238 の SHA-1 / 6 桁ベクタ（59 秒 = 94287082 は 8 桁）。 */
 const FIXED_TIME = 1_111_111_109; // RFC 6238 の 59 秒ベクタに近い固定時刻
 
-test.describe('Aegis 2FA 基本フロー', () => {
+test.describe('Zekey 2FA 基本フロー', () => {
   test('ボルト作成 → アカウント追加 → 固定時刻でコード一致', async ({ page }) => {
     await installFixedClock(page, FIXED_TIME);
     await createVault(page, { sync: false });
@@ -74,7 +74,7 @@ test.describe('Aegis 2FA 基本フロー', () => {
     const downloadPromise = page.waitForEvent('download');
     await page.getByRole('button', { name: /暗号化バックアップ/ }).click();
     const download = await downloadPromise;
-    const backupPath = test.info().outputPath('backup.aegis');
+    const backupPath = test.info().outputPath('backup.zekey');
     await download.saveAs(backupPath);
 
     // 端末のボルトを消して、バックアップから復元する。
@@ -171,7 +171,7 @@ test.describe('PWA', () => {
       name: string;
       icons: { sizes: string; purpose?: string }[];
     };
-    expect(manifest.name).toBe('Aegis 2FA');
+    expect(manifest.name).toBe('Zekey 2FA');
     expect(manifest.icons.some((icon) => icon.sizes === '192x192')).toBe(true);
     expect(manifest.icons.some((icon) => icon.sizes === '512x512' && icon.purpose === 'maskable')).toBe(true);
   });

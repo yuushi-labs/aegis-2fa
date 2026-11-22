@@ -74,6 +74,8 @@ beforeEach(() => {
 
 describe('IndexedDB 永続化', () => {
   it('DB 名とバージョンは固定値', () => {
+    // DB 名は旧名のまま固定する。`/aegis/` と `/zekey/` は同じオリジンなので、
+    // 名前を変えると端末に保存済みのボルトが見えなくなる（表示名ではない）。
     expect(DB_NAME).toBe('aegis-2fa');
     // v2 でパスキー、v3 でプロファイル（複数ボルト）を追加した。
     expect(DB_VERSION).toBe(3);
@@ -178,7 +180,7 @@ describe('IndexedDB 永続化', () => {
   it('v1 の DB を開いてもパスキーとプロファイルのストアが作られる（アップグレード）', async () => {
     // DB_VERSION を 1 として開いた状態を作り、そのあと通常の接続で開き直す。
     const { openDB } = await import('idb');
-    const old = await openDB('aegis-2fa', 1, {
+    const old = await openDB('zekey-2fa', 1, {
       upgrade(db) {
         db.createObjectStore('vault', { keyPath: 'id' });
         db.createObjectStore('secrets', { keyPath: 'id' });
@@ -246,7 +248,7 @@ describe('複数プロファイル', () => {
 
   it('v2 の単一ボルトを既定プロファイルへ引き継ぐ（v2 → v3 マイグレーション）', async () => {
     const { openDB } = await import('idb');
-    const legacy = await openDB('aegis-2fa', 2, {
+    const legacy = await openDB(DB_NAME, 2, {
       upgrade(db) {
         db.createObjectStore('vault', { keyPath: 'id' });
         db.createObjectStore('secrets', { keyPath: 'id' });
@@ -275,7 +277,7 @@ describe('複数プロファイル', () => {
     await expect(listProfiles()).resolves.toMatchObject([{ id: MAIN }]);
     await expect(readActiveProfileId()).resolves.toBe(MAIN);
     // 旧キーの記録は残さない（同じ封筒を二重に持たない）。
-    const check = await openDB('aegis-2fa', 3);
+    const check = await openDB(DB_NAME, 3);
     await expect(check.get('vault', 'vault' as never)).resolves.toBeUndefined();
     await expect(check.get('secrets', 'token' as never)).resolves.toBeUndefined();
     check.close();

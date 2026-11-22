@@ -136,7 +136,7 @@ test.describe('並べ替え', () => {
 
     // 選んだ並び順は設定として残る（画面を移動しても保たれる）。
     await page.getByRole('link', { name: '設定', exact: true }).click();
-    await page.getByRole('link', { name: 'Aegis' }).click();
+    await page.getByRole('link', { name: 'Zekey' }).click();
     await expect(page.getByTestId('sort-usage')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByTestId('account-row').first()).toContainText('Apple');
   });
@@ -201,7 +201,7 @@ test.describe('複数ボルト（プロファイル）', () => {
 
     await page.getByLabel('マスターパスワード', { exact: true }).fill(PASSWORD);
     await page.getByRole('button', { name: '解錠する' }).click();
-    await page.getByRole('link', { name: 'Aegis' }).click();
+    await page.getByRole('link', { name: 'Zekey' }).click();
     await expect(page.getByTestId('account-row')).toHaveCount(1);
     await expect(page.getByTestId('account-row')).toContainText('MainCo');
   });

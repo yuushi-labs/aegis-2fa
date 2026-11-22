@@ -6,12 +6,12 @@
  * 実際の処理は app/ 以下（.htaccess で 403 保護）に置いてある。
  *
  * app/ を公開ディレクトリの外に置きたい場合は、.htaccess か FPM の環境変数で
- * AEGIS_APP_DIR にその絶対パスを設定する（deploy/xserver/README.md 参照）。
+ * ZEKEY_APP_DIR にその絶対パスを設定する（deploy/xserver/README.md 参照）。
  */
 
 declare(strict_types=1);
 
-$appDir = getenv('AEGIS_APP_DIR');
+$appDir = getenv('ZEKEY_APP_DIR');
 if (!is_string($appDir) || $appDir === '') {
     $appDir = __DIR__ . '/../app';
 }

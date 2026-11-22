@@ -13,7 +13,7 @@ describe('Base32', () => {
   });
 
   it('デコードで元に戻る', () => {
-    const samples = ['f', 'fo', 'foo', 'foob', 'fooba', 'foobar', 'Hello, Aegis!', '12345678901234567890'];
+    const samples = ['f', 'fo', 'foo', 'foob', 'fooba', 'foobar', 'Hello, Zekey!', '12345678901234567890'];
     for (const sample of samples) {
       const encoded = encodeBase32(new TextEncoder().encode(sample));
       expect(new TextDecoder().decode(decodeBase32(encoded))).toBe(sample);

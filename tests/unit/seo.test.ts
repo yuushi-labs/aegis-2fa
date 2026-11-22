@@ -20,9 +20,9 @@ describe('normalizeBasePath', () => {
   });
 
   it('サブディレクトリは前後のスラッシュを揃える', () => {
-    expect(normalizeBasePath('aegis')).toBe('/aegis/');
-    expect(normalizeBasePath('/aegis')).toBe('/aegis/');
-    expect(normalizeBasePath('/aegis/')).toBe('/aegis/');
+    expect(normalizeBasePath('zekey')).toBe('/zekey/');
+    expect(normalizeBasePath('/zekey')).toBe('/zekey/');
+    expect(normalizeBasePath('/zekey/')).toBe('/zekey/');
   });
 });
 
@@ -38,7 +38,7 @@ describe('resolveSiteOrigin', () => {
   });
 
   it('パス付き・相対 URL・http(s) 以外は設定ミスとして弾く', () => {
-    expect(() => resolveSiteOrigin('https://example.com/aegis')).toThrow(/オリジンだけ/);
+    expect(() => resolveSiteOrigin('https://example.com/zekey')).toThrow(/オリジンだけ/);
     expect(() => resolveSiteOrigin('example.com')).toThrow(/URL として読めません/);
     expect(() => resolveSiteOrigin('ftp://example.com')).toThrow(/http\(s\)/);
   });
@@ -52,22 +52,22 @@ describe('URL の組み立て', () => {
   });
 
   it('サブディレクトリ配信でも二重スラッシュにならない', () => {
-    expect(siteUrl('https://example.com', '/aegis/')).toBe('https://example.com/aegis');
-    expect(homeUrl('https://example.com/', 'aegis')).toBe('https://example.com/aegis/');
-    expect(pageUrl('https://example.com', '/aegis/', '/privacy')).toBe(
-      'https://example.com/aegis/privacy',
+    expect(siteUrl('https://example.com', '/zekey/')).toBe('https://example.com/zekey');
+    expect(homeUrl('https://example.com/', 'zekey')).toBe('https://example.com/zekey/');
+    expect(pageUrl('https://example.com', '/zekey/', '/privacy')).toBe(
+      'https://example.com/zekey/privacy',
     );
-    expect(pageUrl('https://example.com', '/aegis/', '')).toBe('https://example.com/aegis/');
+    expect(pageUrl('https://example.com', '/zekey/', '')).toBe('https://example.com/zekey/');
   });
 });
 
 describe('robots.txt', () => {
   it('全体を許可し、API だけを除外してサイトマップを示す（サブディレクトリ配信）', () => {
-    const robots = buildRobotsTxt('https://yuushi0911.xsrv.jp', '/aegis/');
+    const robots = buildRobotsTxt('https://yuushi0911.xsrv.jp', '/zekey/');
     expect(robots).toContain('User-agent: *');
     expect(robots).toContain('Allow: /');
-    expect(robots).toContain('Disallow: /aegis/api/');
-    expect(robots).toContain('Sitemap: https://yuushi0911.xsrv.jp/aegis/sitemap.xml');
+    expect(robots).toContain('Disallow: /zekey/api/');
+    expect(robots).toContain('Sitemap: https://yuushi0911.xsrv.jp/zekey/sitemap.xml');
     // `Disallow: /` のような全体ブロックが残っていないこと。
     expect(robots).not.toMatch(/^Disallow: \/$/m);
     expect(robots.endsWith('\n')).toBe(true);
@@ -83,16 +83,16 @@ describe('robots.txt', () => {
 
 describe('sitemap.xml', () => {
   it('ホームとプライバシーポリシーを絶対 URL で並べる', () => {
-    const xml = buildSitemapXml('https://yuushi0911.xsrv.jp', '/aegis/', { lastmod: '2026-11-22' });
+    const xml = buildSitemapXml('https://yuushi0911.xsrv.jp', '/zekey/', { lastmod: '2026-11-22' });
     expect(xml.startsWith('<?xml version="1.0" encoding="UTF-8"?>')).toBe(true);
     expect(xml).toContain('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">');
-    expect(xml).toContain('<loc>https://yuushi0911.xsrv.jp/aegis/</loc>');
-    expect(xml).toContain('<loc>https://yuushi0911.xsrv.jp/aegis/privacy</loc>');
+    expect(xml).toContain('<loc>https://yuushi0911.xsrv.jp/zekey/</loc>');
+    expect(xml).toContain('<loc>https://yuushi0911.xsrv.jp/zekey/privacy</loc>');
     expect(xml).toContain('<lastmod>2026-11-22</lastmod>');
     expect(xml).toContain('<priority>1.0</priority>');
     expect(xml.match(/<url>/g)).toHaveLength(2);
-    // base とパスの境目でスラッシュが重複（/aegis//privacy）しないこと。
-    expect(xml).not.toContain('/aegis//');
+    // base とパスの境目でスラッシュが重複（/zekey//privacy）しないこと。
+    expect(xml).not.toContain('/zekey//');
     expect(xml.trimEnd().endsWith('</urlset>')).toBe(true);
   });
 
@@ -162,7 +162,7 @@ describe('documentTitleFor（画面ごとのタイトル）', () => {
   });
 
   it('アプリ名は manifest と同じ', () => {
-    expect(APP_NAME).toBe('Aegis 2FA');
+    expect(APP_NAME).toBe('Zekey 2FA');
   });
 });
 
@@ -174,22 +174,22 @@ describe('canonicalUrlFor（canonical の絶対 URL）', () => {
     );
   });
 
-  it('サブディレクトリ配信（/aegis/）では /privacy を独立させる', () => {
+  it('サブディレクトリ配信（/zekey/）では /privacy を独立させる', () => {
     const origin = 'https://yuushi0911.xsrv.jp';
-    expect(canonicalUrlFor(origin, '/aegis/', '/')).toBe('https://yuushi0911.xsrv.jp/aegis/');
-    expect(canonicalUrlFor(origin, '/aegis/', '/privacy')).toBe(
-      'https://yuushi0911.xsrv.jp/aegis/privacy',
+    expect(canonicalUrlFor(origin, '/zekey/', '/')).toBe('https://yuushi0911.xsrv.jp/zekey/');
+    expect(canonicalUrlFor(origin, '/zekey/', '/privacy')).toBe(
+      'https://yuushi0911.xsrv.jp/zekey/privacy',
     );
     // 末尾スラッシュ・base の書き方の揺れを吸収する。
-    expect(canonicalUrlFor(origin, 'aegis', '/privacy/')).toBe(
-      'https://yuushi0911.xsrv.jp/aegis/privacy',
+    expect(canonicalUrlFor(origin, 'zekey', '/privacy/')).toBe(
+      'https://yuushi0911.xsrv.jp/zekey/privacy',
     );
   });
 
   it('ボルトの中身にあたる画面はホームに寄せる（重複索引を避ける）', () => {
     const origin = 'https://yuushi0911.xsrv.jp';
     for (const path of ['/settings', '/add', '/trash', '/print', '/sync', '/account/abc', '/unknown']) {
-      expect(canonicalUrlFor(origin, '/aegis/', path)).toBe('https://yuushi0911.xsrv.jp/aegis/');
+      expect(canonicalUrlFor(origin, '/zekey/', path)).toBe('https://yuushi0911.xsrv.jp/zekey/');
     }
   });
 });

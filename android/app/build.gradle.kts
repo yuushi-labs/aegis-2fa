@@ -17,8 +17,8 @@ plugins {
  * リポジトリのシークレットに ANDROID_KEYSTORE_BASE64 ほかが設定されていれば、
  * そちらを優先する（ワークフローがファイルへ展開してから渡す）。
  */
-val distributionKeystore = System.getenv("AEGIS_KEYSTORE_PATH")?.let { file(it) }
-    ?: rootProject.file("keystore/aegis-debug.keystore")
+val distributionKeystore = System.getenv("ZEKEY_KEYSTORE_PATH")?.let { file(it) }
+    ?: rootProject.file("keystore/zekey-debug.keystore")
 val signingPropertiesFile = rootProject.file("keystore/signing.properties")
 val signingProperties = Properties().apply {
     if (signingPropertiesFile.exists()) {
@@ -27,17 +27,17 @@ val signingProperties = Properties().apply {
 }
 
 android {
-    namespace = "com.yuushilabs.aegis"
+    namespace = "com.yuushilabs.zekey"
     compileSdk = 35
     buildToolsVersion = "34.0.0"
 
     defaultConfig {
-        applicationId = "com.yuushilabs.aegis"
+        applicationId = "com.yuushilabs.zekey"
         minSdk = 26
         targetSdk = 35
         // Web 版・PHP 版と同じバージョンに揃える。
-        versionCode = 4
-        versionName = "1.1.2"
+        versionCode = 5
+        versionName = "1.2.0"
         resourceConfigurations += listOf("ja", "en")
         vectorDrawables { useSupportLibrary = true }
     }
@@ -46,22 +46,22 @@ android {
         getByName("debug") {
             if (distributionKeystore.exists()) {
                 storeFile = distributionKeystore
-                storePassword = System.getenv("AEGIS_KEYSTORE_PASSWORD")
+                storePassword = System.getenv("ZEKEY_KEYSTORE_PASSWORD")
                     ?: signingProperties.getProperty("storePassword", "android")
-                keyAlias = System.getenv("AEGIS_KEY_ALIAS")
+                keyAlias = System.getenv("ZEKEY_KEY_ALIAS")
                     ?: signingProperties.getProperty("keyAlias", "androiddebugkey")
-                keyPassword = System.getenv("AEGIS_KEY_PASSWORD")
+                keyPassword = System.getenv("ZEKEY_KEY_PASSWORD")
                     ?: signingProperties.getProperty("keyPassword", "android")
             }
         }
         create("distribution") {
             if (distributionKeystore.exists()) {
                 storeFile = distributionKeystore
-                storePassword = System.getenv("AEGIS_KEYSTORE_PASSWORD")
+                storePassword = System.getenv("ZEKEY_KEYSTORE_PASSWORD")
                     ?: signingProperties.getProperty("storePassword", "android")
-                keyAlias = System.getenv("AEGIS_KEY_ALIAS")
+                keyAlias = System.getenv("ZEKEY_KEY_ALIAS")
                     ?: signingProperties.getProperty("keyAlias", "androiddebugkey")
-                keyPassword = System.getenv("AEGIS_KEY_PASSWORD")
+                keyPassword = System.getenv("ZEKEY_KEY_PASSWORD")
                     ?: signingProperties.getProperty("keyPassword", "android")
             }
         }

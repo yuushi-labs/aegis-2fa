@@ -2,7 +2,7 @@
  * 画面ごとの `document.title`。
  *
  * SPA は初期 HTML を 1 枚しか持たないため、そのままだと `/privacy` などを開いても
- * タイトルが「Aegis 2FA」のままになる（タブ・ブックマーク・検索結果で区別できない）。
+ * タイトルが「Zekey 2FA」のままになる（タブ・ブックマーク・検索結果で区別できない）。
  * ルートとボルトの状態からタイトルを決め、App が `document.title` へ反映する。
  *
  * 初期 HTML 側のタイトル（検索エンジンが見るもの）は index.html にある。
@@ -13,12 +13,12 @@ import type { Language } from './i18n';
 import type { VaultStatus } from './vaultStore';
 
 /** アプリ名（manifest と揃える）。 */
-export const APP_NAME = 'Aegis 2FA';
+export const APP_NAME = 'Zekey 2FA';
 
 /** ホームのタイトル（検索意図を含む長い方）。 */
 export const HOME_TITLE: Record<Language, string> = {
-  ja: 'Aegis 2FA — ゼロ知識E2EEの2段階認証アプリ',
-  en: 'Aegis 2FA — Zero-knowledge two-factor authenticator',
+  ja: 'Zekey 2FA — ゼロ知識E2EEの2段階認証アプリ',
+  en: 'Zekey 2FA — Zero-knowledge two-factor authenticator',
 };
 
 /** 画面名（タイトルの前半）。 */
@@ -46,7 +46,7 @@ function join(prefix: string, language: Language): string {
   return prefix === suffix ? prefix : `${prefix} | ${suffix}`;
 }
 
-/** `/aegis/` 形式の base を、前後のスラッシュ付きに正規化する（`/` はそのまま）。 */
+/** `/zekey/` 形式の base を、前後のスラッシュ付きに正規化する（`/` はそのまま）。 */
 function normalizeBase(basePath: string): string {
   const trimmed = basePath.replace(/^\/+|\/+$/g, '');
   return trimmed === '' ? '/' : `/${trimmed}/`;

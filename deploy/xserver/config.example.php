@@ -1,9 +1,9 @@
 <?php
 /**
- * 設定ファイルの例。公開ディレクトリの 1 つ上に aegis-config.php という名前で置くと読み込まれる。
- * 例: /home/<サーバーID>/<ドメイン>/aegis-config.php
+ * 設定ファイルの例。公開ディレクトリの 1 つ上に zekey-config.php という名前で置くと読み込まれる。
+ * 例: /home/<サーバーID>/<ドメイン>/zekey-config.php
  *
- * 置き場所を変えたい場合は .htaccess などで AEGIS_CONFIG に絶対パスを設定する。
+ * 置き場所を変えたい場合は .htaccess などで ZEKEY_CONFIG に絶対パスを設定する。
  * このファイルは配信物に含めない（deploy/xserver/config.example.php はアップロードしない）。
  */
 
@@ -11,7 +11,7 @@ declare(strict_types=1);
 
 return [
     // SQLite の DB。公開ディレクトリの外を指定する（最も安全）。
-    'db_path' => '/home/<サーバーID>/aegis-data/aegis.db',
+    'db_path' => '/home/<サーバーID>/zekey-data/zekey.db',
 
     // 保存できる暗号文の総量（バイト）。超過する書き込みは 507。
     'max_vault_bytes' => 268435456,

@@ -234,9 +234,9 @@ function test_put_body(array $envelope, int $baseRevision): string
 
 function test_site_root(): string
 {
-    $configured = getenv('AEGIS_TEST_SITE_ROOT');
+    $configured = getenv('ZEKEY_TEST_SITE_ROOT');
     if (is_string($configured) && $configured !== '') {
         return $configured;
     }
-    return dirname(__DIR__, 2) . '/build/aegis';
+    return dirname(__DIR__, 2) . '/build/zekey';
 }

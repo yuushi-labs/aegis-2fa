@@ -158,7 +158,7 @@ const H = vi.hoisted(() => {
 });
 
 vi.mock('../../src/lib/storage', () => ({
-  DB_NAME: 'aegis-test',
+  DB_NAME: 'zekey-test',
   DB_VERSION: 3,
   DEFAULT_PROFILE_ID: 'main',
   resetStorageCache: () => undefined,
@@ -1944,7 +1944,7 @@ describe('ボルトストア: パスキー / セキュリティキー', () => {
     expect(items.size).toBe(0);
     expect(await store.getState().unlockWithPasskey()).toEqual({ ok: true });
     // マスターパスワードは保存せず、DEK と封筒の指紋だけを預ける。
-    const stored = items.get('aegis.session.dek.v1') ?? '';
+    const stored = items.get('zekey.session.dek.v1') ?? '';
     expect(stored).not.toBe('');
     expect(stored).not.toContain(PASSWORD);
     expect(JSON.parse(stored)).toMatchObject({ v: 1 });

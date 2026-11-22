@@ -13,11 +13,11 @@ function fragmentParams(url: string): URLSearchParams {
 }
 
 describe('アプリでログイン: ディープリンク', () => {
-  it('aegis://login# から始まり、code / dek / name をフラグメントに置く', () => {
+  it('zekey://login# から始まり、code / dek / name をフラグメントに置く', () => {
     const url = buildAppLoginUrl({ token: TOKEN, dek: DEK, vaultName: 'メイン' });
     expect(url.startsWith(APP_LOGIN_URL_PREFIX)).toBe(true);
     const [head, hash] = url.split('#');
-    expect(head).toBe('aegis://login');
+    expect(head).toBe('zekey://login');
     expect(hash).not.toContain('?');
     const params = fragmentParams(url);
     expect([...params.keys()]).toEqual(['code', 'dek', 'name']);
@@ -50,7 +50,7 @@ describe('アプリでログイン: ディープリンク', () => {
     const url = buildAppLoginUrl({ token: TOKEN, dek: DEK, vaultName: 'My vault' });
     const hash = url.slice(url.indexOf('#') + 1);
     expect(hash).not.toMatch(/[\s#?]/);
-    expect(new URL(url).protocol).toBe('aegis:');
+    expect(new URL(url).protocol).toBe('zekey:');
     expect(new URL(url).hash).toContain('code=');
   });
 

@@ -5,7 +5,7 @@ export default defineConfig({
   out: './drizzle',
   dialect: 'sqlite',
   dbCredentials: {
-    url: process.env.DATABASE_PATH ?? './data/aegis.db',
+    url: process.env.DATABASE_PATH ?? './data/zekey.db',
   },
   strict: true,
   verbose: true,

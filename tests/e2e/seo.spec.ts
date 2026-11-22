@@ -23,7 +23,7 @@ test.describe('SEO メタデータ', () => {
 
     await expect(page).toHaveTitle(/2段階認証/);
     const title = await page.title();
-    expect(title).toContain('Aegis 2FA');
+    expect(title).toContain('Zekey 2FA');
     // 検索結果で切れにくい長さ（全角換算でおよそ 60 文字以内）。
     expect(title.length).toBeGreaterThan(10);
     expect(title.length).toBeLessThanOrEqual(70);
@@ -51,8 +51,8 @@ test.describe('SEO メタデータ', () => {
     await page.goto('/');
 
     expect(await meta(page, 'meta[property="og:type"]')).toBe('website');
-    expect(await meta(page, 'meta[property="og:site_name"]')).toBe('Aegis 2FA');
-    expect(await meta(page, 'meta[property="og:title"]')).toContain('Aegis 2FA');
+    expect(await meta(page, 'meta[property="og:site_name"]')).toBe('Zekey 2FA');
+    expect(await meta(page, 'meta[property="og:title"]')).toContain('Zekey 2FA');
     expect(await meta(page, 'meta[property="og:description"]')).toContain('秘密鍵');
     expect(await meta(page, 'meta[property="og:url"]')).toBe(`${SITE_ORIGIN}/`);
     expect(await meta(page, 'meta[property="og:locale"]')).toBe('ja_JP');
@@ -62,7 +62,7 @@ test.describe('SEO メタデータ', () => {
     expect(await meta(page, 'meta[property="og:image:alt"]')).toBeTruthy();
 
     expect(await meta(page, 'meta[name="twitter:card"]')).toBe('summary_large_image');
-    expect(await meta(page, 'meta[name="twitter:title"]')).toContain('Aegis 2FA');
+    expect(await meta(page, 'meta[name="twitter:title"]')).toContain('Zekey 2FA');
     expect(await meta(page, 'meta[name="twitter:image"]')).toBe(`${SITE_ORIGIN}/og-image.png`);
   });
 
@@ -77,7 +77,7 @@ test.describe('SEO メタデータ', () => {
     const data = JSON.parse(blocks[0] ?? '{}') as Record<string, unknown>;
     expect(data['@context']).toBe('https://schema.org');
     expect(data['@type']).toBe('SoftwareApplication');
-    expect(data.name).toBe('Aegis 2FA');
+    expect(data.name).toBe('Zekey 2FA');
     expect(data.applicationCategory).toBe('SecurityApplication');
     expect(String(data.operatingSystem)).toContain('Web');
     expect(String(data.operatingSystem)).toContain('Android');
@@ -110,27 +110,27 @@ test.describe('画面ごとのタイトルと canonical', () => {
   test('プライバシーポリシーと各画面でタイトルが切り替わる', async ({ page }) => {
     await page.goto('/privacy');
     await expect(page.getByTestId('privacy-page')).toBeVisible();
-    await expect(page).toHaveTitle(/^プライバシーポリシー \| Aegis 2FA/);
+    await expect(page).toHaveTitle(/^プライバシーポリシー \| Zekey 2FA/);
 
     await page.goto('/');
-    await expect(page).toHaveTitle(/^ボルトをつくる \| Aegis 2FA/);
+    await expect(page).toHaveTitle(/^ボルトをつくる \| Zekey 2FA/);
 
     await createVault(page, { sync: false });
-    await expect(page).toHaveTitle(/^Aegis 2FA — ゼロ知識E2EEの2段階認証アプリ$/);
+    await expect(page).toHaveTitle(/^Zekey 2FA — ゼロ知識E2EEの2段階認証アプリ$/);
 
     await page.getByRole('link', { name: '設定', exact: true }).click();
     await expect(page.getByRole('heading', { name: '設定' })).toBeVisible();
-    await expect(page).toHaveTitle(/^設定 \| Aegis 2FA/);
+    await expect(page).toHaveTitle(/^設定 \| Zekey 2FA/);
 
-    await page.getByRole('link', { name: 'Aegis' }).click();
-    await expect(page).toHaveTitle(/^Aegis 2FA — ゼロ知識E2EEの2段階認証アプリ$/);
+    await page.getByRole('link', { name: 'Zekey' }).click();
+    await expect(page).toHaveTitle(/^Zekey 2FA — ゼロ知識E2EEの2段階認証アプリ$/);
     await page.getByRole('link', { name: '追加', exact: true }).click();
-    await expect(page).toHaveTitle(/^アカウントを追加 \| Aegis 2FA/);
+    await expect(page).toHaveTitle(/^アカウントを追加 \| Zekey 2FA/);
 
     // 解錠前の画面は「いま何を求められているか」をタイトルにする。
     await page.goto('/settings');
     await expect(page.getByRole('heading', { name: 'ロック中' })).toBeVisible();
-    await expect(page).toHaveTitle(/^ロック中 \| Aegis 2FA/);
+    await expect(page).toHaveTitle(/^ロック中 \| Zekey 2FA/);
   });
 
   test('canonical は公開ページ自身を指し、ボルトの画面はホームに寄せる', async ({ page }) => {

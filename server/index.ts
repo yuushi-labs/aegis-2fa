@@ -1,7 +1,7 @@
 /**
  * エントリ。設定は process.env からのみ読む。
- * PORT / DATABASE_PATH / TRUST_PROXY / CORS_ORIGIN / AEGIS_HTTPS /
- * AEGIS_DISABLE_RATE_LIMIT（E2E 用。1 つの IP から大量に作るため）
+ * PORT / DATABASE_PATH / TRUST_PROXY / CORS_ORIGIN / ZEKEY_HTTPS /
+ * ZEKEY_DISABLE_RATE_LIMIT（E2E 用。1 つの IP から大量に作るため）
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -21,15 +21,15 @@ function readVersion(): string {
 }
 
 const port = Number.parseInt(process.env.PORT ?? '3000', 10);
-const databasePath = process.env.DATABASE_PATH ?? './data/aegis.db';
+const databasePath = process.env.DATABASE_PATH ?? './data/zekey.db';
 const trustProxy = process.env.TRUST_PROXY === 'true';
 const trustProxyHops = Number.parseInt(process.env.TRUST_PROXY_HOPS ?? '1', 10);
 const maxVaultBytes = Number.parseInt(process.env.MAX_VAULT_BYTES ?? String(256 * 1024 * 1024), 10);
 const corsOrigin = process.env.CORS_ORIGIN;
-const https = process.env.AEGIS_HTTPS === 'true';
+const https = process.env.ZEKEY_HTTPS === 'true';
 // E2E は同じ IP（127.0.0.1）から短時間に多くのボルトを作る・更新するため、
 // レート制限に当たると無関係なテストが落ちる。制限そのものは integration で検証する。
-const disableRateLimit = process.env.AEGIS_DISABLE_RATE_LIMIT === 'true';
+const disableRateLimit = process.env.ZEKEY_DISABLE_RATE_LIMIT === 'true';
 
 const database = createDatabase(databasePath);
 runMigrations(database);
@@ -51,7 +51,7 @@ const app = createApp({
 });
 
 const server = serve({ fetch: app.fetch, port }, (info) => {
-  console.log(`Aegis 2FA listening on http://localhost:${info.port}`);
+  console.log(`Zekey 2FA listening on http://localhost:${info.port}`);
   console.log(`DATABASE_PATH=${database.path}`);
 });
 

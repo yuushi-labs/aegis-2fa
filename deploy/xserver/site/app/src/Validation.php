@@ -12,7 +12,7 @@
 
 declare(strict_types=1);
 
-namespace Aegis;
+namespace Zekey;
 
 use stdClass;
 

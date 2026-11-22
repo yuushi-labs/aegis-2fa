@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
 import { sql } from 'drizzle-orm';
-import type { AegisDatabase } from '../db/client';
+import type { ZekeyDatabase } from '../db/client';
 
 export type HealthOptions = {
-  db: AegisDatabase;
+  db: ZekeyDatabase;
   version: string;
 };
 

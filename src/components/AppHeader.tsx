@@ -30,7 +30,7 @@ export function AppHeader({ onLock }: { onLock: () => void }) {
           <span style={{ color: 'var(--accent)' }}>
             <ShieldMark />
           </span>
-          <span className="font-serif text-[1.02rem] tracking-tight">Aegis</span>
+          <span className="font-serif text-[1.02rem] tracking-tight">Zekey</span>
         </NavLink>
         {/* 同期状態はスマホ幅では短く刈り込む（ヘッダーからはみ出さないように）。 */}
         {syncState === 'conflict' && (

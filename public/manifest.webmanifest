@@ -1,6 +1,6 @@
 {
-  "name": "Aegis 2FA",
-  "short_name": "Aegis",
+  "name": "Zekey 2FA",
+  "short_name": "Zekey",
   "description": "ゼロ知識 E2EE 同期対応の TOTP / HOTP 認証アプリ",
   "start_url": "./",
   "scope": "./",

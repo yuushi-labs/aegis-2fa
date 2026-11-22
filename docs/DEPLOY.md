@@ -1,6 +1,6 @@
 # デプロイ
 
-Aegis 2FA は **静的 SPA + 単一 Node プロセス + SQLite ファイル** で動きます。
+Zekey 2FA は **静的 SPA + 単一 Node プロセス + SQLite ファイル** で動きます。
 外部サービス（DB、Redis、CDN）への依存はありません。
 
 ## 環境変数
@@ -8,18 +8,22 @@ Aegis 2FA は **静的 SPA + 単一 Node プロセス + SQLite ファイル** �
 | 変数 | 既定値 | 説明 |
 | --- | --- | --- |
 | `PORT` | `3000` | 待ち受けポート |
-| `DATABASE_PATH` | `./data/aegis.db` | SQLite ファイル。親ディレクトリは自動作成 |
+| `DATABASE_PATH` | `./data/zekey.db` | SQLite ファイル。親ディレクトリは自動作成 |
 | `TRUST_PROXY` | `false` | `true` で `X-Forwarded-For` を信頼（リバースプロキシ配下で必須）。**`PORT` への直接接続をファイアウォール等で遮断すること**（直接届くとヘッダを偽装できる）。前段は `X-Forwarded-For` を上書きし、`X-Real-IP` は読みません |
 | `TRUST_PROXY_HOPS` | `1` | 信頼するプロキシの段数。`X-Forwarded-For` を**右端から**数えた位置をクライアント IP とみなす（CDN + LB のように 2 段なら `2`） |
 | | | 多段の場合、最初のプロキシがクライアントの `X-Forwarded-For` を置き換え、後続のプロキシが接続元 IP を履歴へ追加する構成にすること（全利用者が同じキーにまとまって制限を共有しないため） |
 | `MAX_VAULT_BYTES` | `268435456`（256 MiB） | 保存できる暗号文の総量。超過する書き込みは `507`（`/data` の枯渇防止） |
-| `AEGIS_HTTPS` | `false` | `true` で HSTS を付与（TLS 終端が前段にある場合に有効化） |
+| `ZEKEY_HTTPS` | `false` | `true` で HSTS を付与（TLS 終端が前段にある場合に有効化） |
 | `CORS_ORIGIN` | 未設定 | 別オリジンから API を使う場合のみ。通常は未設定のまま |
 
 秘密情報の環境変数はありません。サーバーは復号鍵を一切持たないためです。
 
+> 旧名（Aegis 2FA）の Node 版を動かしていた場合、DB の既定名は `./data/aegis.db` でした。
+> 既存の DB をそのまま使うには `DATABASE_PATH=/data/aegis.db` のように明示してください
+> （Docker の永続ボリューム内のファイルも同様）。何も指定しなければ新しい `zekey.db` が作られます。
+
 PHP 版（Xserver など共用サーバー）は環境変数の代わりに公開ディレクトリ外の
-`aegis-config.php` で同じ項目を設定します（[deploy/xserver/README.md](../deploy/xserver/README.md)）。
+`zekey-config.php` で同じ項目を設定します（[deploy/xserver/README.md](../deploy/xserver/README.md)）。
 
 ## Docker Compose（最短）
 
@@ -33,7 +37,7 @@ curl -fsS http://localhost:3000/api/health
 - 非 root ユーザー（uid 1001）で実行
 - `read_only: true` + `/tmp` のみ tmpfs
 - `no-new-privileges`
-- 名前付きボリューム `aegis-data` を `/data` にマウント
+- 名前付きボリューム `zekey-data` を `/data` にマウント
 - ヘルスチェック（30 秒間隔）
 
 ボリュームは `docker compose down` では消えません。完全削除は `docker compose down -v`。
@@ -42,12 +46,12 @@ curl -fsS http://localhost:3000/api/health
 
 ```bash
 fly launch --no-deploy
-fly volumes create aegis_data --size 1 --region nrt
-fly secrets set AEGIS_HTTPS=true TRUST_PROXY=true TRUST_PROXY_HOPS=2
+fly volumes create zekey_data --size 1 --region nrt
+fly secrets set ZEKEY_HTTPS=true TRUST_PROXY=true TRUST_PROXY_HOPS=2
 fly deploy
 ```
 
-`fly.toml` の `[mounts]` で `/data` にボリュームを割り当て、`DATABASE_PATH=/data/aegis.db` を
+`fly.toml` の `[mounts]` で `/data` にボリュームを割り当て、`DATABASE_PATH=/data/zekey.db` を
 設定してください。`internal_port = 3000`、ヘルスチェックは `GET /api/health`。
 
 `TRUST_PROXY_HOPS` は「アプリの手前にあるプロキシの段数」です。Fly Proxy だけが前段なら `2`
@@ -62,7 +66,7 @@ CDN を併用する場合は、**CDN 以外から Fly アプリへ直接届く�
 
 1. New → Web Service → このリポジトリを接続（Dockerfile を自動検出）
 2. Disk を追加: mount path `/data`、1 GB
-3. 環境変数: `DATABASE_PATH=/data/aegis.db`, `AEGIS_HTTPS=true`, `TRUST_PROXY=true`
+3. 環境変数: `DATABASE_PATH=/data/zekey.db`, `ZEKEY_HTTPS=true`, `TRUST_PROXY=true`
 4. Health Check Path: `/api/health`
 
 Render の無料プランはディスクを持てないため、永続化には Starter 以上が必要です。
@@ -70,7 +74,7 @@ Render の無料プランはディスクを持てないため、永続化には 
 ## VPS + Caddy
 
 ```caddyfile
-aegis.example.com {
+zekey.example.com {
     encode zstd gzip
     reverse_proxy 127.0.0.1:3000 {
         header_up X-Forwarded-For {remote_host}
@@ -80,37 +84,37 @@ aegis.example.com {
 
 ```bash
 # systemd
-sudo tee /etc/systemd/system/aegis.service >/dev/null <<'EOF'
+sudo tee /etc/systemd/system/zekey.service >/dev/null <<'EOF'
 [Unit]
-Description=Aegis 2FA
+Description=Zekey 2FA
 After=network.target
 
 [Service]
 Type=simple
-User=aegis
-# /var/lib/aegis を systemd に作らせる（ReadWritePaths はディレクトリを作らない）。
-StateDirectory=aegis
+User=zekey
+# /var/lib/zekey を systemd に作らせる（ReadWritePaths はディレクトリを作らない）。
+StateDirectory=zekey
 StateDirectoryMode=0700
-WorkingDirectory=/opt/aegis
+WorkingDirectory=/opt/zekey
 Environment=PORT=3000
-Environment=DATABASE_PATH=/var/lib/aegis/aegis.db
+Environment=DATABASE_PATH=/var/lib/zekey/zekey.db
 Environment=TRUST_PROXY=true
-Environment=AEGIS_HTTPS=true
+Environment=ZEKEY_HTTPS=true
 ExecStart=/usr/bin/node dist-server/index.js
 Restart=on-failure
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=/var/lib/aegis
+ReadWritePaths=/var/lib/zekey
 
 [Install]
 WantedBy=multi-user.target
 EOF
-sudo systemctl enable --now aegis
+sudo systemctl enable --now zekey
 ```
 
 Caddy が TLS を終端するので、アプリ側は HTTP のままで構いません。
-`AEGIS_HTTPS=true` を設定すると HSTS ヘッダが付きます。
+`ZEKEY_HTTPS=true` を設定すると HSTS ヘッダが付きます。
 
 ## Xserver（共用サーバー・PHP 8.3 + SQLite）
 
@@ -118,33 +122,33 @@ Node を使えない共用レンタルサーバー向けに、同じ API を PHP
 Composer も Node も不要で、ビルドしたファイルをアップロードするだけで動きます。
 
 ```bash
-pnpm build:xserver                  # deploy/xserver/build/aegis/ を生成（既定 base=/aegis/）
+pnpm build:xserver                  # deploy/xserver/build/zekey/ を生成（既定 base=/zekey/）
 pnpm build:xserver -- --base=/      # ドメイン直下に置く場合
 pnpm test:xserver                   # php -S 上で API 互換テスト
 ```
 
-- 出力された `deploy/xserver/build/aegis/` の中身を `public_html/aegis/` へアップロード
+- 出力された `deploy/xserver/build/zekey/` の中身を `public_html/zekey/` へアップロード
 - `.htaccess` が `/api/*` を PHP へ、それ以外を `index.html`（SPA）へ流す
-- DB は公開ディレクトリの外（`aegis-config.php` の `db_path`）を推奨。未設定なら
-  `DOCUMENT_ROOT` の親の `aegis-data/` に自動で作り、書けなければ `storage/`（403 保護）へ
+- DB は公開ディレクトリの外（`zekey-config.php` の `db_path`）を推奨。未設定なら
+  `DOCUMENT_ROOT` の親の `zekey-data/` に自動で作り、書けなければ `storage/`（403 保護）へ
 - スキーマは Node 版と同一なので、Node 版が作った DB をそのまま使える
 - レート制限・保存上限・body 上限・`409 corrupt_vault`・セキュリティヘッダも Node 版と同じ
 
 ### 検索エンジン向け（SEO）
 
 ビルド時に `scripts/seo.ts` が `robots.txt` と `sitemap.xml` を出力の直下へ書き出します。
-`base`（`/aegis/` など）と公開オリジンから絶対 URL を組み立てるので、手で編集する必要はありません。
+`base`（`/zekey/` など）と公開オリジンから絶対 URL を組み立てるので、手で編集する必要はありません。
 
 - `robots.txt`: 全体を許可し、`Disallow: <base>api/` で API だけを除外 + `Sitemap:` の絶対 URL
 - `sitemap.xml`: ホームと `/privacy` の 2 ページ
-- **`robots.txt` はオリジン直下でしか読まれない**（RFC 9309）。`/aegis/` に置いた
+- **`robots.txt` はオリジン直下でしか読まれない**（RFC 9309）。`/zekey/` に置いた
   `robots.txt` は、同じ内容をドメイン直下の `public_html/robots.txt` にも置いて初めて
   クローラに届く。直下に WordPress などの `robots.txt` がある場合は上書きせず、生成された
   `robots.txt` の `Disallow:` 行（`base` に合わせて自動で入る）を**各 User-agent グループに**
   追記する（末尾にまとめて追記すると直前のグループにしか効かない）。`Sitemap:` 行は
   グループに属しないので 1 行あればよい（サイトマップは Search Console から直接送信してもよい）。
   既存ルールに `Disallow: /` があるとホームと `/privacy` もクロールされないため、その場合は
-  アプリの公開ページだけを許可する（`/aegis/` 配置は `Allow: /aegis/`、ルート配置は `Allow: /$` と
+  アプリの公開ページだけを許可する（`/zekey/` 配置は `Allow: /zekey/`、ルート配置は `Allow: /$` と
   `Allow: /privacy$`。`Allow: /` は全体を許可してしまう）。より限定的な既存ルール（限定的なものが優先）も確認する
 - `index.html`: title / description / canonical / OGP / Twitter Card / JSON-LD（`SoftwareApplication`）
   をビルド時に絶対 URL へ解決（`%…%` ではなく `__HOME_URL__` などのプレースホルダ）
@@ -161,15 +165,15 @@ pnpm test:xserver                   # php -S 上で API 互換テスト
 2 層で考えてください。
 
 1. **暗号化バックアップ（推奨）**: アプリの「設定 → エクスポート → 暗号化バックアップ」で
-   `.aegis` ファイルを保存。中身は暗号文なので、クラウドストレージに置いても安全です。
+   `.zekey` ファイルを保存。中身は暗号文なので、クラウドストレージに置いても安全です。
    復元にはマスターパスワードが必要です。
 2. **DB ファイルのスナップショット**: SQLite は WAL を使わない設定なので、
    サービス停止中のコピーで整合します。
 
 ```bash
-sudo systemctl stop aegis
-sudo cp /var/lib/aegis/aegis.db /var/backups/aegis-$(date +%F).db
-sudo systemctl start aegis
+sudo systemctl stop zekey
+sudo cp /var/lib/zekey/zekey.db /var/backups/zekey-$(date +%F).db
+sudo systemctl start zekey
 ```
 
 DB には暗号文しかありませんが、同期トークンのハッシュが含まれるため、
@@ -181,7 +185,7 @@ DB には暗号文しかありませんが、同期トークンのハッシュ�
 git pull
 pnpm install --frozen-lockfile
 pnpm build
-sudo systemctl restart aegis
+sudo systemctl restart zekey
 ```
 
 DB マイグレーションは起動時に自動適用されます（`drizzle/` を `dist-server/` に同梱）。

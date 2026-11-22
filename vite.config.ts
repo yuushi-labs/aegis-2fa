@@ -41,7 +41,7 @@ function seoHead(): Plugin {
   let command: 'build' | 'serve' = 'build';
   let outDir = resolve('dist');
   return {
-    name: 'aegis-seo-head',
+    name: 'zekey-seo-head',
     configResolved(config) {
       base = normalizeBasePath(config.base);
       command = config.command;
@@ -81,7 +81,7 @@ function serviceWorkerPrecache(): Plugin {
   let outDir = resolve('dist');
   let base = '/';
   return {
-    name: 'aegis-sw-precache',
+    name: 'zekey-sw-precache',
     apply: 'build',
     configResolved(config) {
       outDir = resolve(config.root, config.build.outDir);
@@ -113,8 +113,8 @@ function serviceWorkerPrecache(): Plugin {
 }
 
 export default defineConfig({
-  // 配信先の基準パス。Xserver のサブディレクトリ配信（https://example.com/aegis/ など）では
-  // VITE_BASE_PATH=/aegis/ を指定する（scripts/build-xserver.mjs が設定する）。
+  // 配信先の基準パス。Xserver のサブディレクトリ配信（https://example.com/zekey/ など）では
+  // VITE_BASE_PATH=/zekey/ を指定する（scripts/build-xserver.mjs が設定する）。
   // 既定は '/' なので、Node 版・Docker・E2E の挙動は変わらない。
   base: normalizeBasePath(process.env.VITE_BASE_PATH),
   plugins: [react(), tailwindcss(), serviceWorkerPrecache(), seoHead()],

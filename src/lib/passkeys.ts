@@ -16,9 +16,14 @@ import { base64ToBytes, bytesToBase64 } from '../../shared/encoding';
 
 const TIMEOUT_MS = 60_000;
 const CHALLENGE_LENGTH = 32;
-const RP_NAME = 'Aegis 2FA';
-/** 認証器に保存する利用者名（表示用の表示名は別に渡す）。 */
-const USER_NAME = 'aegis-vault';
+const RP_NAME = 'Zekey 2FA';
+/**
+ * 認証器に保存する利用者名（表示用の表示名は別に渡す）。
+ *
+ * 認証器の一覧に表示されるだけの値で、鍵の導出には使わない。すでに登録済みの
+ * パスキーは旧名（`aegis-vault`）のまま認証器に残るが、そのまま使える。
+ */
+const USER_NAME = 'zekey-vault';
 
 /** 登録に使う既存レコードの最小情報。 */
 export type PasskeyCandidate = {

@@ -7,7 +7,7 @@ import { AppLoginSyncError, VaultLockedError, useVaultStore } from '../lib/vault
  * 「📱 アプリでログイン」ボタン。
  *
  * 押すと、同期コードが未発行なら自動で発行して初回同期し、そのあと
- * `aegis://login#...` を開いて Android アプリへボルト（同期コードと DEK）を渡す。
+ * `zekey://login#...` を開いて Android アプリへボルト（同期コードと DEK）を渡す。
  * 鍵は URL のフラグメントに置くので、サーバーやログには残らない。
  */
 export function AppLoginButton() {

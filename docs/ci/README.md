@@ -32,4 +32,4 @@ git commit -m "ci: Android と Release のワークフローを有効化" && git
 
 権限が無いあいだも、Release はローカルでビルドした同じ成果物を `gh release create` で
 公開できます（APK は `android/app/build/outputs/apk/release/app-release.apk`、
-ZIP は `pnpm build:xserver` の `deploy/xserver/build/aegis/`）。
+ZIP は `pnpm build:xserver` の `deploy/xserver/build/zekey/`）。

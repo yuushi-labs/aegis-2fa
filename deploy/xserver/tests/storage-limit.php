@@ -10,12 +10,12 @@ declare(strict_types=1);
 
 require __DIR__ . '/lib.php';
 
-$baseUrl = rtrim((string) (getenv('AEGIS_TEST_BASE_URL') ?: 'http://127.0.0.1:8914'), '/');
-$basePath = (string) (getenv('AEGIS_TEST_BASE') ?: '');
+$baseUrl = rtrim((string) (getenv('ZEKEY_TEST_BASE_URL') ?: 'http://127.0.0.1:8914'), '/');
+$basePath = (string) (getenv('ZEKEY_TEST_BASE') ?: '');
 if ($basePath === '/') {
     $basePath = '';
 }
-$limit = (int) (getenv('AEGIS_TEST_MAX_VAULT_BYTES') ?: 8192);
+$limit = (int) (getenv('ZEKEY_TEST_MAX_VAULT_BYTES') ?: 8192);
 
 $client = new TestClient($baseUrl, $basePath);
 $client->section('保存量の上限（' . $limit . ' bytes）');

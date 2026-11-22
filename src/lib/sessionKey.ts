@@ -18,7 +18,7 @@ import { base64ToBytes, bytesToBase64 } from '../../shared/encoding';
 import { DEFAULT_PROFILE_ID } from '../../shared/types';
 import type { VaultEnvelope } from '../../shared/types';
 
-export const SESSION_DEK_KEY = 'aegis.session.dek.v1';
+export const SESSION_DEK_KEY = 'zekey.session.dek.v1';
 
 /** DEK の長さ（AES-256）。 */
 const DEK_BYTES = 32;

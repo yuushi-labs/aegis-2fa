@@ -12,7 +12,7 @@
 import { bytesToBase64 } from '../../shared/encoding';
 import type { SyncDevice } from '../../shared/types';
 
-export const DEVICE_STORAGE_KEY = 'aegis.device.v1';
+export const DEVICE_STORAGE_KEY = 'zekey.device.v1';
 
 export type DeviceIdentity = {
   id: string;

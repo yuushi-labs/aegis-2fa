@@ -21,9 +21,17 @@ type CryptoKeyLike = Awaited<ReturnType<typeof globalThis.crypto.subtle.importKe
 
 /** PRF の eval に渡す salt の長さ（バイト）。 */
 export const PRF_SALT_LENGTH = 32;
-/** HKDF の info。用途の分離に使う。 */
+/**
+ * HKDF の info。用途の分離に使う。
+ *
+ * 登録済みパスキーの `wrappedDek` はこの info で導出した KEK で作られているため、
+ * 値を変えると既存のパスキーでボルトを開けなくなる（旧名のまま固定）。
+ */
 export const PASSKEY_HKDF_INFO = 'aegis-passkey-kek-v1';
-/** DEK のラップに使う AAD。パスワード側（aegis-vault-v1）と取り違えない。 */
+/**
+ * DEK のラップに使う AAD。パスワード側（aegis-vault-v1）と取り違えない。
+ * 同じく既存の `wrappedDek` と対応するので変更禁止。
+ */
 const PASSKEY_WRAP_AAD = utf8ToBytes('aegis-passkey-v1');
 /** PRF 出力として要求する最低長（HKDF の入力）。 */
 const MIN_PRF_OUTPUT_LENGTH = 32;
@@ -119,6 +127,7 @@ export async function unwrapDekForPasskey(wrapped: VaultCipher, kek: CryptoKeyLi
  * verifier はすでに封筒に入っている値なので、ここから作っても新しい情報は漏れない。
  */
 export async function passkeyUserId(verifier: string): Promise<Uint8Array> {
+  // 認証器に保存済みの user.id と揃えるため、接頭辞は旧名のまま固定する。
   const digest = await globalThis.crypto.subtle.digest(
     'SHA-256',
     toArrayBuffer(utf8ToBytes(`aegis-passkey-user-v1:${verifier}`)),

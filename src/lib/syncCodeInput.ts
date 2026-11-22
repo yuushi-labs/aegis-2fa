@@ -4,7 +4,7 @@
  * 入力欄には次のどれが来てもよい。
  * - 同期コードそのもの（4 文字区切りの空白入りも可）
  * - 同期 URL（`/sync?code=…`、`?sync=…`、`#sync=…`、`/sync/<token>`）
- * - アプリのディープリンク（`aegis://sync?code=…` など）
+ * - アプリのディープリンク（`zekey://sync?code=…` など）
  *
  * QR やクリップボードから来た文字列から、同期コード（トークン）だけを取り出す。
  */
@@ -42,7 +42,7 @@ export function extractSyncCodeFromUrl(input: string): string | null {
   let url: URL;
   try {
     // 相対パス（/sync?code=…）も受け取れるよう、ダミーの基底で解決する。
-    url = new URL(text, 'https://aegis.invalid');
+    url = new URL(text, 'https://zekey.invalid');
   } catch {
     return null;
   }

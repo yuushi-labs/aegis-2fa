@@ -1,18 +1,18 @@
 services:
-  aegis:
+  zekey:
     build: .
-    image: aegis-2fa:local
-    container_name: aegis-2fa
+    image: zekey-2fa:local
+    container_name: zekey-2fa
     ports:
       - "3000:3000"
     environment:
       PORT: "3000"
-      DATABASE_PATH: /data/aegis.db
+      DATABASE_PATH: /data/zekey.db
       # TLS 終端のリバースプロキシ配下で動かす場合:
       # TRUST_PROXY: "true"
-      # AEGIS_HTTPS: "true"
+      # ZEKEY_HTTPS: "true"
     volumes:
-      - aegis-data:/data
+      - zekey-data:/data
     restart: unless-stopped
     read_only: true
     tmpfs:
@@ -21,4 +21,4 @@ services:
       - no-new-privileges:true
 
 volumes:
-  aegis-data:
+  zekey-data:
