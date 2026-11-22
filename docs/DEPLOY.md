@@ -63,7 +63,8 @@ docker run --rm \
 
 # 3. 旧 DB のファイル名を新名称に揃える（旧環境を使っていて aegis.db の場合だけ）
 #    ここで揃えないと、起動時に空の zekey.db が作られて旧データが見えない。
-docker run --rm -v <新ボリューム名>:/to alpine sh -c 'if [ -f /to/aegis.db ] && [ ! -f /to/zekey.db ]; then mv /to/aegis.db /to/zekey.db; fi'
+#    WAL の続き（aegis.db-wal / aegis.db-shm）がある場合は、名前が揃っていないと復元されない。
+docker run --rm -v <新ボリューム名>:/to alpine sh -c 'cd /to && for s in "" "-wal" "-shm"; do if [ -f "aegis.db$s" ] && [ ! -f "zekey.db$s" ]; then mv "aegis.db$s" "zekey.db$s"; fi; done'
 
 # 4. 起動
 docker compose up --build -d
@@ -74,8 +75,10 @@ docker compose up --build -d
 してから、どちらを使うかを決めてください。
 
 `DATABASE_PATH`（`docker-compose.yml` の既定は `/data/zekey.db`）を変えて旧名のまま使う場合は、
-上の 3 を省く代わりに、**起動前に**環境変数を `/data/aegis.db` に合わせてください
-（先に起動すると空の DB ができて、後から設定を変えても中身が入りません）。
+上の 3 を省く代わりに、**起動前に** `docker-compose.yml` の `environment.DATABASE_PATH` を
+`/data/aegis.db` に変える（または override ファイルで同じ値を指定する）してください。
+シェルで `export DATABASE_PATH=...` しても、Compose の `environment` の固定値が優先されます。
+先に起動すると空の DB ができ、後から設定を変えても中身は入りません。
 旧環境を使っていない（新規インストール）場合は 1〜3 は不要です。
 
 ## Fly.io

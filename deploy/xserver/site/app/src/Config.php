@@ -293,9 +293,7 @@ final class Config
      */
     private static function resolveWithLegacyDatabase(string $dir, string $target, string $legacy): string
     {
-        // 実際に書けるかも確かめる（ロックや印を置けないまま移行すると、後から来た要求が
-        // 新しい DB を使って、処理中の要求の書き込みが旧 DB にだけ残る）。
-        if (!self::ensureWritableDir($dir) || !self::canWriteIn($dir)) {
+        if (!self::ensureWritableDir($dir)) {
             // ロックも印も置けない環境では、移行しないまま旧 DB を使う（判断がぶれる余地を作らない）。
             error_log(
                 '[zekey] 警告: ' . $dir . ' に書けないため、旧 DB（' . $legacy . '）を使います'
@@ -319,6 +317,16 @@ final class Config
                 return $target;
             }
             if (is_file($dir . '/' . self::FALLBACK_MARKER_FILE)) {
+                return $legacy;
+            }
+            // 実際に書けるかも確かめる（ロックや印を置けないまま移行すると、後から来た要求が
+            // 新しい DB を使って、処理中の要求の書き込みが旧 DB にだけ残る）。
+            // ここまで来た要求だけが試すので、印がある間は探査ファイルを作らない。
+            if (!self::canWriteIn($dir)) {
+                error_log(
+                    '[zekey] 警告: ' . $dir . ' に書けないため、旧 DB（' . $legacy . '）を使います'
+                    . '（データは変更していません）。',
+                );
                 return $legacy;
             }
             if (self::migrateLegacyDatabase($legacy, $target)) {
