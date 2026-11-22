@@ -56,9 +56,12 @@ public_html/aegis/
 クローラが読むのは `https://<ドメイン>/robots.txt` だけです（RFC 9309 §2.3）。
 `public_html/aegis/robots.txt` はそのままでは効かないので、次のどちらかを行います。
 
-1. ビルドした `robots.txt` を `public_html/robots.txt` にも置く（アプリをドメイン直下に置く場合は不要）
-2. ドメイン直下に既存の `robots.txt`（WordPress など）がある場合は、上書きせずに
-   `Disallow: /aegis/api/` と `Sitemap: https://<ドメイン>/aegis/sitemap.xml` の 2 行を追記する
+1. ビルドした `robots.txt` を `public_html/robots.txt` にもそのまま置く（アプリをドメイン直下に置く場合は不要）
+2. ドメイン直下に既存の `robots.txt`（WordPress など）がある場合は上書きせず、生成された
+   `robots.txt` の `Disallow:` 行（例: `Disallow: /aegis/api/`。`base` に合わせて自動で入る）を
+   **各 User-agent グループに** 追加する。末尾にまとめて追記すると直前のグループにしか
+   効かないため、新しい `User-agent: *` グループを作ってそこに書いてもよい。
+   `Sitemap:` 行はグループに属しないので、生成された行を 1 行入れれば十分。
 
 `sitemap.xml` は Search Console から直接送信してもかまいません。
 
