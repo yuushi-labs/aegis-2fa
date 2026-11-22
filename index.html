@@ -3,24 +3,113 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Aegis 2FA — ゼロ知識E2EEの2段階認証アプリ｜TOTP/HOTP・パスキー対応</title>
     <meta
       name="description"
-      content="Aegis 2FA — ゼロ知識 E2EE 同期対応の TOTP / HOTP 認証アプリ。秘密鍵はブラウザから出ません。"
+      content="Aegis 2FA は、秘密鍵がブラウザの外へ出ないゼロ知識E2EE方式の無料2段階認証（2FA）アプリです。TOTP/HOTP コードの発行、パスキー・セキュリティキーでの解除、Google Authenticator からの移行、Android アプリとの暗号化同期に対応します。"
     />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="__HOME_URL__" />
+
+    <!-- OGP（SNS で共有されたときのカード） -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Aegis 2FA" />
+    <meta property="og:title" content="Aegis 2FA — ゼロ知識E2EEの2段階認証アプリ" />
+    <meta
+      property="og:description"
+      content="秘密鍵はブラウザから出ません。TOTP/HOTP コードの発行、パスキーでの解除、Google Authenticator からの移行、Android アプリとの暗号化同期に対応した無料の2段階認証アプリです。"
+    />
+    <meta property="og:url" content="__HOME_URL__" />
+    <meta property="og:locale" content="ja_JP" />
+    <meta property="og:locale:alternate" content="en_US" />
+    <meta property="og:image" content="__OG_IMAGE_URL__" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Aegis 2FA — ゼロ知識E2EEの2段階認証アプリ。秘密鍵は、ブラウザから出ません。"
+    />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Aegis 2FA — ゼロ知識E2EEの2段階認証アプリ" />
+    <meta
+      name="twitter:description"
+      content="秘密鍵はブラウザから出ません。TOTP/HOTP・パスキー対応、Google Authenticator からの移行、Android との暗号化同期。無料の2段階認証アプリです。"
+    />
+    <meta name="twitter:image" content="__OG_IMAGE_URL__" />
+    <meta
+      name="twitter:image:alt"
+      content="Aegis 2FA — ゼロ知識E2EEの2段階認証アプリ。秘密鍵は、ブラウザから出ません。"
+    />
+
+    <!-- 構造化データ（検索結果でのアプリ情報） -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Aegis 2FA",
+        "alternateName": "Aegis 2FA — ゼロ知識E2EEの2段階認証アプリ",
+        "applicationCategory": "SecurityApplication",
+        "applicationSubCategory": "二段階認証（2FA）・TOTP/HOTP 認証アプリ",
+        "operatingSystem": "Web, Android",
+        "url": "__HOME_URL__",
+        "description": "秘密鍵がブラウザの外へ出ないゼロ知識E2EE方式の無料2段階認証（2FA）アプリ。TOTP/HOTP コードの発行、パスキー・セキュリティキーでの解除、Google Authenticator からの移行、Android アプリとの暗号化同期に対応します。",
+        "image": "__OG_IMAGE_URL__",
+        "inLanguage": "ja",
+        "isAccessibleForFree": true,
+        "softwareVersion": "__APP_VERSION__",
+        "license": "https://opensource.org/license/mit",
+        "downloadUrl": "https://github.com/yuushi-labs/aegis-2fa/releases",
+        "privacyPolicy": "__PRIVACY_URL__",
+        "featureList": [
+          "ゼロ知識E2EE（PBKDF2-HMAC-SHA-256 ＋ AES-256-GCM）で秘密鍵を端末の外へ出さない",
+          "TOTP / HOTP の6桁・8桁コード発行と残り時間表示",
+          "パスキー・セキュリティキー（WebAuthn PRF）での解錠",
+          "Google Authenticator の移行 QR（otpauth-migration://）取り込み",
+          "Android アプリとの暗号化同期・複数端末・複数ボルト",
+          "30日ゴミ箱・暗号化バックアップ・緊急バックアップ印刷シート"
+        ],
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "JPY"
+        }
+      }
+    </script>
+
     <meta name="theme-color" content="#faf7f0" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#16181a" media="(prefers-color-scheme: dark)" />
     <meta name="color-scheme" content="light dark" />
     <meta name="referrer" content="no-referrer" />
-    <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
-    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <link rel="manifest" href="__BASE_PATH__manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="__BASE_PATH__icon.svg" />
+    <link rel="apple-touch-icon" href="__BASE_PATH__icons/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Aegis" />
-    <title>Aegis 2FA</title>
   </head>
   <body>
     <div id="root"></div>
-    <noscript>Aegis 2FA の利用には JavaScript が必要です。</noscript>
+    <noscript>
+      <div style="max-width: 40rem; margin: 3rem auto; padding: 0 1.5rem; font-family: system-ui, sans-serif; line-height: 1.8; color: #22262a;">
+        <h1 style="font-size: 1.5rem;">Aegis 2FA — ゼロ知識E2EEの2段階認証アプリ</h1>
+        <p>
+          この画面を操作するには JavaScript が必要です。Aegis 2FA は、TOTP / HOTP の認証コードを発行する無料の2段階認証（2FA）アプリで、
+          秘密鍵はブラウザの中だけで復号され、サーバーには暗号文しか置かれません（ゼロ知識 E2EE）。
+        </p>
+        <h2 style="font-size: 1.1rem;">主な特徴</h2>
+        <ul>
+          <li>ゼロ知識 E2EE: PBKDF2-HMAC-SHA-256（60万回）＋ AES-256-GCM。マスターパスワードと秘密鍵は端末の外へ出ません。</li>
+          <li>TOTP / HOTP 対応: 6桁・8桁のコード発行と残り時間の表示。</li>
+          <li>パスキー・セキュリティキー（WebAuthn PRF）での解錠。指紋・顔・PIN で開けられます。</li>
+          <li>Google Authenticator からの移行（otpauth-migration:// の QR 読み取り）。</li>
+          <li>Android アプリとの暗号化同期、複数端末・複数ボルト、30日ゴミ箱、暗号化バックアップ。</li>
+          <li>プライバシー保護: 解析タグ・広告・外部送信はなく、Referrer も送りません。<a href="__PRIVACY_URL__">プライバシーポリシー</a></li>
+        </ul>
+        <p>JavaScript を有効にすると、このままボルトを作成して使い始められます。</p>
+      </div>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

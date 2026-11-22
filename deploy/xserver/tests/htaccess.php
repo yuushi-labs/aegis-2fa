@@ -78,6 +78,45 @@ $client->check(
 $client->check('HSTS がある', str_contains($htaccess, 'Strict-Transport-Security'));
 $client->check('X-Powered-By を消している', str_contains($htaccess, 'Header unset X-Powered-By'));
 
+$client->section('.htaccess（SEO と圧縮）');
+
+$client->check(
+    '.xml（sitemap.xml）の MIME を明示している',
+    str_contains($htaccess, 'AddType application/xml .xml'),
+);
+$client->check('gzip 圧縮（mod_deflate）の設定がある', str_contains($htaccess, '<IfModule mod_deflate.c>'));
+$deflate = '';
+if (preg_match('#<IfModule mod_deflate\.c>(.*?)</IfModule>#s', $htaccess, $deflateMatch) === 1) {
+    $deflate = $deflateMatch[1];
+}
+foreach (['text/html', 'text/css', 'application/javascript', 'application/json', 'image/svg+xml', 'application/xml'] as $type) {
+    $client->check(
+        '圧縮対象に ' . $type,
+        str_contains((string) preg_replace('/\s+/', ' ', $deflate), $type),
+        trim($deflate),
+    );
+}
+$client->check(
+    'robots.txt / sitemap.xml を遮断していない',
+    !preg_match('#FilesMatch "[^"]*(txt|xml)[^"]*"#', $htaccess),
+);
+
+$robotsPath = $siteRoot . '/robots.txt';
+$sitemapPath = $siteRoot . '/sitemap.xml';
+$client->check('配信物に robots.txt がある（ビルド生成）', is_file($robotsPath));
+$client->check('配信物に sitemap.xml がある（ビルド生成）', is_file($sitemapPath));
+$robotsBody = is_file($robotsPath) ? (string) file_get_contents($robotsPath) : '';
+$sitemapBody = is_file($sitemapPath) ? (string) file_get_contents($sitemapPath) : '';
+$client->check('robots.txt が検索を許可している', str_contains($robotsBody, 'Allow: /'), $robotsBody);
+$client->check(
+    'robots.txt が全体をブロックしていない',
+    preg_match('#^Disallow: /$#m', $robotsBody) !== 1,
+    $robotsBody,
+);
+$client->check('sitemap.xml に urlset がある', str_contains($sitemapBody, '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'));
+$client->check('sitemap.xml がプライバシーポリシーを含む', str_contains($sitemapBody, '/privacy</loc>'));
+$client->check('og-image.png が配信物にある（1200x630 想定）', is_file($siteRoot . '/og-image.png'));
+
 $client->section('配信物とソースの一致（build/aegis = site/）');
 
 if (realpath($siteRoot) === realpath($sourceRoot)) {

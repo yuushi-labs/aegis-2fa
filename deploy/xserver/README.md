@@ -41,11 +41,15 @@ public_html/aegis/
 ├── .htaccess
 ├── index.html
 ├── assets/            ← ハッシュ付きファイル名（immutable キャッシュ）
-├── icons/  icon.svg  manifest.webmanifest  robots.txt  sw.js
+├── icons/  icon.svg  manifest.webmanifest  og-image.png  robots.txt  sitemap.xml  sw.js
 ├── api/index.php
 ├── app/               ← PHP 本体（403）
 └── storage/           ← ローカル設定の置き場（403。DB は公開領域外を推奨）
 ```
+
+`robots.txt` と `sitemap.xml` はビルド時に `scripts/seo.ts` が生成します（手で置かないでください）。
+アップロード先のパスは `base` から自動で入るので、`/aegis/` なら
+`Disallow: /aegis/api/` と `https://<ドメイン>/aegis/sitemap.xml` になります。
 
 サブFTPを使う場合、接続先を単体の `public_html` にするとドメイン外に置かれることがあります。
 `/home/<サーバーID>/<ドメイン>/public_html` を指定してください（既知の落とし穴）。

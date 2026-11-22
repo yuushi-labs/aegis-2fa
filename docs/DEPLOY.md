@@ -130,6 +130,20 @@ pnpm test:xserver                   # php -S 上で API 互換テスト
 - スキーマは Node 版と同一なので、Node 版が作った DB をそのまま使える
 - レート制限・保存上限・body 上限・`409 corrupt_vault`・セキュリティヘッダも Node 版と同じ
 
+### 検索エンジン向け（SEO）
+
+ビルド時に `scripts/seo.ts` が `robots.txt` と `sitemap.xml` を出力の直下へ書き出します。
+`base`（`/aegis/` など）と公開オリジンから絶対 URL を組み立てるので、手で編集する必要はありません。
+
+- `robots.txt`: 全体を許可し、`Disallow: <base>api/` で API だけを除外 + `Sitemap:` の絶対 URL
+- `sitemap.xml`: ホームと `/privacy` の 2 ページ
+- `index.html`: title / description / canonical / OGP / Twitter Card / JSON-LD（`SoftwareApplication`）
+  をビルド時に絶対 URL へ解決（`%…%` ではなく `__HOME_URL__` などのプレースホルダ）
+- 公開ドメインが既定（`https://yuushi0911.xsrv.jp`）と違うときは、ビルド時に
+  `VITE_SITE_ORIGIN=https://example.com` を指定する（パス付きは不可。パスは `--base` で決める）
+- `.htaccess` は `.xml` の MIME を明示し、HTML/CSS/JS/JSON/XML/SVG を gzip 圧縮する
+  （`mod_deflate` がある環境だけ。`robots.txt` / `sitemap.xml` は遮断対象外）
+
 セットアップ、設定項目、動作確認チェックリスト、トラブルシューティングは
 [deploy/xserver/README.md](../deploy/xserver/README.md) にまとめています。
 

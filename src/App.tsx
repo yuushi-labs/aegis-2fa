@@ -5,6 +5,7 @@ import { Modal } from './components/Modal';
 import { Toaster } from './components/Toaster';
 import { useI18n, useTheme, useToast, clearToasts } from './lib/hooks';
 import { useVaultStore } from './lib/vaultStore';
+import { documentTitleFor } from './lib/seo';
 import { formatSyncCode } from '../shared/sync';
 import { AccountsPage } from './pages/AccountsPage';
 import { AccountDetailPage } from './pages/AccountDetailPage';
@@ -32,7 +33,7 @@ export function App() {
   const acknowledgeSyncToken = useVaultStore((state) => state.acknowledgeSyncToken);
   const flushSync = useVaultStore((state) => state.flushSync);
   const toast = useToast();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const location = useLocation();
   const navigate = useNavigate();
   const lastActivity = useRef<number | null>(null);
@@ -40,6 +41,12 @@ export function App() {
   useEffect(() => {
     void initialize();
   }, [initialize]);
+
+  // 画面遷移に合わせてタブのタイトルを変える（/privacy などをブックマーク・共有しても区別できる）。
+  useEffect(() => {
+    const title = documentTitleFor(location.pathname, status, language);
+    if (title !== null) document.title = title;
+  }, [location.pathname, status, language]);
 
   // ロックしたら、OTP を含みうる通知も残さない。
   useEffect(() => {
