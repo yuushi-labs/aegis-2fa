@@ -96,26 +96,26 @@ jobs:
           context: .
           push: false
           load: true
-          tags: aegis-2fa:ci
+          tags: zekey-2fa:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Report image size
         run: |
-          size=$(docker image inspect aegis-2fa:ci --format '{{.Size}}')
+          size=$(docker image inspect zekey-2fa:ci --format '{{.Size}}')
           printf 'runtime image: %s bytes (%s MB)\n' "$size" "$((size / 1000 / 1000))" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Verify devDependencies are not shipped
         run: |
           # コンテナ内で「typescript が無い」ことを確かめる。docker run 自体が失敗した
           # 場合（125 など）もこの条件は成立しないため、起動失敗も CI の失敗になる。
-          if ! docker run --rm aegis-2fa:ci sh -c 'test ! -e node_modules/typescript'; then
+          if ! docker run --rm zekey-2fa:ci sh -c 'test ! -e node_modules/typescript'; then
             echo "::error::runtime image contains devDependencies, or the container failed to start"
-            docker images aegis-2fa:ci || true
+            docker images zekey-2fa:ci || true
             exit 1
           fi
           echo "runtime image has production dependencies only"
       - name: Smoke test container
         run: |
-          docker run -d --name aegis-ci -p 3000:3000 -e DATABASE_PATH=/tmp/aegis.db aegis-2fa:ci
+          docker run -d --name zekey-ci -p 3000:3000 -e DATABASE_PATH=/tmp/zekey.db zekey-2fa:ci
           healthy=0
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:3000/api/health > /tmp/health.json; then
@@ -126,15 +126,15 @@ jobs:
           done
           if [ "$healthy" -ne 1 ]; then
             echo "::error::/api/health did not become ready within 30 seconds"
-            docker logs aegis-ci || true
-            docker rm -f aegis-ci || true
+            docker logs zekey-ci || true
+            docker rm -f zekey-ci || true
             exit 1
           fi
           cat /tmp/health.json
-          if ! curl -fsS http://127.0.0.1:3000/ | grep -q 'Aegis'; then
+          if ! curl -fsS http://127.0.0.1:3000/ | grep -q 'Zekey'; then
             echo "::error::SPA index was not served"
-            docker logs aegis-ci || true
-            docker rm -f aegis-ci || true
+            docker logs zekey-ci || true
+            docker rm -f zekey-ci || true
             exit 1
           fi
-          docker rm -f aegis-ci
+          docker rm -f zekey-ci
