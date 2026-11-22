@@ -48,18 +48,24 @@ curl -fsS http://localhost:3000/api/health
 データは旧ボリューム（Compose のプロジェクト名が頭に付く。例: `zekey-2fa_aegis-data`）に残っています。
 
 ```bash
+set -euo pipefail   # どこかで失敗したらそこで止める（コピー失敗のまま起動しない）
+
 # 1. 旧プロジェクト名を確かめて、そのプロジェクトを停止・削除（ボリュームは残る）
 docker compose ls                       # 例: NAME=zekey-2fa（旧名のままなら aegis-2fa など）
 docker compose -p <旧プロジェクト名> down --remove-orphans
 
-# 2. 旧ボリューム名を確かめて、新しいボリュームへ中身を写す（既存の DB があるときは何もしない）
+# 2. 旧ボリューム名を確かめて、新しいボリュームへ中身を写す（既存の DB があるときは中止）
 docker volume ls | grep -E 'aegis-data|zekey-data'
 docker run --rm \
   -v <旧ボリューム名>:/from \
   -v <新ボリューム名>:/to \
   alpine sh -c 'if [ -f /to/zekey.db ] || [ -f /to/aegis.db ]; then echo "コピー先に DB があります。上書きしないため中止しました。中身を確認してください" >&2; exit 1; fi; cp -a /from/. /to/'
 
-# 3. 起動
+# 3. 旧 DB のファイル名を新名称に揃える（旧環境を使っていて aegis.db の場合だけ）
+#    ここで揃えないと、起動時に空の zekey.db が作られて旧データが見えない。
+docker run --rm -v <新ボリューム名>:/to alpine sh -c 'if [ -f /to/aegis.db ] && [ ! -f /to/zekey.db ]; then mv /to/aegis.db /to/zekey.db; fi'
+
+# 4. 起動
 docker compose up --build -d
 ```
 
@@ -67,9 +73,10 @@ docker compose up --build -d
 `docker compose down` で止めて `docker volume inspect` で中身を確認し、必要なら退避（例: `cp -a` で別名に保存）
 してから、どちらを使うかを決めてください。
 
-旧 DB のファイル名が `aegis.db` のままなら、`docker-compose.yml` の `DATABASE_PATH` を
-`/data/aegis.db` にするか、写したあとで `mv /data/aegis.db /data/zekey.db` に相当する操作をしてください。
-旧環境を使っていない（新規インストール）場合は 1〜2 は不要です。
+`DATABASE_PATH`（`docker-compose.yml` の既定は `/data/zekey.db`）を変えて旧名のまま使う場合は、
+上の 3 を省く代わりに、**起動前に**環境変数を `/data/aegis.db` に合わせてください
+（先に起動すると空の DB ができて、後から設定を変えても中身が入りません）。
+旧環境を使っていない（新規インストール）場合は 1〜3 は不要です。
 
 ## Fly.io
 

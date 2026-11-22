@@ -293,7 +293,9 @@ final class Config
      */
     private static function resolveWithLegacyDatabase(string $dir, string $target, string $legacy): string
     {
-        if (!self::ensureWritableDir($dir)) {
+        // 実際に書けるかも確かめる（ロックや印を置けないまま移行すると、後から来た要求が
+        // 新しい DB を使って、処理中の要求の書き込みが旧 DB にだけ残る）。
+        if (!self::ensureWritableDir($dir) || !self::canWriteIn($dir)) {
             // ロックも印も置けない環境では、移行しないまま旧 DB を使う（判断がぶれる余地を作らない）。
             error_log(
                 '[zekey] 警告: ' . $dir . ' に書けないため、旧 DB（' . $legacy . '）を使います'
@@ -322,17 +324,34 @@ final class Config
             if (self::migrateLegacyDatabase($legacy, $target)) {
                 return $target;
             }
-            @file_put_contents($dir . '/' . self::FALLBACK_MARKER_FILE, gmdate('c') . "\n");
+            $marked = @file_put_contents($dir . '/' . self::FALLBACK_MARKER_FILE, gmdate('c') . "\n") !== false;
             error_log(
                 '[zekey] 警告: 旧 DB（' . $legacy . '）を ' . $target . ' へ写せませんでした。'
                 . '旧 DB をそのまま使います（データは変更していません）。'
-                . '権限を直して ' . $dir . '/' . self::FALLBACK_MARKER_FILE . ' を消すと移行を再試行します。',
+                . ($marked
+                    ? '権限を直して ' . $dir . '/' . self::FALLBACK_MARKER_FILE . ' を消すと移行を再試行します。'
+                    : '印も置けませんでした。' . $dir . ' の権限を確認してください。'),
             );
             return $legacy;
         } finally {
             @flock($lock, LOCK_UN);
             @fclose($lock);
         }
+    }
+
+    /**
+     * 実際にファイルを置いてみて、書けるかを確かめる。
+     * `is_writable()` は NFS などで実際の書き込みの成否とずれることがあるため、
+     * ロック・印・スナップショットを置く前にここで確かめる。
+     */
+    private static function canWriteIn(string $dir): bool
+    {
+        $probe = $dir . '/.write-test-' . bin2hex(random_bytes(4));
+        if (@file_put_contents($probe, '1') === false) {
+            return false;
+        }
+        @unlink($probe);
+        return true;
     }
 
     /**
