@@ -137,6 +137,11 @@ pnpm test:xserver                   # php -S 上で API 互換テスト
 
 - `robots.txt`: 全体を許可し、`Disallow: <base>api/` で API だけを除外 + `Sitemap:` の絶対 URL
 - `sitemap.xml`: ホームと `/privacy` の 2 ページ
+- **`robots.txt` はオリジン直下でしか読まれない**（RFC 9309）。`/aegis/` に置いた
+  `robots.txt` は、同じ内容をドメイン直下の `public_html/robots.txt` にも置いて初めて
+  クローラに届く。直下に WordPress などの `robots.txt` がある場合は、上書きせず
+  `Disallow: /aegis/api/` と `Sitemap: https://<ドメイン>/aegis/sitemap.xml` の 2 行を追記する
+  （サイトマップは Search Console から直接送信してもよい）
 - `index.html`: title / description / canonical / OGP / Twitter Card / JSON-LD（`SoftwareApplication`）
   をビルド時に絶対 URL へ解決（`%…%` ではなく `__HOME_URL__` などのプレースホルダ）
 - 公開ドメインが既定（`https://yuushi0911.xsrv.jp`）と違うときは、ビルド時に

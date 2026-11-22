@@ -38,10 +38,13 @@ test.describe('SEO メタデータ', () => {
 
     expect(await meta(page, 'meta[name="robots"]')).toBe('index, follow');
 
-    const canonical = await page.evaluate(
-      () => document.querySelector('link[rel="canonical"]')?.getAttribute('href') ?? null,
-    );
-    expect(canonical).toBe(`${SITE_ORIGIN}/`);
+    // canonical は表示中のオリジンへ揃う（初期 HTML はホームを指している）。
+    const origin = new URL(page.url()).origin;
+    await expect
+      .poll(() =>
+        page.evaluate(() => document.querySelector('link[rel="canonical"]')?.getAttribute('href') ?? null),
+      )
+      .toBe(`${origin}/`);
   });
 
   test('OGP と Twitter Card が絶対 URL で入っている', async ({ page }) => {
@@ -103,7 +106,7 @@ test.describe('SEO メタデータ', () => {
   });
 });
 
-test.describe('画面ごとのタイトル', () => {
+test.describe('画面ごとのタイトルと canonical', () => {
   test('プライバシーポリシーと各画面でタイトルが切り替わる', async ({ page }) => {
     await page.goto('/privacy');
     await expect(page.getByTestId('privacy-page')).toBeVisible();
@@ -128,6 +131,24 @@ test.describe('画面ごとのタイトル', () => {
     await page.goto('/settings');
     await expect(page.getByRole('heading', { name: 'ロック中' })).toBeVisible();
     await expect(page).toHaveTitle(/^ロック中 \| Aegis 2FA/);
+  });
+
+  test('canonical は公開ページ自身を指し、ボルトの画面はホームに寄せる', async ({ page }) => {
+    await page.goto('/privacy');
+    await expect(page.getByTestId('privacy-page')).toBeVisible();
+    const origin = new URL(page.url()).origin;
+    const canonical = (): Promise<string | null> =>
+      page.evaluate(() => document.querySelector('link[rel="canonical"]')?.getAttribute('href') ?? null);
+
+    await expect.poll(canonical).toBe(`${origin}/privacy`);
+
+    await page.goto('/');
+    await expect.poll(canonical).toBe(`${origin}/`);
+
+    // アプリ内部の画面（解錠前の画面を含む）はホームを canonical にして重複索引を避ける。
+    await page.goto('/settings');
+    await expect(page.getByRole('heading', { name: 'ボルトをつくる' })).toBeVisible();
+    await expect.poll(canonical).toBe(`${origin}/`);
   });
 });
 

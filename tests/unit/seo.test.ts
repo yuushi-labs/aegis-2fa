@@ -9,7 +9,7 @@ import {
   resolveSiteOrigin,
   siteUrl,
 } from '../../scripts/seo';
-import { APP_NAME, HOME_TITLE, documentTitleFor } from '../../src/lib/seo';
+import { APP_NAME, HOME_TITLE, canonicalUrlFor, documentTitleFor } from '../../src/lib/seo';
 
 describe('normalizeBasePath', () => {
   it('未指定・空・/ はルート配信として扱う', () => {
@@ -106,6 +106,12 @@ describe('sitemap.xml', () => {
     expect(xml).toContain('<loc>https://example.com/</loc>');
     expect(xml).toContain('<loc>https://example.com/privacy</loc>');
   });
+
+  it('base に & などが入っても XML として壊れない', () => {
+    const xml = buildSitemapXml('https://example.com', '/r&d/', { lastmod: '2026-11-22' });
+    expect(xml).toContain('<loc>https://example.com/r&amp;d/</loc>');
+    expect(xml).not.toContain('/r&d/');
+  });
 });
 
 describe('documentTitleFor（画面ごとのタイトル）', () => {
@@ -157,5 +163,33 @@ describe('documentTitleFor（画面ごとのタイトル）', () => {
 
   it('アプリ名は manifest と同じ', () => {
     expect(APP_NAME).toBe('Aegis 2FA');
+  });
+});
+
+describe('canonicalUrlFor（canonical の絶対 URL）', () => {
+  it('ルート配信', () => {
+    expect(canonicalUrlFor('https://example.com', '/', '/')).toBe('https://example.com/');
+    expect(canonicalUrlFor('https://example.com', '/', '/privacy')).toBe(
+      'https://example.com/privacy',
+    );
+  });
+
+  it('サブディレクトリ配信（/aegis/）では /privacy を独立させる', () => {
+    const origin = 'https://yuushi0911.xsrv.jp';
+    expect(canonicalUrlFor(origin, '/aegis/', '/')).toBe('https://yuushi0911.xsrv.jp/aegis/');
+    expect(canonicalUrlFor(origin, '/aegis/', '/privacy')).toBe(
+      'https://yuushi0911.xsrv.jp/aegis/privacy',
+    );
+    // 末尾スラッシュ・base の書き方の揺れを吸収する。
+    expect(canonicalUrlFor(origin, 'aegis', '/privacy/')).toBe(
+      'https://yuushi0911.xsrv.jp/aegis/privacy',
+    );
+  });
+
+  it('ボルトの中身にあたる画面はホームに寄せる（重複索引を避ける）', () => {
+    const origin = 'https://yuushi0911.xsrv.jp';
+    for (const path of ['/settings', '/add', '/trash', '/print', '/sync', '/account/abc', '/unknown']) {
+      expect(canonicalUrlFor(origin, '/aegis/', path)).toBe('https://yuushi0911.xsrv.jp/aegis/');
+    }
   });
 });

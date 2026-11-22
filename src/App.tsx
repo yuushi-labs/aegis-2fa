@@ -5,7 +5,7 @@ import { Modal } from './components/Modal';
 import { Toaster } from './components/Toaster';
 import { useI18n, useTheme, useToast, clearToasts } from './lib/hooks';
 import { useVaultStore } from './lib/vaultStore';
-import { documentTitleFor } from './lib/seo';
+import { canonicalUrlFor, documentTitleFor } from './lib/seo';
 import { formatSyncCode } from '../shared/sync';
 import { AccountsPage } from './pages/AccountsPage';
 import { AccountDetailPage } from './pages/AccountDetailPage';
@@ -47,6 +47,19 @@ export function App() {
     const title = documentTitleFor(location.pathname, status, language);
     if (title !== null) document.title = title;
   }, [location.pathname, status, language]);
+
+  // canonical もルートに合わせる。初期 HTML はホームを指しているので、このままだと
+  // /privacy がホームの重複ページとみなされ、索引されない。
+  useEffect(() => {
+    const href = canonicalUrlFor(window.location.origin, import.meta.env.BASE_URL, location.pathname);
+    let link = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+    if (link === null) {
+      link = document.createElement('link');
+      link.rel = 'canonical';
+      document.head.append(link);
+    }
+    if (link.href !== href) link.href = href;
+  }, [location.pathname]);
 
   // ロックしたら、OTP を含みうる通知も残さない。
   useEffect(() => {

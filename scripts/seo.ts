@@ -92,6 +92,21 @@ export function buildRobotsTxt(origin: string, base: string): string {
 }
 
 /**
+ * XML のテキスト・属性として安全な形にする。
+ *
+ * base に `&` などが入っても（例: `--base=/r&d/`）sitemap.xml が XML として
+ * 壊れないように、`<loc>` は必ずこれを通す。
+ */
+export function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+/**
  * sitemap.xml の中身。
  *
  * `lastmod` はビルド日（省略時は今日）。テストからは固定日を渡す。
@@ -103,12 +118,12 @@ export function buildSitemapXml(
 ): string {
   const lastmod = options.lastmod ?? new Date().toISOString().slice(0, 10);
   const entries = SITEMAP_PATHS.map((pathname) => {
-    const loc = pageUrl(origin, base, pathname);
+    const loc = escapeXml(pageUrl(origin, base, pathname));
     const priority = pathname === '' ? '1.0' : '0.5';
     return [
       '  <url>',
       `    <loc>${loc}</loc>`,
-      `    <lastmod>${lastmod}</lastmod>`,
+      `    <lastmod>${escapeXml(lastmod)}</lastmod>`,
       '    <changefreq>monthly</changefreq>',
       `    <priority>${priority}</priority>`,
       '  </url>',

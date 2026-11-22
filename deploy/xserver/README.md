@@ -51,6 +51,17 @@ public_html/aegis/
 アップロード先のパスは `base` から自動で入るので、`/aegis/` なら
 `Disallow: /aegis/api/` と `https://<ドメイン>/aegis/sitemap.xml` になります。
 
+### robots.txt はドメイン直下にも置く
+
+クローラが読むのは `https://<ドメイン>/robots.txt` だけです（RFC 9309 §2.3）。
+`public_html/aegis/robots.txt` はそのままでは効かないので、次のどちらかを行います。
+
+1. ビルドした `robots.txt` を `public_html/robots.txt` にも置く（アプリをドメイン直下に置く場合は不要）
+2. ドメイン直下に既存の `robots.txt`（WordPress など）がある場合は、上書きせずに
+   `Disallow: /aegis/api/` と `Sitemap: https://<ドメイン>/aegis/sitemap.xml` の 2 行を追記する
+
+`sitemap.xml` は Search Console から直接送信してもかまいません。
+
 サブFTPを使う場合、接続先を単体の `public_html` にするとドメイン外に置かれることがあります。
 `/home/<サーバーID>/<ドメイン>/public_html` を指定してください（既知の落とし穴）。
 

@@ -46,6 +46,28 @@ function join(prefix: string, language: Language): string {
   return prefix === suffix ? prefix : `${prefix} | ${suffix}`;
 }
 
+/** `/aegis/` 形式の base を、前後のスラッシュ付きに正規化する（`/` はそのまま）。 */
+function normalizeBase(basePath: string): string {
+  const trimmed = basePath.replace(/^\/+|\/+$/g, '');
+  return trimmed === '' ? '/' : `/${trimmed}/`;
+}
+
+/**
+ * ルートに対応する canonical の絶対 URL。
+ *
+ * 検索エンジンに索引させたいのは公開ページ（ホームとプライバシーポリシー）だけで、
+ * ボルトの中身（アカウント一覧・設定・同期など）は索引対象にしない。
+ * 内部の画面はすべてホームを canonical にして、鍵の画面が重複ページとして
+ * 索引されるのを避ける。
+ */
+export function canonicalUrlFor(origin: string, basePath: string, pathname: string): string {
+  const root = origin.replace(/\/+$/, '');
+  const base = normalizeBase(basePath);
+  const home = base === '/' ? `${root}/` : `${root}${base}`;
+  const path = pathname.replace(/\/+$/, '');
+  return path === '/privacy' ? `${home}privacy` : home;
+}
+
 /**
  * ルートとボルトの状態から `document.title` を決める。
  *
