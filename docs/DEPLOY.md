@@ -130,6 +130,29 @@ pnpm test:xserver                   # php -S 上で API 互換テスト
 - スキーマは Node 版と同一なので、Node 版が作った DB をそのまま使える
 - レート制限・保存上限・body 上限・`409 corrupt_vault`・セキュリティヘッダも Node 版と同じ
 
+### 検索エンジン向け（SEO）
+
+ビルド時に `scripts/seo.ts` が `robots.txt` と `sitemap.xml` を出力の直下へ書き出します。
+`base`（`/aegis/` など）と公開オリジンから絶対 URL を組み立てるので、手で編集する必要はありません。
+
+- `robots.txt`: 全体を許可し、`Disallow: <base>api/` で API だけを除外 + `Sitemap:` の絶対 URL
+- `sitemap.xml`: ホームと `/privacy` の 2 ページ
+- **`robots.txt` はオリジン直下でしか読まれない**（RFC 9309）。`/aegis/` に置いた
+  `robots.txt` は、同じ内容をドメイン直下の `public_html/robots.txt` にも置いて初めて
+  クローラに届く。直下に WordPress などの `robots.txt` がある場合は上書きせず、生成された
+  `robots.txt` の `Disallow:` 行（`base` に合わせて自動で入る）を**各 User-agent グループに**
+  追記する（末尾にまとめて追記すると直前のグループにしか効かない）。`Sitemap:` 行は
+  グループに属しないので 1 行あればよい（サイトマップは Search Console から直接送信してもよい）。
+  既存ルールに `Disallow: /` があるとホームと `/privacy` もクロールされないため、その場合は
+  アプリの公開ページだけを許可する（`/aegis/` 配置は `Allow: /aegis/`、ルート配置は `Allow: /$` と
+  `Allow: /privacy$`。`Allow: /` は全体を許可してしまう）。より限定的な既存ルール（限定的なものが優先）も確認する
+- `index.html`: title / description / canonical / OGP / Twitter Card / JSON-LD（`SoftwareApplication`）
+  をビルド時に絶対 URL へ解決（`%…%` ではなく `__HOME_URL__` などのプレースホルダ）
+- 公開ドメインが既定（`https://yuushi0911.xsrv.jp`）と違うときは、ビルド時に
+  `VITE_SITE_ORIGIN=https://example.com` を指定する（パス付きは不可。パスは `--base` で決める）
+- `.htaccess` は `.xml` の MIME を明示し、HTML/CSS/JS/JSON/XML/SVG を gzip 圧縮する
+  （`mod_deflate` がある環境だけ。`robots.txt` / `sitemap.xml` は遮断対象外）
+
 セットアップ、設定項目、動作確認チェックリスト、トラブルシューティングは
 [deploy/xserver/README.md](../deploy/xserver/README.md) にまとめています。
 

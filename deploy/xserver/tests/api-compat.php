@@ -114,6 +114,119 @@ foreach ($entryAssets as $entryAsset) {
     );
 }
 
+// ---------------------------------------------------------------------------
+$client->section('SEO（robots.txt / sitemap.xml / index.html のメタ）');
+
+$apiPath = ($basePath === '' ? '' : $basePath) . '/api/'; // 例: /aegis/api/
+$siteRootUrl = 'https://yuushi0911.xsrv.jp' . ($basePath === '' ? '' : $basePath);
+
+$robots = $client->request('GET', '/robots.txt');
+$robotsBody = (string) $robots['body'];
+$client->check('robots.txt は 200（ブロックされない）', $robots['status'] === 200, 'status=' . $robots['status']);
+$client->check(
+    'robots.txt の Content-Type が text/plain',
+    str_contains((string) ($robots['headers']['content-type'] ?? ''), 'text/plain'),
+    (string) ($robots['headers']['content-type'] ?? ''),
+);
+$client->check('robots.txt が検索を許可する（Allow: /）', str_contains($robotsBody, 'Allow: /'));
+$client->check('robots.txt は API だけを除外する', str_contains($robotsBody, 'Disallow: ' . $apiPath), $apiPath);
+$client->check(
+    'robots.txt にサイトマップの絶対 URL',
+    str_contains($robotsBody, 'Sitemap: ' . $siteRootUrl . '/sitemap.xml'),
+    $robotsBody,
+);
+$client->check(
+    'robots.txt に全体ブロック（Disallow: /）が残っていない',
+    preg_match('#^Disallow: /$#m', $robotsBody) !== 1,
+);
+
+$sitemap = $client->request('GET', '/sitemap.xml');
+$sitemapBody = (string) $sitemap['body'];
+$client->check('sitemap.xml は 200（ブロックされない）', $sitemap['status'] === 200, 'status=' . $sitemap['status']);
+$client->check(
+    'sitemap.xml の Content-Type が XML',
+    str_contains((string) ($sitemap['headers']['content-type'] ?? ''), 'xml'),
+    (string) ($sitemap['headers']['content-type'] ?? ''),
+);
+$sitemapXml = @simplexml_load_string($sitemapBody);
+$client->check('sitemap.xml が XML として読める', $sitemapXml !== false);
+$client->check(
+    'sitemap.xml にホームの URL',
+    str_contains($sitemapBody, '<loc>' . $siteRootUrl . '/</loc>'),
+    $siteRootUrl,
+);
+$client->check(
+    'sitemap.xml に /privacy の URL',
+    str_contains($sitemapBody, '<loc>' . $siteRootUrl . '/privacy</loc>'),
+);
+$client->check(
+    'sitemap.xml の URL は 2 件（ホーム・プライバシーポリシー）',
+    substr_count($sitemapBody, '<url>') === 2,
+    (string) substr_count($sitemapBody, '<url>'),
+);
+
+$html = (string) $root['body'];
+$client->check(
+    'index.html の title に検索意図（2段階認証）が入る',
+    preg_match('#<title>([^<]*)</title>#', $html, $titleMatch) === 1 && str_contains($titleMatch[1], '2段階認証'),
+    (string) ($titleMatch[1] ?? ''),
+);
+$client->check(
+    'meta description にゼロ知識・TOTP・パスキー',
+    preg_match('#<meta\s+name="description"\s+content="([^"]*)"#', $html, $descMatch) === 1
+        && str_contains($descMatch[1], 'ゼロ知識')
+        && str_contains($descMatch[1], 'TOTP')
+        && str_contains($descMatch[1], 'パスキー'),
+    (string) ($descMatch[1] ?? ''),
+);
+$client->check('meta robots が index, follow', str_contains($html, '<meta name="robots" content="index, follow" />'));
+$client->check(
+    'canonical が本番の絶対 URL',
+    str_contains($html, '<link rel="canonical" href="' . $siteRootUrl . '/" />'),
+    $siteRootUrl . '/',
+);
+$client->check(
+    'OGP の og:image が絶対 URL（1200x630）',
+    str_contains($html, 'property="og:image" content="' . $siteRootUrl . '/og-image.png"')
+        && str_contains($html, 'property="og:image:width" content="1200"')
+        && str_contains($html, 'property="og:image:height" content="630"'),
+);
+$client->check('Twitter Card が summary_large_image', str_contains($html, 'name="twitter:card" content="summary_large_image"'));
+$client->check(
+    'JSON-LD（SoftwareApplication）が埋め込まれている',
+    preg_match('#<script type="application/ld\+json">(.*?)</script>#s', $html, $jsonLdMatch) === 1,
+);
+$jsonLd = isset($jsonLdMatch[1]) ? json_decode(trim($jsonLdMatch[1]), true) : null;
+$client->check(
+    'JSON-LD が JSON として読め、無料の Web/Android アプリを表す',
+    is_array($jsonLd)
+        && ($jsonLd['@type'] ?? null) === 'SoftwareApplication'
+        && ($jsonLd['offers']['price'] ?? null) === '0'
+        && str_contains((string) ($jsonLd['operatingSystem'] ?? ''), 'Web')
+        && str_contains((string) ($jsonLd['operatingSystem'] ?? ''), 'Android')
+        && str_contains((string) ($jsonLd['description'] ?? ''), 'ゼロ知識'),
+);
+$client->check(
+    'noscript に概要と主な特徴',
+    preg_match('#<noscript>(.*?)</noscript>#s', $html, $noscriptMatch) === 1
+        && str_contains($noscriptMatch[1], '主な特徴')
+        && str_contains($noscriptMatch[1], 'ゼロ知識'),
+);
+
+$ogImage = $client->request('GET', '/og-image.png');
+$ogBody = (string) $ogImage['body'];
+$client->check('og-image.png は 200', $ogImage['status'] === 200, 'status=' . $ogImage['status']);
+$client->check(
+    'og-image.png の Content-Type が image/png',
+    str_contains((string) ($ogImage['headers']['content-type'] ?? ''), 'image/png'),
+    (string) ($ogImage['headers']['content-type'] ?? ''),
+);
+$client->check('og-image.png が PNG', str_starts_with($ogBody, "\x89PNG\r\n\x1a\n"));
+$client->check(
+    'og-image.png が 1200x630',
+    strlen($ogBody) > 24 && unpack('Nwidth', substr($ogBody, 16, 4))['width'] === 1200 && unpack('Nheight', substr($ogBody, 20, 4))['height'] === 630,
+);
+
 $assets = glob($siteRoot . '/assets/*.js') ?: [];
 $client->check('assets/ にハッシュ付き JS がある', $assets !== []);
 if ($assets !== []) {

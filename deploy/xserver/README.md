@@ -41,11 +41,39 @@ public_html/aegis/
 ├── .htaccess
 ├── index.html
 ├── assets/            ← ハッシュ付きファイル名（immutable キャッシュ）
-├── icons/  icon.svg  manifest.webmanifest  robots.txt  sw.js
+├── icons/  icon.svg  manifest.webmanifest  og-image.png  robots.txt  sitemap.xml  sw.js
 ├── api/index.php
 ├── app/               ← PHP 本体（403）
 └── storage/           ← ローカル設定の置き場（403。DB は公開領域外を推奨）
 ```
+
+`robots.txt` と `sitemap.xml` はビルド時に `scripts/seo.ts` が生成します（手で置かないでください）。
+アップロード先のパスは `base` から自動で入るので、`/aegis/` なら
+`Disallow: /aegis/api/` と `https://<ドメイン>/aegis/sitemap.xml` になります。
+
+### robots.txt はドメイン直下にも置く
+
+クローラが読むのは `https://<ドメイン>/robots.txt` だけです（RFC 9309 §2.3）。
+`public_html/aegis/robots.txt` はそのままでは効かないので、次のどちらかを行います。
+
+1. ビルドした `robots.txt` を `public_html/robots.txt` にもそのまま置く（アプリをドメイン直下に置く場合は不要）
+2. ドメイン直下に既存の `robots.txt`（WordPress など）がある場合は上書きせず、生成された
+   `robots.txt` の `Disallow:` 行（例: `Disallow: /aegis/api/`。`base` に合わせて自動で入る）を
+   **各 User-agent グループに** 追加する。末尾にまとめて追記すると直前のグループにしか
+   効かないため、新しい `User-agent: *` グループを作ってそこに書いてもよい。
+   `Sitemap:` 行はグループに属しないので、生成された行を 1 行入れれば十分。
+
+追加する前に、直下の `robots.txt` の既存ルールも確認してください。
+`Disallow: /`（全体を禁止）があると、API の除外を足してもホームと `/privacy` はクロールされません。
+その場合は**アプリの公開ページだけ**を許可します（アプリ以外のパスまで許可しない）。
+
+- `/aegis/` 配置: 各グループに `Allow: /aegis/` を追加（`/aegis/api/` の `Disallow:` がより限定的なので API は除外のまま）
+- ルート配置: `Allow: /$` と `Allow: /privacy$` のようにページ単位で許可する
+  （`Allow: /` は `Disallow: /` と同じ長さになり、全体を許可してしまう）
+
+より限定的な既存ルールがないかも合わせて確認してください（`robots.txt` はより限定的なルールが優先されます）。
+
+`sitemap.xml` は Search Console から直接送信してもかまいません。
 
 サブFTPを使う場合、接続先を単体の `public_html` にするとドメイン外に置かれることがあります。
 `/home/<サーバーID>/<ドメイン>/public_html` を指定してください（既知の落とし穴）。

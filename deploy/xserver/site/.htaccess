@@ -18,6 +18,18 @@ AddDefaultCharset UTF-8
   AddType application/manifest+json .webmanifest
   AddType font/woff2 .woff2
   AddType image/svg+xml .svg
+  # sitemap.xml を正しい MIME で返す（既定でも application/xml だが、サーバー設定に
+  # 依存せず XML として配信されるように明示する）。
+  AddType application/xml .xml
+</IfModule>
+
+# ---------------------------------------------------------------------------
+# 圧縮（gzip）
+#   共用サーバーでも転送量を減らす。mod_deflate が無い環境では何もしない。
+#   XML（sitemap.xml）と SVG（アイコン）も対象にする。
+# ---------------------------------------------------------------------------
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/plain text/css text/xml application/xml application/xhtml+xml application/javascript text/javascript application/json application/manifest+json image/svg+xml
 </IfModule>
 
 # ---------------------------------------------------------------------------
@@ -119,6 +131,8 @@ AddDefaultCharset UTF-8
   Header always set Cross-Origin-Opener-Policy "same-origin"
   Header always set Cross-Origin-Resource-Policy "same-origin"
   Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" env=HTTPS
+  # 圧縮の有無でキャッシュを分ける（mod_deflate が無ければ付かないが無害）。
+  Header append Vary Accept-Encoding
   Header unset X-Powered-By
 </IfModule>
 
