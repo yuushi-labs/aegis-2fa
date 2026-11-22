@@ -323,28 +323,37 @@ final class Config
             // 新しい DB を使って、処理中の要求の書き込みが旧 DB にだけ残る）。
             // ここまで来た要求だけが試すので、印がある間は探査ファイルを作らない。
             if (!self::canWriteIn($dir)) {
-                error_log(
-                    '[zekey] 警告: ' . $dir . ' に書けないため、旧 DB（' . $legacy . '）を使います'
-                    . '（データは変更していません）。',
-                );
+                // 書けないなら移行もしない。判断を残せるなら印を置き、後続の要求も旧 DB に揃える。
+                self::markLegacyFallback($dir, $legacy, $target, 'ファイルを置けないため');
                 return $legacy;
             }
             if (self::migrateLegacyDatabase($legacy, $target)) {
                 return $target;
             }
-            $marked = @file_put_contents($dir . '/' . self::FALLBACK_MARKER_FILE, gmdate('c') . "\n") !== false;
-            error_log(
-                '[zekey] 警告: 旧 DB（' . $legacy . '）を ' . $target . ' へ写せませんでした。'
-                . '旧 DB をそのまま使います（データは変更していません）。'
-                . ($marked
-                    ? '権限を直して ' . $dir . '/' . self::FALLBACK_MARKER_FILE . ' を消すと移行を再試行します。'
-                    : '印も置けませんでした。' . $dir . ' の権限を確認してください。'),
-            );
+            self::markLegacyFallback($dir, $legacy, $target, 'スナップショットを作れないため');
             return $legacy;
         } finally {
             @flock($lock, LOCK_UN);
             @fclose($lock);
         }
+    }
+
+    /**
+     * 「移行できず旧 DB を使っている」ことを印に残し、後続の要求も同じ判断になるようにする。
+     *
+     * 印を置けない環境では、次に来た要求も同じく書けないはずなので、同じ判断（旧 DB）になる。
+     * それでも判断を残せなかったことはログに出す（黙って分かれない）。
+     */
+    private static function markLegacyFallback(string $dir, string $legacy, string $target, string $reason): void
+    {
+        $marked = @file_put_contents($dir . '/' . self::FALLBACK_MARKER_FILE, gmdate('c') . "\n") !== false;
+        error_log(
+            '[zekey] 警告: ' . $reason . '旧 DB（' . $legacy . '）を ' . $target . ' へ写せませんでした。'
+            . '旧 DB をそのまま使います（データは変更していません）。'
+            . ($marked
+                ? '権限を直して ' . $dir . '/' . self::FALLBACK_MARKER_FILE . ' を消すと移行を再試行します。'
+                : '印も置けませんでした。' . $dir . ' の権限を確認してください。'),
+        );
     }
 
     /**

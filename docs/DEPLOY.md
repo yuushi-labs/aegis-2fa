@@ -64,7 +64,21 @@ docker run --rm \
 # 3. 旧 DB のファイル名を新名称に揃える（旧環境を使っていて aegis.db の場合だけ）
 #    ここで揃えないと、起動時に空の zekey.db が作られて旧データが見えない。
 #    WAL の続き（aegis.db-wal / aegis.db-shm）がある場合は、名前が揃っていないと復元されない。
-docker run --rm -v <新ボリューム名>:/to alpine sh -c 'cd /to && for s in "" "-wal" "-shm"; do if [ -f "aegis.db$s" ] && [ ! -f "zekey.db$s" ]; then mv "aegis.db$s" "zekey.db$s"; fi; done'
+#    本体と WAL/SHM が別の DB の組み合わせにならないよう、両方ある場合や移行先に同名ファイルがある場合は中止する。
+docker run --rm -v <新ボリューム名>:/to alpine sh -eu -c '
+  cd /to
+  if [ -f aegis.db ] && [ -f zekey.db ]; then
+    echo "aegis.db と zekey.db の両方があります。どちらを使うか決めてから再実行してください" >&2; exit 1
+  fi
+  if [ -f aegis.db ]; then
+    for s in "" "-wal" "-shm"; do
+      if [ -f "aegis.db$s" ]; then
+        if [ -f "zekey.db$s" ]; then echo "zekey.db$s が既にあります。中止しました" >&2; exit 1; fi
+        mv "aegis.db$s" "zekey.db$s"
+      fi
+    done
+  fi
+'
 
 # 4. 起動
 docker compose up --build -d
@@ -73,6 +87,10 @@ docker compose up --build -d
 コピー先に既に DB がある場合（先に新環境を起動してしまった場合など）は、上のコマンドは上書きせずに止まります。
 `docker compose down` で止めて `docker volume inspect` で中身を確認し、必要なら退避（例: `cp -a` で別名に保存）
 してから、どちらを使うかを決めてください。
+
+3 の途中で止まった場合（「既にあります」など）は、`docker compose up` まで進めずに状態を確認してください。
+旧ボリュームは変更していないので、新ボリュームの該当ファイルを消して 2 からやり直すか、
+`mv` を逆にして元に戻せます（`zekey.db*` → `aegis.db*`）。
 
 `DATABASE_PATH`（`docker-compose.yml` の既定は `/data/zekey.db`）を変えて旧名のまま使う場合は、
 上の 3 を省く代わりに、**起動前に** `docker-compose.yml` の `environment.DATABASE_PATH` を
