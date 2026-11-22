@@ -1,6 +1,6 @@
 # セキュリティモデル
 
-Aegis 2FA は「サーバーの保存データを信用しない」前提で作られています。暗号文データベースが
+Zekey 2FA は「サーバーの保存データを信用しない」前提で作られています。暗号文データベースが
 丸ごと漏れても、マスターパスワードを知らない攻撃者は OTP の秘密鍵を復号できません。
 
 ただし **配信コード（このアプリの JavaScript）はサーバーから届きます**。保存済み暗号文の
@@ -124,9 +124,9 @@ DEK ──AES-256-GCM (IV 12B, AAD "aegis-data-v1:<revision>")──► data (ci
   形だけを検査します。細工された `period` や `digits` は表示・コード生成の失敗として
   現れますが、XSS には至りません（`innerHTML` 系の DOM シンクは使用していません）。
 - **アプリ連携は端末内のアプリ間で鍵を渡す**: 「📱 アプリでログイン」は、同期コードと DEK を
-  `aegis://login#code=…&dek=…&name=…` のフラグメントに載せて OS に渡します。フラグメントは
+  `zekey://login#code=…&dek=…&name=…` のフラグメントに載せて OS に渡します。フラグメントは
   サーバーへ送られないためアクセスログ・リファラには残りませんが、同じ端末の他のアプリが
-  `aegis` スキームを登録していれば受け取れます（OS のアプリ連携の範囲）。共用端末では押さず、
+  `zekey` スキームを登録していれば受け取れます（OS のアプリ連携の範囲）。共用端末では押さず、
   アンロック中の画面を他の人に見せない前提です。
 - **CI のアクションは可変タグ参照**: `actions/*@v4` 等を使用しています。サプライチェーン
   対策として SHA 固定が望ましく、未対応です。
@@ -136,7 +136,7 @@ DEK ──AES-256-GCM (IV 12B, AAD "aegis-data-v1:<revision>")──► data (ci
 - セキュリティヘッダ: CSP、`X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、
   `Referrer-Policy: no-referrer`、`Cross-Origin-Opener-Policy: same-origin`、
   `Cross-Origin-Resource-Policy: same-origin`、`Permissions-Policy`（カメラのみ self）。
-- HTTPS 運用時は HSTS（`AEGIS_HTTPS=true`）。Xserver（PHP 版）は `.htaccess` が HTTP を HTTPS へ 301 リダイレクトする
+- HTTPS 運用時は HSTS（`ZEKEY_HTTPS=true`）。Xserver（PHP 版）は `.htaccess` が HTTP を HTTPS へ 301 リダイレクトする
   （`X-Forwarded-Proto` も見るので、Nginx が TLS を終端する構成でもループしない）。
 - レート制限: 読み取り 60 req/min、書き込み 20 req/min（IP 単位、`429` + `Retry-After`）。
   PHP 版（Xserver）は、未認証でも作れる新規ボルトの作成だけを別バケット（既定 10 回/時/IP）で制限する。
@@ -240,17 +240,17 @@ Android 版はブラウザではなく OS の機能で同じゼロ知識設計�
 
 | 要素 | 実装 | 意味 |
 | --- | --- | --- |
-| 保存ファイル | アプリ専用領域の `vault-store.bin` を Android Keystore の AES-256-GCM 鍵（`aegis-store-key-v1`）で暗号化 | 端末の root 化・バックアップ吸い上げが無い限り、平文の秘密鍵はファイルに残らない。鍵は Keystore から出せない |
+| 保存ファイル | アプリ専用領域の `vault-store.bin` を Android Keystore の AES-256-GCM 鍵（`zekey-store-key-v1`）で暗号化 | 端末の root 化・バックアップ吸い上げが無い限り、平文の秘密鍵はファイルに残らない。鍵は Keystore から出せない |
 | バックアップ | `android:allowBackup="false"`、`data_extraction_rules` で全ドメイン除外 | クラウドバックアップ・端末間移行にボルトを載せない |
-| 生体認証 | Keystore の認証必須鍵（`aegis-biometric-key-v1`）で DEK をラップし、BiometricPrompt の `CryptoObject`（BIOMETRIC_STRONG のみ）でのみ開く | 生体認証を経ずに DEK を取り出す経路が無い。新しい指紋を登録しても鍵は無効化しない（`setInvalidatedByBiometricEnrollment(false)`） |
-| サイトからの引き渡し | `aegis://login#code=…&dek=…&name=…` を `singleTask` の Activity で受け、復号（verifier 検証）に成功したときだけ保存。処理後は `Intent.setData(null)` で値を消す | 受け取った直後に他アプリが Intent を読み直せない。フラグメントは元々サーバーへ送られない |
+| 生体認証 | Keystore の認証必須鍵（`zekey-biometric-key-v1`）で DEK をラップし、BiometricPrompt の `CryptoObject`（BIOMETRIC_STRONG のみ）でのみ開く | 生体認証を経ずに DEK を取り出す経路が無い。新しい指紋を登録しても鍵は無効化しない（`setInvalidatedByBiometricEnrollment(false)`） |
+| サイトからの引き渡し | `zekey://login#code=…&dek=…&name=…` を `singleTask` の Activity で受け、復号（verifier 検証）に成功したときだけ保存。処理後は `Intent.setData(null)` で値を消す | 受け取った直後に他アプリが Intent を読み直せない。フラグメントは元々サーバーへ送られない |
 | 権限 | `INTERNET` / `CAMERA` / `USE_BIOMETRIC` / `USE_FINGERPRINT`（API 26–27 の指紋用）/ `REQUEST_INSTALL_PACKAGES`（アプリ内アップデート）のみ | 解析 SDK・位置情報・連絡先が無い。APK は GitHub Releases から取得し、サイズと `sha256` ダイジェスト（添付時）を照合。署名が違えば Android がインストールを拒否する |
-| 通信 | 接続先は `https://yuushi0911.xsrv.jp/aegis` 固定、`usesCleartextTraffic="false"` | 設定ミスで平文へ落ちる経路を作らない |
+| 通信 | 接続先は `https://yuushi0911.xsrv.jp/zekey` 固定、`usesCleartextTraffic="false"` | 設定ミスで平文へ落ちる経路を作らない |
 | 画面 | スクリーンショット抑止はしない（Web 版と同じ）。ロック画面に注意書きを出す | 端末の画面録画・撮影は OS の範囲 |
 
 ### 配布用の署名鍵について（重要）
 
-`android/keystore/aegis-debug.keystore`（alias `androiddebugkey`、パスワード `android`）は
+`android/keystore/zekey-debug.keystore`（alias `androiddebugkey`、パスワード `android`）は
 **リポジトリにコミットしている公開鍵**です。秘密情報ではありません。
 
 - 目的: Android は「同じアプリ ID を上書きインストールできるのは同じ鍵で署名された APK だけ」

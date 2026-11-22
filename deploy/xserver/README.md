@@ -15,29 +15,29 @@ deploy/xserver/
 │   ├── app/              ← PHP 本体（.htaccess で 403）
 │   └── storage/          ← ローカル設定の置き場（.htaccess で 403）
 ├── tests/                ← php -S 上で動く互換テスト
-└── build/aegis/          ← pnpm build:xserver の出力（これをアップロードする）
+└── build/zekey/          ← pnpm build:xserver の出力（これをアップロードする）
 ```
 
 ## 1. 配信物を作る
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm build:xserver                  # 既定: /aegis/ 配置（https://<ドメイン>/aegis/）
+pnpm build:xserver                  # 既定: /zekey/ 配置（https://<ドメイン>/zekey/）
 pnpm build:xserver -- --base=/      # ドメイン直下に置く場合（WordPress などと同居不可）
 ```
 
-`deploy/xserver/build/aegis/` に、SPA（`index.html`・`assets/`・`sw.js`・`manifest.webmanifest`）と
+`deploy/xserver/build/zekey/` に、SPA（`index.html`・`assets/`・`sw.js`・`manifest.webmanifest`）と
 PHP バックエンド（`api/`・`app/`）が揃った状態で出力されます。
 `app/version.php` は `package.json` のバージョンから生成されます。
 
-サブディレクトリ名を変える場合は `--base=/aegis2/` のように指定し、アップロード先も合わせます。
+サブディレクトリ名を変える場合は `--base=/zekey2/` のように指定し、アップロード先も合わせます。
 
 ## 2. アップロード
 
-FTP / SFTP で `deploy/xserver/build/aegis/` の**中身**を `public_html/aegis/` へ置きます。
+FTP / SFTP で `deploy/xserver/build/zekey/` の**中身**を `public_html/zekey/` へ置きます。
 
 ```
-public_html/aegis/
+public_html/zekey/
 ├── .htaccess
 ├── index.html
 ├── assets/            ← ハッシュ付きファイル名（immutable キャッシュ）
@@ -48,17 +48,17 @@ public_html/aegis/
 ```
 
 `robots.txt` と `sitemap.xml` はビルド時に `scripts/seo.ts` が生成します（手で置かないでください）。
-アップロード先のパスは `base` から自動で入るので、`/aegis/` なら
-`Disallow: /aegis/api/` と `https://<ドメイン>/aegis/sitemap.xml` になります。
+アップロード先のパスは `base` から自動で入るので、`/zekey/` なら
+`Disallow: /zekey/api/` と `https://<ドメイン>/zekey/sitemap.xml` になります。
 
 ### robots.txt はドメイン直下にも置く
 
 クローラが読むのは `https://<ドメイン>/robots.txt` だけです（RFC 9309 §2.3）。
-`public_html/aegis/robots.txt` はそのままでは効かないので、次のどちらかを行います。
+`public_html/zekey/robots.txt` はそのままでは効かないので、次のどちらかを行います。
 
 1. ビルドした `robots.txt` を `public_html/robots.txt` にもそのまま置く（アプリをドメイン直下に置く場合は不要）
 2. ドメイン直下に既存の `robots.txt`（WordPress など）がある場合は上書きせず、生成された
-   `robots.txt` の `Disallow:` 行（例: `Disallow: /aegis/api/`。`base` に合わせて自動で入る）を
+   `robots.txt` の `Disallow:` 行（例: `Disallow: /zekey/api/`。`base` に合わせて自動で入る）を
    **各 User-agent グループに** 追加する。末尾にまとめて追記すると直前のグループにしか
    効かないため、新しい `User-agent: *` グループを作ってそこに書いてもよい。
    `Sitemap:` 行はグループに属しないので、生成された行を 1 行入れれば十分。
@@ -67,7 +67,7 @@ public_html/aegis/
 `Disallow: /`（全体を禁止）があると、API の除外を足してもホームと `/privacy` はクロールされません。
 その場合は**アプリの公開ページだけ**を許可します（アプリ以外のパスまで許可しない）。
 
-- `/aegis/` 配置: 各グループに `Allow: /aegis/` を追加（`/aegis/api/` の `Disallow:` がより限定的なので API は除外のまま）
+- `/zekey/` 配置: 各グループに `Allow: /zekey/` を追加（`/zekey/api/` の `Disallow:` がより限定的なので API は除外のまま）
 - ルート配置: `Allow: /$` と `Allow: /privacy$` のようにページ単位で許可する
   （`Allow: /` は `Disallow: /` と同じ長さになり、全体を許可してしまう）
 
@@ -79,31 +79,40 @@ public_html/aegis/
 `/home/<サーバーID>/<ドメイン>/public_html` を指定してください（既知の落とし穴）。
 
 ## 3. 設定（DB は公開ディレクトリの外へ）
-
 **推奨: DB を公開ディレクトリの外に置く。** Xserver は Nginx が静的ファイルを直接配信することがあり、
 その場合 `.htaccess` の 403 が効きません（`app/` の PHP は Apache が処理するので 403 が効きます）。
 
-`config.example.php` をコピーして、公開ディレクトリの 1 つ上に `aegis-config.php` として置きます。
+`config.example.php` をコピーして、公開ディレクトリの 1 つ上に `zekey-config.php` として置きます。
+`db_path` は **`null` のまま（自動）を推奨**します。旧 `/aegis/` の DB がある場合の引き継ぎが効きます。
 
 ```php
 <?php
-// /home/<サーバーID>/<ドメイン>/aegis-config.php
+// /home/<サーバーID>/<ドメイン>/zekey-config.php
 return [
-    'db_path' => '/home/<サーバーID>/aegis-data/aegis.db',
+    'db_path' => null,   // 既定: DOCUMENT_ROOT の親/zekey-data/zekey.db（旧 DB は自動で引き継ぎ）
 ];
 ```
 
+DB を別の場所に置きたい場合だけ、絶対パスを書きます（その場合は自動引き継ぎを行いません）。
+
+```php
+    'db_path' => '/home/<サーバーID>/zekey-data/zekey.db',
+```
+
 - この場所は配信されません（`public_html` の外）。
-- 置き場所を変えるときは `.htaccess` に `SetEnv AEGIS_CONFIG /path/to/aegis-config.php` を追加します。
-- 設定しない場合は、`DOCUMENT_ROOT` の親の `aegis-data/` に自動で作ります。
+- 置き場所を変えるときは `.htaccess` に `SetEnv ZEKEY_CONFIG /path/to/zekey-config.php` を追加します。
+  旧名の `aegis-config.php` / `AEGIS_CONFIG` も読みます（新しい名前があればそちらを優先）。
+- 設定しない場合は、`DOCUMENT_ROOT` の親の `zekey-data/zekey.db` に自動で作ります。
+  **旧 `/aegis/` の DB（`aegis-data/aegis.db`）が残っている場合は、初回アクセス時に
+  `VACUUM INTO` で `zekey-data/zekey.db` へ写してから新しい場所を使います**（下記 §3.1）。
   そこへ書けない場合は、**黙って公開領域内へ逃げずに設定エラーで停止します**（`error_log` に保存先の例が出ます）。
   `db_path` を明示してください。`.htaccess` の 403 は Apache には効きますが、Xserver の Nginx が
   静的ファイルを直接配信する構成では効かないため、公開領域内の DB は自動配置しません。
-- `aegis-data/` は PHP が作れないときがあるので、事前に `mkdir` して権限 `0700` にしておくと確実です。
+- `zekey-data/` は PHP が作れないときがあるので、事前に `mkdir` して権限 `0700` にしておくと確実です。
 
 | 設定キー | 既定値 | 説明 |
 | --- | --- | --- |
-| `db_path` | 自動（公開領域外の `aegis-data/`） | SQLite ファイルの絶対パス。公開領域内を指定する場合は Nginx の静的配信に注意 |
+| `db_path` | 自動（公開領域外の `zekey-data/`） | SQLite ファイルの絶対パス。公開領域内を指定する場合は Nginx の静的配信に注意 |
 | `max_vault_bytes` | `268435456`（256 MiB） | 保存できる暗号文の総量。超過は `507` |
 | `trust_proxy` | `false` | 前段が `X-Forwarded-For` を設定・上書きする場合のみ `true` |
 | `trust_proxy_hops` | `1` | 信頼するプロキシ段数（右端から数える） |
@@ -117,11 +126,11 @@ return [
 | `debug` | `false` | 500 の本文に例外メッセージを含める |
 
 環境変数（`.htaccess` の `SetEnv` など）でも同じキーを上書きできます:
-`AEGIS_DB_PATH` / `AEGIS_MAX_VAULT_BYTES` / `AEGIS_TRUST_PROXY` / `AEGIS_TRUST_PROXY_HOPS` /
-`AEGIS_TRUST_PROXY_IPS`（カンマ区切り）/
-`AEGIS_HTTPS` / `AEGIS_CORS_ORIGIN` / `AEGIS_RATE_LIMIT` / `AEGIS_RATE_LIMIT_CREATE_MAX` /
-`AEGIS_RATE_LIMIT_CREATE_WINDOW` / `AEGIS_DEBUG` / `AEGIS_CONFIG` /
-`AEGIS_APP_DIR`（`app/` を公開ディレクトリ外へ移した場合）。
+`ZEKEY_DB_PATH` / `ZEKEY_MAX_VAULT_BYTES` / `ZEKEY_TRUST_PROXY` / `ZEKEY_TRUST_PROXY_HOPS` /
+`ZEKEY_TRUST_PROXY_IPS`（カンマ区切り）/
+`ZEKEY_HTTPS` / `ZEKEY_CORS_ORIGIN` / `ZEKEY_RATE_LIMIT` / `ZEKEY_RATE_LIMIT_CREATE_MAX` /
+`ZEKEY_RATE_LIMIT_CREATE_WINDOW` / `ZEKEY_DEBUG` / `ZEKEY_CONFIG` /
+`ZEKEY_APP_DIR`（`app/` を公開ディレクトリ外へ移した場合）。
 
 新規ボルトの作成は、`PUT 20/分` とは別に **既定 10 回/時（IP 単位）** のバケットで制限されます。
 未認証でも作れる以上、制限がないと 1 つの IP から総量上限（`max_vault_bytes`）まで埋められ、
@@ -131,9 +140,31 @@ return [
 この上限が「サイト全体で 10 回/時」になることがあります。利用者ごとに数えたい場合は `trust_proxy` と
 `trust_proxy_hops` を実構成に合わせて設定してください。
 
+### 3.1 旧 `/aegis/` からの移行
+
+- **DB**: 旧 `/aegis/` の DB は既定で `DOCUMENT_ROOT` の親の `aegis-data/aegis.db` にあります。
+  `zekey-data/zekey.db` がまだ無いときにそれを見つけると、`VACUUM INTO` で一貫した
+  スナップショット（WAL の未チェックポイント分も含む）を作ってから新しい DB を使います。
+  コピーできない環境（権限なしなど）では、印（`zekey-data/.legacy-fallback`）を置いて
+  **以後の要求も含めて全部旧 DB を使います**（ある要求は旧 DB、別の要求は新 DB へ書くと、
+  片方の更新が見えなくなるため）。権限を直したあと、この印を消すと次のアクセスで移行を再試行します。
+  権限の変更や印の削除は、**アクセスが無い時間帯（メンテナンス中）に行ってください**：
+  `zekey-data/` に書けない間に旧 DB で動いている要求があると、その後移行が走ったときに
+  その要求の書き込みだけが旧 DB に残ります（消えるわけではありませんが、新 DB からは見えません）。
+- **旧 DB の削除は、移行が成功して新しい DB で動いていることを確かめてから**にしてください。
+  印がある（＝旧 DB を使っている）間は削除しないでください。旧 `aegis` ディレクトリを消すだけなら
+  DB には影響しません（DB は `public_html` の外にあります）。
+- **リダイレクト**: 旧 `public_html/aegis/.htaccess` を `deploy/xserver/aegis-redirect.htaccess`
+  （同じ内容を `downloads/aegis-2fa-deploy/aegis-redirect.htaccess` にも置いてあります）
+  の内容に差し替えると、`/aegis/...` へのアクセスを `https://yuushi0911.xsrv.jp/zekey/` へ 301 します
+  （ブックマーク・検索結果・共有リンクの行き先を保つため）。旧フォルダのファイルはそのままでも
+  かまいません（全リクエストがリダイレクトされます）。
+- **端末側**: アプリ名と Android のアプリ ID が変わります。Android は別アプリとして入るので、
+  「アプリでログイン」か同期コードでボルトを引き継いでください（暗号形式は同じなのでそのまま開けます）。
+
 ## 4. 権限
 
-- `aegis-data/`（`db_path` を `storage/` にする場合は `storage/`）: PHP（FPM の実行ユーザー）が読み書きできること。目安 `0700`。
+- `zekey-data/`（`db_path` を `storage/` にする場合は `storage/`）: PHP（FPM の実行ユーザー）が読み書きできること。目安 `0700`。
 - アップロードしたファイル: `644`、ディレクトリ: `755`。
 - DB ファイルは作成時に `0600` にします（`-wal` / `-shm` も同じディレクトリに出ます）。
 
@@ -148,25 +179,25 @@ return [
 3. API の疎通:
 
 ```bash
-curl -fsS https://<ドメイン>/aegis/api/health
+curl -fsS https://<ドメイン>/zekey/api/health
 # {"status":"ok","uptime":0,"version":"1.0.0","database":"ok"}
 
-curl -sI https://<ドメイン>/aegis/api/health | grep -i -E 'content-security-policy|cache-control|strict-transport'
-curl -sI https://<ドメイン>/aegis/ | grep -i content-security-policy
+curl -sI https://<ドメイン>/zekey/api/health | grep -i -E 'content-security-policy|cache-control|strict-transport'
+curl -sI https://<ドメイン>/zekey/ | grep -i content-security-policy
 
 # HTTP は HTTPS へ 301（Location が https:// で始まる）
-curl -sI http://<ドメイン>/aegis/ | grep -i -E '^HTTP|^location'
+curl -sI http://<ドメイン>/zekey/ | grep -i -E '^HTTP|^location'
 ```
 
-4. ブラウザで `https://<ドメイン>/aegis/` を開き、マスターパスワードを決めてボルトを作成。
+4. ブラウザで `https://<ドメイン>/zekey/` を開き、マスターパスワードを決めてボルトを作成。
    「同期する」を選ぶと同期コードが表示されます。
 5. 2 台目の端末で同じ URL を開き、「同期コードで接続」からコードを入力して同じアカウントが見えること。
 6. `app/` と `storage/` が外から見えないこと:
 
 ```bash
-curl -s -o /dev/null -w '%{http_code}\n' https://<ドメイン>/aegis/app/config.php   # 403
-curl -s -o /dev/null -w '%{http_code}\n' https://<ドメイン>/aegis/storage/          # 403
-curl -s -o /dev/null -w '%{http_code}\n' https://<ドメイン>/aegis/api/nope           # 404（JSON）
+curl -s -o /dev/null -w '%{http_code}\n' https://<ドメイン>/zekey/app/config.php   # 403
+curl -s -o /dev/null -w '%{http_code}\n' https://<ドメイン>/zekey/storage/          # 403
+curl -s -o /dev/null -w '%{http_code}\n' https://<ドメイン>/zekey/api/nope           # 404（JSON）
 ```
 
 ## 6. 更新
@@ -178,7 +209,7 @@ pnpm build:xserver
 ```
 
 - `assets/` は内容ハッシュ付きなので、古いファイルが残っていても害はありません（削除して構いません）。
-- DB と設定（`aegis-config.php` / `aegis-data/`）は触りません。
+- DB と設定（`zekey-config.php` / `zekey-data/`）は触りません。
 - スキーマは初回アクセス時に `CREATE TABLE IF NOT EXISTS` で用意されます（Node 版の DB をそのまま使えます）。
 - Xserver の Nginx は静的ファイルを 7 日キャッシュすることがあります。`index.html` と `sw.js` は
   `Cache-Control: no-store` を返しますが、反映が見えないときは `?v=2` を付けて確認してください。
@@ -206,8 +237,8 @@ pnpm build:xserver
 
 ```bash
 pnpm build:xserver           # 先に配信物を組み立てる
-pnpm test:xserver            # /aegis/ 配置として全テスト
-AEGIS_BASE=/ pnpm test:xserver   # ルート配置として全テスト
+pnpm test:xserver            # /zekey/ 配置として全テスト
+ZEKEY_BASE=/ pnpm test:xserver   # ルート配置として全テスト
 PHP_BIN=/path/to/php pnpm test:xserver
 ```
 
@@ -216,8 +247,8 @@ PHP_BIN=/path/to/php pnpm test:xserver
 
 | スイート | 内容 |
 | --- | --- |
-| `config.php` | DB の置き場所（公開領域外が既定）、外に書けないときは止まること、公開領域外の `aegis-config.php`、相対 `db_path` の警告、環境変数の上書きと丸め |
-| `htaccess.php` | HTTP→HTTPS の 301 ルール、遮断する拡張子（`db-journal`・`bak`・`.php[.~]` 等）、HSTS、配信物（`build/aegis`）とソース（`site/`）の一致 |
+| `config.php` | DB の置き場所（公開領域外が既定）、外に書けないときは止まること、公開領域外の `zekey-config.php`、相対 `db_path` の警告、環境変数の上書きと丸め |
+| `htaccess.php` | HTTP→HTTPS の 301 ルール、遮断する拡張子（`db-journal`・`bak`・`.php[.~]` 等）、HSTS、配信物（`build/zekey`）とソース（`site/`）の一致 |
 | `api-compat.php` | health / 静的配信 / SPA フォールバック / 403、PUT・GET・meta・DELETE、409、404 秘匿、400 系（id・JSON・必須・負値・未知キー・revision）、413（Content-Length あり/なし）、409 corrupt_vault、トークンが DB に残らないこと、セキュリティヘッダ |
 | `rate-limit.php` | 60/分で 429 + `Retry-After`、`X-Forwarded-For` の偽装では回避できない、`TRUST_PROXY=true` では転送ヘッダ単位、PUT は 20/分、新規作成は別バケット（既存の更新は妨げない） |
 | `storage-limit.php` | 総量超過の新規作成・更新が 507、縮小は通る |
@@ -230,10 +261,10 @@ Apache 固有の `.htaccess` の挙動は `php -S` では再現できないた�
 
 | 症状 | 原因の候補 | 対処 |
 | --- | --- | --- |
-| `/aegis/api/health` が 404 で HTML が返る | `.htaccess` の `RewriteRule` が効いていない | `AllowOverride` と `mod_rewrite` を確認。サブディレクトリ名と `--base` の不一致、`RewriteBase` の要否を確認 |
+| `/zekey/api/health` が 404 で HTML が返る | `.htaccess` の `RewriteRule` が効いていない | `AllowOverride` と `mod_rewrite` を確認。サブディレクトリ名と `--base` の不一致、`RewriteBase` の要否を確認 |
 | API が全部 404（JSON） | `Authorization` ヘッダが PHP に届いていない（PHP-FPM/CGI で落ちる） | `.htaccess` の `SetEnvIf Authorization ...` と `[E=HTTP_AUTHORIZATION:...]` を確認 |
-| 500（`internal_error`） | PHP のバージョン / `pdo_sqlite` 無効 / `app/` の場所 | パネルで PHP 8.3 を選択。`AEGIS_APP_DIR` を確認。`debug` を一時的に `true` にして本文を見る（終わったら戻す） |
-| health が `503 degraded`、または 500（`error_log` に「データベースの保存先を確保できません」） | DB に書けない | `aegis-data/` の権限と所有者を確認。作れない環境では `aegis-config.php` の `db_path` に書ける場所を指定する |
+| 500（`internal_error`） | PHP のバージョン / `pdo_sqlite` 無効 / `app/` の場所 | パネルで PHP 8.3 を選択。`ZEKEY_APP_DIR` を確認。`debug` を一時的に `true` にして本文を見る（終わったら戻す） |
+| health が `503 degraded`、または 500（`error_log` に「データベースの保存先を確保できません」） | DB に書けない | `zekey-data/` の権限と所有者を確認。作れない環境では `zekey-config.php` の `db_path` に書ける場所を指定する |
 | 507 | 保存量の上限 | `max_vault_bytes` を上げる（ディスク容量に注意） |
 | 429 | レート制限 | `Retry-After` 秒待つ。自分しか使わないなら `rate_limit_*` を調整。新規作成だけ `scope: vault_create` で別枠（既定 10/時） |
 | HTTP から HTTPS に転送されない | `.htaccess` が効かない（`AllowOverride`）／`mod_rewrite` 無効 | パネルの「常時 SSL」を ON にする |
@@ -252,12 +283,12 @@ Apache 固有の `.htaccess` の挙動は `php -S` では再現できないた�
 
      ```bash
      umask 077                                              # 0644 で作らない（他ユーザーに読ませない）
-     mkdir -p ~/aegis-backups && chmod 700 ~/aegis-backups   # 共有の /tmp には置かない
+     mkdir -p ~/zekey-backups && chmod 700 ~/zekey-backups   # 共有の /tmp には置かない
      # sqlite3 CLI がある場合
-     sqlite3 /path/to/aegis.db ".backup '$HOME/aegis-backups/aegis-$(date +%F-%H%M%S).db'"
+     sqlite3 /path/to/zekey.db ".backup '$HOME/zekey-backups/zekey-$(date +%F-%H%M%S).db'"
      # CLI が無い場合（Xserver でも PHP はある）
      php -r '$p = new PDO("sqlite:" . $argv[1]); $p->exec("VACUUM INTO " . $p->quote($argv[2]));' \
-       /path/to/aegis.db "$HOME/aegis-backups/aegis-$(date +%F-%H%M%S).db"
+       /path/to/zekey.db "$HOME/zekey-backups/zekey-$(date +%F-%H%M%S).db"
      ```
 
      どちらも稼働中に実行でき、作られるファイルは 0600（`umask 077`）です。

@@ -13,6 +13,13 @@ import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import type { PasskeyRecord, VaultEnvelope, VaultProfile } from '../../shared/types';
 import { DEFAULT_PROFILE_ID, MAX_PROFILE_NAME_LENGTH } from '../../shared/types';
 
+/**
+ * IndexedDB のデータベース名。
+ *
+ * **旧名のまま変えない**（`/aegis/` と `/zekey/` は同じオリジンなので、名前を変えると
+ * 端末に保存済みのボルト・パスキーが新しい画面から見えなくなる）。表示名ではなく
+ * 保存先の識別子なので、製品名の変更には追従させない。
+ */
 export const DB_NAME = 'aegis-2fa';
 /** v2 でパスキー、v3 でプロファイルを追加した。 */
 export const DB_VERSION = 3;
@@ -49,7 +56,7 @@ type StoredAppState = {
   profileId: string;
 };
 
-interface AegisSchema extends DBSchema {
+interface ZekeySchema extends DBSchema {
   vault: {
     key: string;
     value: StoredVault;
@@ -77,10 +84,10 @@ interface AegisSchema extends DBSchema {
   };
 }
 
-let dbPromise: Promise<IDBPDatabase<AegisSchema>> | null = null;
+let dbPromise: Promise<IDBPDatabase<ZekeySchema>> | null = null;
 
-function getDb(): Promise<IDBPDatabase<AegisSchema>> {
-  dbPromise ??= openDB<AegisSchema>(DB_NAME, DB_VERSION, {
+function getDb(): Promise<IDBPDatabase<ZekeySchema>> {
+  dbPromise ??= openDB<ZekeySchema>(DB_NAME, DB_VERSION, {
     async upgrade(db, oldVersion, _newVersion, tx) {
       if (!db.objectStoreNames.contains('vault')) db.createObjectStore('vault', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('secrets')) db.createObjectStore('secrets', { keyPath: 'id' });

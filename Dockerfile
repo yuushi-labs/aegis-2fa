@@ -35,17 +35,17 @@ FROM node:22-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=3000 \
-    DATABASE_PATH=/data/aegis.db
-RUN groupadd --system --gid 1001 aegis \
-  && useradd --system --uid 1001 --gid aegis --create-home aegis \
-  && mkdir -p /data && chown aegis:aegis /data
+    DATABASE_PATH=/data/zekey.db
+RUN groupadd --system --gid 1001 zekey \
+  && useradd --system --uid 1001 --gid zekey --create-home zekey \
+  && mkdir -p /data && chown zekey:zekey /data
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/dist-server ./dist-server
 COPY --from=build /app/package.json ./package.json
 # ビルド元の umask に依存せず、非 root ユーザーが読める（ディレクトリは辿れる）ようにする。
 RUN chmod -R a+rX dist dist-server node_modules package.json
-USER aegis
+USER zekey
 EXPOSE 3000
 VOLUME ["/data"]
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \

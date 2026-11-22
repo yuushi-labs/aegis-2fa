@@ -18,7 +18,14 @@ import { base64ToBytes, bytesToBase64 } from '../../shared/encoding';
 import { DEFAULT_PROFILE_ID } from '../../shared/types';
 import type { VaultEnvelope } from '../../shared/types';
 
-export const SESSION_DEK_KEY = 'aegis.session.dek.v1';
+export const SESSION_DEK_KEY = 'zekey.session.dek.v1';
+/**
+ * 旧名（Aegis 2FA）のキー。
+ *
+ * 同じオリジンなので、旧版で「自動ロック：なし」にして開いていたタブを再読み込みしたときに
+ * マスターパスワードを入れ直さずに済むよう、読み出し時に新しいキーへ写す。削除も両方に行う。
+ */
+const LEGACY_SESSION_DEK_KEY = 'aegis.session.dek.v1';
 
 /** DEK の長さ（AES-256）。 */
 const DEK_BYTES = 32;
@@ -34,6 +41,13 @@ type StoredSession = {
 /** プロファイルごとの保存キー（既定プロファイルだけ従来のキーを使う）。 */
 export function sessionKeyFor(profileId: string = DEFAULT_PROFILE_ID): string {
   return profileId === DEFAULT_PROFILE_ID ? SESSION_DEK_KEY : `${SESSION_DEK_KEY}.${profileId}`;
+}
+
+/** 旧名の保存キー（読み出し時の引き継ぎと削除だけに使う）。 */
+function legacySessionKeyFor(profileId: string): string {
+  return profileId === DEFAULT_PROFILE_ID
+    ? LEGACY_SESSION_DEK_KEY
+    : `${LEGACY_SESSION_DEK_KEY}.${profileId}`;
 }
 
 function getStorage(): Storage | null {
@@ -95,28 +109,42 @@ export function readSessionDek(
   let raw: string | null;
   try {
     raw = storage.getItem(key);
+    if (raw === null) {
+      // 旧版のキーに預けてあれば、新しいキーに写してから使う。
+      const legacyKey = legacySessionKeyFor(profileId);
+      raw = storage.getItem(legacyKey);
+      if (raw !== null && decodeStored(raw, envelope) !== null) {
+        try {
+          storage.setItem(key, raw);
+          storage.removeItem(legacyKey);
+        } catch {
+          // 写せなくても、今回の読み出しはそのまま続けられる。
+        }
+      }
+    }
   } catch {
     return null;
   }
   if (raw === null) return null;
+  const dek = decodeStored(raw, envelope);
+  if (dek === null) {
+    clearSessionDek(profileId);
+    return null;
+  }
+  return dek;
+}
+
+/** 保存値を読む。形が違う・封筒が変わっている場合は null。 */
+function decodeStored(raw: string, envelope: VaultEnvelope): Uint8Array | null {
   try {
     const parsed = JSON.parse(raw) as Partial<StoredSession>;
     if (parsed.v !== 1 || typeof parsed.dek !== 'string' || typeof parsed.fingerprint !== 'string') {
-      clearSessionDek(profileId);
       return null;
     }
-    if (parsed.fingerprint !== envelopeFingerprint(envelope)) {
-      clearSessionDek(profileId);
-      return null;
-    }
+    if (parsed.fingerprint !== envelopeFingerprint(envelope)) return null;
     const dek = base64ToBytes(parsed.dek);
-    if (dek.length !== DEK_BYTES) {
-      clearSessionDek(profileId);
-      return null;
-    }
-    return dek;
+    return dek.length === DEK_BYTES ? dek : null;
   } catch {
-    clearSessionDek(profileId);
     return null;
   }
 }
@@ -124,6 +152,7 @@ export function readSessionDek(
 /**
  * 預けた DEK を消す（手動ロック・設定変更・ボルトの作り直しなど）。
  * プロファイル ID を省くと、すべてのプロファイルの預け場所を消す。
+ * 旧名のキーに残った値も一緒に消す（消し残すと、ロックしても旧キーから復帰できてしまう）。
  */
 export function clearSessionDek(profileId?: string): void {
   const storage = getStorage();
@@ -131,13 +160,18 @@ export function clearSessionDek(profileId?: string): void {
   try {
     if (profileId !== undefined) {
       storage.removeItem(sessionKeyFor(profileId));
+      storage.removeItem(legacySessionKeyFor(profileId));
       return;
     }
     storage.removeItem(SESSION_DEK_KEY);
+    storage.removeItem(LEGACY_SESSION_DEK_KEY);
     const keys: string[] = [];
     for (let index = 0; index < storage.length; index += 1) {
       const key = storage.key(index);
-      if (key !== null && key.startsWith(`${SESSION_DEK_KEY}.`)) keys.push(key);
+      if (key === null) continue;
+      if (key.startsWith(`${SESSION_DEK_KEY}.`) || key.startsWith(`${LEGACY_SESSION_DEK_KEY}.`)) {
+        keys.push(key);
+      }
     }
     for (const key of keys) storage.removeItem(key);
   } catch {

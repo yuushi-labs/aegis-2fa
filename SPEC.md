@@ -1,4 +1,4 @@
-# Aegis 2FA — 仕様書 v1.0
+# Zekey 2FA — 仕様書 v1.0
 
 ゼロ知識 E2EE 同期対応の Web 2FA Authenticator（TOTP / HOTP）。
 ブラウザだけで秘密鍵を復号し、サーバーには暗号文しか置かない。
@@ -127,7 +127,7 @@ type VaultData = {
      **30 秒以外の TOTP は含めず**、個別の `otpauth` URI での書き出しへ案内する（周期を黙って 30 に変換しない）。
    - デコード時: `int32` のフィールドは符号付きとして解釈する（`batch_id = -1` 等の負値でも取り込み全体を失敗させない）。
      HOTP の `counter`（`int64`）は 0 以上の安全整数に限り、外れた 1 件だけスキップする。
-5. **暗号化バックアップ**（`.aegis` ファイル）: E2EE ボルトの暗号文をそのまま書き出す（下記 2.4 の形式）。インポートはパスフレーズ入力 → 復号 → 置換 or マージ選択。
+5. **暗号化バックアップ**（`.zekey` ファイル）: E2EE ボルトの暗号文をそのまま書き出す（下記 2.4 の形式）。インポートはパスフレーズ入力 → 復号 → 置換 or マージ選択。
 6. **CSV エクスポート（警告付き）**: 平文 CSV（issuer,label,secret,type,algorithm,digits,period,counter）。実行前に「平文で保存されます」旨の確認。既定では出さない。
 
 ### 2.4 暗号化とゼロ知識同期
@@ -168,7 +168,7 @@ type VaultData = {
 - ローカル完結モード: 同期トークンを作らない選択肢を設け、その場合は一切サーバーへ送らない。
 - 同期コードの受け取り（`src/lib/syncCodeInput.ts`）: 手入力・貼り付け・QR のいずれでも、
   同期コードそのもの（4 文字区切りの空白可）、`?code=` / `?sync=` / `#sync=` 付きの URL、
-  `/sync/<token>` のようなパス形式、`aegis://sync?code=…` のディープリンクからトークンだけを取り出す。
+  `/sync/<token>` のようなパス形式、`zekey://sync?code=…` のディープリンクからトークンだけを取り出す。
   同期画面（`SyncPage`）ではカメラの連続スキャンと QR 画像ファイルの読み取りができ（追加画面と同じ
   `QrScanPanel`）、読み取ったコードは入力欄に入る。この端末にまだボルトが無い場合はそのまま接続まで進む。
   同期コードを含まない QR は入力欄を変えずにエラーを出す。
@@ -177,13 +177,13 @@ type VaultData = {
     アプリを開く（アプリはコードでサーバーのボルトを取りに行くため、先に置いておく必要がある）。
     同期に失敗したときはアプリを開かず、エラーを出す。
   - 開く URL（`src/lib/appLogin.ts`）:
-    `aegis://login#code=<base64url(syncToken)>&dek=<base64url(DEK)>&name=<URL エンコードしたボルト名>`
+    `zekey://login#code=<base64url(syncToken)>&dek=<base64url(DEK)>&name=<URL エンコードしたボルト名>`
     - すべてフラグメント（`#`）に置く。フラグメントはサーバーへ送られないので、トークンも DEK も
       アクセスログ・リファラに残らない。
     - `code` は同期トークン（それ自体が base64url の 32 バイト）を UTF-8 のまま base64url 化したもの。
       アプリ側は base64url デコード → 同期トークン文字列として使う。
     - `dek` はアンロック中の DEK（32 バイト）の base64url。`name` は表示用のボルト名。
-  - 押したあとは「Aegis Android アプリを開いています。インストールされていない場合は GitHub Releases から
+  - 押したあとは「Zekey Android アプリを開いています。インストールされていない場合は GitHub Releases から
     インストールしてください」と画面に出す（未インストールの端末ではブラウザが何もしないため）。
 
 ### 2.5 ロック / セッション
@@ -194,8 +194,8 @@ type VaultData = {
 - 自動ロック: 無操作 5 分（1/5/15/30 分/なし）。`visibilitychange` で「タブを離れたら即ロック」オプション。
 - **自動ロック「なし」のセッション継続**: 「なし」を選んでいる間は、同じタブの再読み込みでアンロック状態を復帰する。
   復帰に使うのは DEK（データ鍵）だけで、**マスターパスワードは決して保存しない**。
-  DEK は `sessionStorage`（既定プロファイルは `aegis.session.dek.v1`、その他のプロファイルは
-  `aegis.session.dek.v1.<profileId>`）に、封筒の指紋（`kdf` の塩・反復回数と
+  DEK は `sessionStorage`（既定プロファイルは `zekey.session.dek.v1`、その他のプロファイルは
+  `zekey.session.dek.v1.<profileId>`）に、封筒の指紋（`kdf` の塩・反復回数と
   `wrappedKey` の iv・暗号文）と一緒に置く（`src/lib/sessionKey.ts`）。指紋が一致しない封筒
   （パスワード変更・別ボルト）では使わず破棄する。預け場所はプロファイル ID ごとに分かれ、
   別プロファイルの DEK を拾って解錠することはない（§2.13）。
@@ -303,7 +303,7 @@ type PasskeyRecord = {
     `Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Resource-Policy: same-origin`,
     `Strict-Transport-Security: max-age=31536000; includeSubDomains`（HTTPS のときのみ）
   - `Cache-Control: no-store` for `/api/*`
-- 環境変数: `PORT`（既定 3000）、`DATABASE_PATH`（既定 `./data/aegis.db`）、`TRUST_PROXY`（既定 false）、`CORS_ORIGIN`（既定 未設定＝同一オリジンのみ）。
+- 環境変数: `PORT`（既定 3000）、`DATABASE_PATH`（既定 `./data/zekey.db`）、`TRUST_PROXY`（既定 false）、`CORS_ORIGIN`（既定 未設定＝同一オリジンのみ）。
 - graceful shutdown（SIGTERM で server.close → DB close）。
 
 ---
@@ -372,7 +372,7 @@ type PasskeyRecord = {
 
 - 端末（ブラウザ）ごとに ID（UUID）をローカル生成して保持し、名前（初期値は UA から
   「Android (Chrome)」「Desktop」等を推定）を編集できる。保存先は `localStorage`
-  （キー `aegis.device.v1`、プロファイルを切り替えても同じ端末）。
+  （キー `zekey.device.v1`、プロファイルを切り替えても同じ端末）。
 - 暗号化ペイロードに `devices: { id, name, platform, lastSyncedAt }[]` を持ち、保存（push）のたびに
   自端末の `lastSyncedAt` を更新する。`mergeVaultData` は端末 ID ごとに新しい日時を採る。
   platform は UA から推定した粗い分類だけで、UA 全文・IP・端末の識別子は送らない。
@@ -384,7 +384,7 @@ type PasskeyRecord = {
 Web 版と 100% 互換のボルトを開くネイティブアプリ。Kotlin + Jetpack Compose（Material 3）、
 `minSdk 26` / `targetSdk 35` / `compileSdk 35`。実装の詳細は [docs/ANDROID.md](ANDROID.md)。
 
-- **接続先はハードコード**: `https://yuushi0911.xsrv.jp/aegis`（サーバー URL を変える UI は作らない）。
+- **接続先はハードコード**: `https://yuushi0911.xsrv.jp/zekey`（サーバー URL を変える UI は作らない）。
 - **暗号は Web 版と同一**: PBKDF2-HMAC-SHA-256 600,000 回 / AES-256-GCM / AAD
   `aegis-vault-v1`・`aegis-data-v1:<revision>` / verifier `HMAC-SHA256(DEK,"aegis-verify-v1")[0:16]` /
   `vaultId = hex(SHA-256(token))[0:32]` / `Authorization: Bearer <token>`。
@@ -392,7 +392,7 @@ Web 版と 100% 互換のボルトを開くネイティブアプリ。Kotlin + J
 - **同期**: `GET/PUT/DELETE /api/vault/{vaultId}`（既存 API をそのまま使う。パスは複数形ではない）。
   409 は再取得して同一封筒かを確かめ、違えば「マージ / この端末を残す / サーバーを残す」を選ばせる。
   マージは `tombstones` を含む id 単位 union。送信は 2 秒デバウンス、失敗は小さく表示して再送可能。
-- **サイトからの引き渡し**: `aegis://login#code=<base64url(token)>&dek=<base64url(DEK)>&name=<name>`
+- **サイトからの引き渡し**: `zekey://login#code=<base64url(token)>&dek=<base64url(DEK)>&name=<name>`
   を `singleTask` の Activity で受ける。`code` を base64url デコードして 43 文字の同期トークン、
   `dek` を 32 バイトの DEK として取り出し、サーバーから最新の封筒を取得して復号（verifier 検証）。
   成功したときだけ保存し、アンロック済みの一覧へ遷移する。処理後は Intent のデータを消す。
@@ -414,8 +414,8 @@ Web 版と 100% 互換のボルトを開くネイティブアプリ。Kotlin + J
 `v*` タグの push（と `workflow_dispatch`）で次を作り、
 GitHub Release に添付して公開する。
 
-- `aegis-php-xserver-<tag>.zip`: `pnpm build:xserver` の成果物（`aegis/` をルートに含む）。
-- `aegis-android-<tag>.apk`: `./gradlew :app:assembleRelease` の署名済み APK。
+- `zekey-php-xserver-<tag>.zip`: `pnpm build:xserver` の成果物（`zekey/` をルートに含む）。
+- `zekey-android-<tag>.apk`: `./gradlew :app:assembleRelease` の署名済み APK。
 
 `docs/releases/<tag>.md` があればリリースノートに使い、無ければ既定の文面を生成する。
 
@@ -425,7 +425,7 @@ GitHub Release に添付して公開する。
 
 RFC 4226 / 6238 の全ベクタ、Base32、`otpauth` 往復、移行 Protobuf（未知 enum・負の batch_id・
 壊れた counter）、**Web 版で作った封筒の復号と verifier 一致**、AAD 改ざん検出、マージ・
-tombstones・端末一覧、ゴミ箱 30 日、重複、同期コード抽出、`aegis://login` のフラグメント解析。
+tombstones・端末一覧、ゴミ箱 30 日、重複、同期コード抽出、`zekey://login` のフラグメント解析。
 CI は `:app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleRelease` を実行する。
 
 ### 3.1 単体（Vitest, `shared/`）
@@ -485,7 +485,7 @@ CI は `:app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleRe
 
 E2E は `pnpm build && pnpm start`（一時 DB）に対して `playwright.config.ts` の `webServer` で実行。
 既存サーバーは再利用しない（`reuseExistingServer: false`。今回のビルドとテスト用の設定を必ず効かせる）。
-全テストが同じ IP（127.0.0.1）から短時間に作る・更新するため、E2E のサーバーだけ `AEGIS_DISABLE_RATE_LIMIT=true` で
+全テストが同じ IP（127.0.0.1）から短時間に作る・更新するため、E2E のサーバーだけ `ZEKEY_DISABLE_RATE_LIMIT=true` で
 レート制限を外す（20 PUT/分に当たると無関係なテストが落ちる）。制限そのものは integration と PHP 版テストで検証する。
 
 ---

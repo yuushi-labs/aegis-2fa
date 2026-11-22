@@ -25,7 +25,7 @@ test.describe('スマホ幅（360px / 390px）のレイアウト', () => {
     expect(await overflowPx(page)).toBeLessThanOrEqual(1);
     await page.getByTestId('tab-migration').click();
     expect(await overflowPx(page)).toBeLessThanOrEqual(1);
-    await page.getByRole('link', { name: 'Aegis' }).click();
+    await page.getByRole('link', { name: 'Zekey' }).click();
 
     // 詳細（コード表示・削除ボタン）
     await page.getByTestId('account-row').first().getByTestId('edit-account').click();

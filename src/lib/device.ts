@@ -12,7 +12,14 @@
 import { bytesToBase64 } from '../../shared/encoding';
 import type { SyncDevice } from '../../shared/types';
 
-export const DEVICE_STORAGE_KEY = 'aegis.device.v1';
+export const DEVICE_STORAGE_KEY = 'zekey.device.v1';
+/**
+ * 旧名（Aegis 2FA）の保存キー。
+ *
+ * `/aegis/` と `/zekey/` は同じオリジンなので、旧キーに残った端末 ID を引き継がないと
+ * 同期の端末一覧に同じ端末がもう 1 台増える（端末名も既定値に戻る）。読み出し時に写す。
+ */
+const LEGACY_DEVICE_STORAGE_KEY = 'aegis.device.v1';
 
 export type DeviceIdentity = {
   id: string;
@@ -36,8 +43,26 @@ function getStore(): Storage | null {
 function readStored(): StoredDevice | null {
   const store = getStore();
   if (store === null) return memory;
+  const current = readKey(store, DEVICE_STORAGE_KEY);
+  if (current !== null) return current;
+  // 旧キーだけがある場合は、新しいキーへ写してから使う（以後は新しいキーだけを見る）。
+  const legacy = readKey(store, LEGACY_DEVICE_STORAGE_KEY);
+  if (legacy === null) return null;
+  // 新しいキーへ写せたときだけ旧キーを消す（写せない環境で消すと ID を失う）。
+  if (writeStored(legacy)) {
+    try {
+      store.removeItem(LEGACY_DEVICE_STORAGE_KEY);
+    } catch {
+      // 消せなくても、新しいキーを優先して読むので支障はない。
+    }
+  }
+  return legacy;
+}
+
+/** 指定したキーの保存内容を読む（形が違う・壊れている場合は null）。 */
+function readKey(store: Storage, key: string): StoredDevice | null {
   try {
-    const raw = store.getItem(DEVICE_STORAGE_KEY);
+    const raw = store.getItem(key);
     if (raw === null) return null;
     const parsed = JSON.parse(raw) as Partial<StoredDevice>;
     if (parsed.v !== 1 || typeof parsed.id !== 'string' || parsed.id === '') return null;
@@ -47,14 +72,17 @@ function readStored(): StoredDevice | null {
   }
 }
 
-function writeStored(value: StoredDevice): void {
+/** 保存する。ディスクに書けた（または保存先が無い）場合だけ true。 */
+function writeStored(value: StoredDevice): boolean {
   memory = value;
   const store = getStore();
-  if (store === null) return;
+  if (store === null) return true;
   try {
     store.setItem(DEVICE_STORAGE_KEY, JSON.stringify(value));
+    return true;
   } catch {
     // 容量超過などで保存できなくても、このタブでは動き続ける。
+    return false;
   }
 }
 
@@ -149,6 +177,7 @@ export function resetDeviceIdentity(): void {
   const store = getStore();
   try {
     store?.removeItem(DEVICE_STORAGE_KEY);
+    store?.removeItem(LEGACY_DEVICE_STORAGE_KEY);
   } catch {
     // 消せなくてもテストには影響しない。
   }

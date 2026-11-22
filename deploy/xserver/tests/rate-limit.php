@@ -2,7 +2,7 @@
 /**
  * レート制限の互換テスト。
  *
- * シナリオ（AEGIS_TEST_SCENARIO）:
+ * シナリオ（ZEKEY_TEST_SCENARIO）:
  *   untrusted … 既定（TRUST_PROXY なし）のサーバー。X-Forwarded-For を変えても回避できない。
  *   trusted   … TRUST_PROXY=true のサーバー。転送ヘッダの値ごとに数える。
  *   untrusted-peer … TRUST_PROXY=true でも接続元が TRUST_PROXY_IPS に無いサーバー。転送ヘッダを無視する。
@@ -16,12 +16,12 @@ declare(strict_types=1);
 
 require __DIR__ . '/lib.php';
 
-$baseUrl = rtrim((string) (getenv('AEGIS_TEST_BASE_URL') ?: 'http://127.0.0.1:8911'), '/');
-$basePath = (string) (getenv('AEGIS_TEST_BASE') ?: '');
+$baseUrl = rtrim((string) (getenv('ZEKEY_TEST_BASE_URL') ?: 'http://127.0.0.1:8911'), '/');
+$basePath = (string) (getenv('ZEKEY_TEST_BASE') ?: '');
 if ($basePath === '/') {
     $basePath = '';
 }
-$scenario = (string) (getenv('AEGIS_TEST_SCENARIO') ?: 'untrusted');
+$scenario = (string) (getenv('ZEKEY_TEST_SCENARIO') ?: 'untrusted');
 
 $client = new TestClient($baseUrl, $basePath);
 $token = test_token();

@@ -7,6 +7,10 @@
  * - verifier: HMAC-SHA-256(DEK, "aegis-verify-v1") の先頭 16B
  *
  * 平文の秘密鍵もパスワードもこのモジュールの外へは出さない（呼び出し側の責任）。
+ *
+ * 注意: AAD・verifier のメッセージ・封筒の `format` に残る `aegis-...` は、旧名（Aegis 2FA）
+ * 時代に作ったボルトを同じ鍵で復号するための識別子で、**変更すると既存のボルトが開けなくなる**。
+ * 表示名ではないので、製品名の変更には追従させない。
  */
 
 import {
@@ -24,7 +28,9 @@ import type { VaultCipher, VaultEnvelope, VaultKdf } from './types';
 /** DOM と Node の両方の型定義で通用する CryptoKey エイリアス。 */
 type CryptoKeyLike = Awaited<ReturnType<typeof globalThis.crypto.subtle.importKey>>;
 
+/** 既存ボルト互換のため変更禁止（旧 Aegis 2FA 時代の AAD）。 */
 const WRAP_AAD = utf8ToBytes('aegis-vault-v1');
+/** 既存ボルト互換のため変更禁止（保存済み verifier の計算に使う）。 */
 const VERIFY_MESSAGE = utf8ToBytes('aegis-verify-v1');
 const VERIFIER_LENGTH = 16;
 const SALT_LENGTH = 16;
@@ -123,6 +129,7 @@ async function computeVerifier(dek: Uint8Array): Promise<Uint8Array> {
   return mac.slice(0, VERIFIER_LENGTH);
 }
 
+/** 既存ボルト互換のため変更禁止（暗号文の AAD）。 */
 function dataAad(revision: number): Uint8Array {
   return utf8ToBytes(`aegis-data-v1:${revision}`);
 }
@@ -159,6 +166,8 @@ export async function createVaultEnvelope(options: CreateVaultOptions): Promise<
   const verifier = await computeVerifier(dek);
 
   return {
+    // 封筒の形式識別子。既存ボルト・サーバー・Android アプリが同じ値で検証するため、
+    // 旧名のまま固定する（表示名ではない）。
     format: 'aegis-vault',
     version: 1,
     kdf: { name: 'PBKDF2-SHA256', iterations, salt: bytesToBase64(salt) },

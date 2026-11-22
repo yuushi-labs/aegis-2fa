@@ -1,10 +1,10 @@
-# Aegis 2FA プライバシーポリシー / Privacy Policy
+# Zekey 2FA プライバシーポリシー / Privacy Policy
 
 最終更新: 2026-11-21 ・ Last updated: 2026-11-21
 
-Aegis 2FA は、2 段階認証のコードを発行するアプリです。マスターパスワードと秘密鍵がサービス側へ渡らない「ゼロ知識」の設計で作られています。
+Zekey 2FA は、2 段階認証のコードを発行するアプリです。マスターパスワードと秘密鍵がサービス側へ渡らない「ゼロ知識」の設計で作られています。
 
-公開版: <https://yuushi0911.xsrv.jp/aegis/privacy>（アプリ内の `/privacy`）
+公開版: <https://yuushi0911.xsrv.jp/zekey/privacy>（アプリ内の `/privacy`）
 
 ---
 
@@ -75,16 +75,16 @@ Aegis 2FA は、2 段階認証のコードを発行するアプリです。マ�
 ### 11. 変更とお問い合わせ
 このポリシーを変更するときは、このページとリポジトリの PRIVACY.md の最終更新日を合わせて更新します。
 
-質問・不具合の報告は GitHub の Issue へお願いします: <https://github.com/yuushi-labs/aegis-2fa/issues>
+質問・不具合の報告は GitHub の Issue へお願いします: <https://github.com/yuushi-labs/zekey-2fa/issues>
 
 ---
 
 ## English
 
-Aegis 2FA generates two-factor authentication codes. It is built around a zero-knowledge design: your master password and secrets never reach the service.
+Zekey 2FA generates two-factor authentication codes. It is built around a zero-knowledge design: your master password and secrets never reach the service.
 
 ### 1. What the app handles
-Aegis 2FA handles the two-factor accounts you add and the key material that protects them.
+Zekey 2FA handles the two-factor accounts you add and the key material that protects them.
 
 - Account data: service name, account name, TOTP / HOTP secret, algorithm, digits, period or counter, notes, backup codes, last-used time.
 - Master password: used only to derive the encryption key on your device. It is never stored or sent.
@@ -148,4 +148,4 @@ The app bundles its own fonts and assets, so it does not load files from third-p
 ### 11. Changes and contact
 When this policy changes, the “last updated” date here and on the in-app page (`/privacy`) is updated together.
 
-Questions and bug reports are welcome on the GitHub issue tracker: <https://github.com/yuushi-labs/aegis-2fa/issues>
+Questions and bug reports are welcome on the GitHub issue tracker: <https://github.com/yuushi-labs/zekey-2fa/issues>

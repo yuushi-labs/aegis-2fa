@@ -73,7 +73,7 @@ test.describe('パスキー / セキュリティキーによる解除', () => {
     await passkeyButton.click();
     // 解錠されると直前の URL（設定画面）が表示される。
     await expect(page.getByRole('heading', { name: '設定' })).toBeVisible();
-    await page.getByRole('link', { name: 'Aegis' }).click();
+    await page.getByRole('link', { name: 'Zekey' }).click();
     await expect(page.getByTestId('otp-code').first()).toBeVisible();
 
     // 削除すると一覧から消え、ロック画面の解除ボタンも消える。

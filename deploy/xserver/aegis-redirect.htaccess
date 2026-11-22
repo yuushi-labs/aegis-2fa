@@ -1,0 +1,21 @@
+# Zekey 2FA — 旧 /aegis/ から /zekey/ への 301 リダイレクト
+#
+# 置き場所: 旧アプリの公開ディレクトリ（例: public_html/aegis/.htaccess）。
+# 既存の .htaccess と差し替えると、/aegis/... へのアクセスはすべて新しい URL へ 301 されます。
+# 旧フォルダのファイルは消さなくてもかまいません（このファイルが全リクエストを転送します）。
+#
+# 注意: ディレクトリ自体を丸ごと消すと 301 を返せず 404 になるため、リダイレクトを
+#       残したい間はこのファイルだけ置いておきます。
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  # クエリ文字列（?code=... など）は mod_rewrite がそのまま引き継ぐ。
+  RewriteRule ^ https://yuushi0911.xsrv.jp/zekey/ [R=301,L]
+</IfModule>
+
+# mod_rewrite が使えない環境向けの保険（RewriteRule があればそちらが先に効く）。
+<IfModule !mod_rewrite.c>
+  <IfModule mod_alias.c>
+    RedirectMatch 301 ^/aegis(/.*)?$ https://yuushi0911.xsrv.jp/zekey/
+  </IfModule>
+</IfModule>

@@ -1,7 +1,7 @@
-# Aegis 2FA — Xserver（Apache 2.4 + PHP-FPM）用の .htaccess
+# Zekey 2FA — Xserver（Apache 2.4 + PHP-FPM）用の .htaccess
 #
-# 前提: このファイルを公開ディレクトリ（例: public_html/aegis/）へ置く。
-# サイトをドメイン直下に置いても、サブディレクトリ（/aegis/ など）に置いても動く。
+# 前提: このファイルを公開ディレクトリ（例: public_html/zekey/）へ置く。
+# サイトをドメイン直下に置いても、サブディレクトリ（/zekey/ など）に置いても動く。
 #
 # 役割
 #   1. HTTP（平文）でのアクセスを HTTPS へ 301 リダイレクトする
@@ -142,14 +142,14 @@ AddDefaultCharset UTF-8
 #   index.html と /api/* は no-store（デプロイ直後に古い画面を出さない）。
 # ---------------------------------------------------------------------------
 <IfModule mod_setenvif.c>
-  SetEnvIf Request_URI "/assets/" AEGIS_IMMUTABLE
-  SetEnvIf Request_URI "^[^?]*/$" AEGIS_NO_STORE
-  SetEnvIf Request_URI "\.html$" AEGIS_NO_STORE
-  SetEnvIf Request_URI "/sw\.js$" AEGIS_NO_STORE
-  SetEnvIf Request_URI "/api/" AEGIS_NO_STORE
+  SetEnvIf Request_URI "/assets/" ZEKEY_IMMUTABLE
+  SetEnvIf Request_URI "^[^?]*/$" ZEKEY_NO_STORE
+  SetEnvIf Request_URI "\.html$" ZEKEY_NO_STORE
+  SetEnvIf Request_URI "/sw\.js$" ZEKEY_NO_STORE
+  SetEnvIf Request_URI "/api/" ZEKEY_NO_STORE
 </IfModule>
 <IfModule mod_headers.c>
   Header always set Cache-Control "public, max-age=3600"
-  Header always set Cache-Control "public, max-age=31536000, immutable" env=AEGIS_IMMUTABLE
-  Header always set Cache-Control "no-store" env=AEGIS_NO_STORE
+  Header always set Cache-Control "public, max-age=31536000, immutable" env=ZEKEY_IMMUTABLE
+  Header always set Cache-Control "no-store" env=ZEKEY_NO_STORE
 </IfModule>

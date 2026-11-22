@@ -2,7 +2,7 @@
  * サイト版から Android アプリへボルトを引き渡すディープリンク（「アプリでログイン」）。
  *
  * 形式:
- *   aegis://login#code=<base64url(syncToken)>&dek=<base64url(DEK)>&name=<URL エンコードしたボルト名>
+ *   zekey://login#code=<base64url(syncToken)>&dek=<base64url(DEK)>&name=<URL エンコードしたボルト名>
  *
  * - 値はすべてフラグメント（`#`）に置く。フラグメントはサーバーへ送られないので、
  *   アクセスログやリファラにトークン・鍵が残らない。
@@ -14,8 +14,8 @@
 
 import { bytesToBase64Url, utf8ToBytes } from '../../shared/encoding';
 
-/** `aegis://login#` までの固定部分。 */
-export const APP_LOGIN_URL_PREFIX = 'aegis://login#';
+/** `zekey://login#` までの固定部分。 */
+export const APP_LOGIN_URL_PREFIX = 'zekey://login#';
 
 export type AppLoginLinkOptions = {
   /** 同期トークン（base64url の文字列）。 */

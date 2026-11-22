@@ -2,7 +2,7 @@
 /**
  * PHP 版バックエンドの API 互換テスト（レート制限は無効のサーバーに対して実行する）。
  *
- * 前提: AEGIS_TEST_BASE_URL（例 http://127.0.0.1:8910）と AEGIS_TEST_DB（DB のパス）を設定する。
+ * 前提: ZEKEY_TEST_BASE_URL（例 http://127.0.0.1:8910）と ZEKEY_TEST_DB（DB のパス）を設定する。
  * Content-Security-Policy などのヘッダは .htaccess の値とも突き合わせる。
  */
 
@@ -10,12 +10,12 @@ declare(strict_types=1);
 
 require __DIR__ . '/lib.php';
 
-$baseUrl = rtrim((string) (getenv('AEGIS_TEST_BASE_URL') ?: 'http://127.0.0.1:8910'), '/');
-$basePath = (string) (getenv('AEGIS_TEST_BASE') ?: '');
+$baseUrl = rtrim((string) (getenv('ZEKEY_TEST_BASE_URL') ?: 'http://127.0.0.1:8910'), '/');
+$basePath = (string) (getenv('ZEKEY_TEST_BASE') ?: '');
 if ($basePath === '/') {
     $basePath = '';
 }
-$dbPath = (string) (getenv('AEGIS_TEST_DB') ?: '');
+$dbPath = (string) (getenv('ZEKEY_TEST_DB') ?: '');
 $siteRoot = test_site_root();
 
 $client = new TestClient($baseUrl, $basePath);
@@ -90,11 +90,11 @@ $client->check('GET /privacy の本文が / と同じ index.html', $privacy['bod
 
 $manifest = $client->request('GET', '/manifest.webmanifest');
 $manifestBody = is_array($manifest['json']) ? $manifest['json'] : [];
-$client->check('manifest が配信される', $manifest['status'] === 200 && ($manifestBody['name'] ?? null) === 'Aegis 2FA');
+$client->check('manifest が配信される', $manifest['status'] === 200 && ($manifestBody['name'] ?? null) === 'Zekey 2FA');
 $client->check('manifest の start_url が相対パス', ($manifestBody['start_url'] ?? null) === './');
 
 $sw = $client->request('GET', '/sw.js');
-$client->check('Service Worker が配信される', $sw['status'] === 200 && str_contains($sw['body'], 'aegis-shell-'));
+$client->check('Service Worker が配信される', $sw['status'] === 200 && str_contains($sw['body'], 'zekey-shell-'));
 $client->check(
     'キャッシュ名にビルドのハッシュが入る（アセットが変わればキャッシュを作り直す）',
     preg_match('/CACHE_VERSION = \'v1-[0-9a-f]{8}\'/', (string) $sw['body']) === 1,
@@ -117,7 +117,7 @@ foreach ($entryAssets as $entryAsset) {
 // ---------------------------------------------------------------------------
 $client->section('SEO（robots.txt / sitemap.xml / index.html のメタ）');
 
-$apiPath = ($basePath === '' ? '' : $basePath) . '/api/'; // 例: /aegis/api/
+$apiPath = ($basePath === '' ? '' : $basePath) . '/api/'; // 例: /zekey/api/
 $siteRootUrl = 'https://yuushi0911.xsrv.jp' . ($basePath === '' ? '' : $basePath);
 
 $robots = $client->request('GET', '/robots.txt');

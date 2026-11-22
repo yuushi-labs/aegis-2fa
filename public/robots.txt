@@ -1,4 +1,4 @@
-# Aegis 2FA — 検索エンジン向け（ビルド時に base / オリジンへ合わせて再生成される）
+# Zekey 2FA — 検索エンジン向け（ビルド時に base / オリジンへ合わせて再生成される）
 # 生成元: scripts/seo.ts（vite.config.ts の seoHead プラグイン）
 User-agent: *
 Allow: /

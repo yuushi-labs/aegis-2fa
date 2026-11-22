@@ -3,9 +3,9 @@
  * 既定設定。
  *
  * 上書きは次の順で行う（後のものが優先）。
- *   1. 公開ディレクトリ外の aegis-config.php（AEGIS_CONFIG で場所を指定できる）
+ *   1. 公開ディレクトリ外の zekey-config.php（ZEKEY_CONFIG で場所を指定できる）
  *   2. storage/config.local.php（サイト内で済ませたい場合。.htaccess で 403 保護）
- *   3. 環境変数 AEGIS_*（Xserver では .htaccess の SetEnv で設定する）
+ *   3. 環境変数 ZEKEY_*（Xserver では .htaccess の SetEnv で設定する）
  *
  * どれも設定しなければ、Xserver 上でも安全な既定値で動く。
  */
@@ -14,8 +14,10 @@ declare(strict_types=1);
 
 return [
     // SQLite ファイル。
-    // null にすると「公開ディレクトリの外（DOCUMENT_ROOT の親）/aegis-data/<サイト名>.db」を使う。
+    // null にすると「公開ディレクトリの外（DOCUMENT_ROOT の親）/zekey-data/zekey.db」を使う。
     // そこへ書けない場合は起動時にエラーになるので、db_path を明示する。
+    // 旧 /aegis/ の DB（同じ親の aegis-data/aegis.db）が残っていて、まだ zekey-data/zekey.db が
+    // 無い場合は、初回アクセス時に中身を写してから新しい場所を使う（写せなければ旧 DB を使う）。
     // 公開領域内を指定する場合（storage/ など）は、Nginx が静的ファイルを直接配信する構成では
     // .htaccess の 403 が効かないことに注意する（README 参照）。絶対パスで書く。
     'db_path' => null,

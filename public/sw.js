@@ -3,7 +3,7 @@
  * - ナビゲーション / アセット: stale-while-revalidate（オフラインでも起動できる）
  * - /api/*: 一切キャッシュしない（ゼロ知識の暗号文を端末の SW キャッシュに残さない）
  *
- * 配置先（/ でも /aegis/ でも）は registration.scope から求める。
+ * 配置先（/ でも /zekey/ でも）は registration.scope から求める。
  */
 
 const SCOPE = new URL(self.registration.scope).pathname;
@@ -18,7 +18,7 @@ const API_PREFIX = `${BASE}api/`;
 const PRECACHE_ASSETS = [];
 /** ビルド時に vite.config.ts が `-<hash>` を足す（アセットが変わったらキャッシュも作り直す）。 */
 const CACHE_VERSION = 'v1';
-const CACHE = `aegis-shell-${CACHE_VERSION}`;
+const CACHE = `zekey-shell-${CACHE_VERSION}`;
 const SHELL = [
   BASE,
   INDEX,

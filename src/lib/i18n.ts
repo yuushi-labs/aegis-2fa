@@ -5,7 +5,7 @@
 export type Language = 'ja' | 'en';
 
 const ja = {
-  'app.name': 'Aegis 2FA',
+  'app.name': 'Zekey 2FA',
   'app.tagline': '秘密鍵はブラウザから出ません。',
 
   'nav.accounts': 'アカウント',
@@ -129,7 +129,7 @@ const ja = {
   'app.login.lead': '同じボルトをスマホのアプリで開きます。パスワードを入れ直さずにそのまま使えます。',
   'app.login.button': '📱 アプリでログイン',
   'app.login.opening':
-    'Aegis Android アプリを開いています。インストールされていない場合は GitHub Releases からインストールしてください。',
+    'Zekey Android アプリを開いています。インストールされていない場合は GitHub Releases からインストールしてください。',
   'app.login.locked': 'ボルトがロックされています。解錠してからもう一度押してください。',
   'app.login.syncFailed': '同期に失敗しました。接続を確認してからもう一度押してください。',
   'app.login.failed': 'アプリを開けませんでした。もう一度お試しください。',
@@ -205,7 +205,7 @@ const ja = {
   'settings.sync.lastSynced': '最終同期: {time}',
   'settings.sync.never': '未同期',
   'settings.export': 'エクスポート',
-  'settings.export.backup': '暗号化バックアップ（.aegis）',
+  'settings.export.backup': '暗号化バックアップ（.zekey）',
   'settings.export.backupHint': 'ボルトの暗号文をそのまま保存します。復元にはパスワードが必要です。',
   'settings.export.csv': 'CSV（平文・非推奨）',
   'settings.export.csvWarning': 'CSV は秘密鍵を平文で保存します。取り扱いに注意してください。',
@@ -244,7 +244,7 @@ const ja = {
   'settings.danger': '危険な操作',
   'settings.reset': 'ボルトを削除',
   'settings.about': 'このアプリについて',
-  'settings.about.lead': 'Aegis 2FA はゼロ知識の認証アプリです。サーバーには暗号文しか置かれません。',
+  'settings.about.lead': 'Zekey 2FA はゼロ知識の認証アプリです。サーバーには暗号文しか置かれません。',
   'settings.about.version': 'バージョン {version}',
   'settings.about.storage': '保存先: この端末の IndexedDB（暗号文のみ）',
   'settings.about.privacy': 'プライバシーポリシー',
@@ -264,7 +264,7 @@ const ja = {
   'sync.error.decrypt_failed': 'サーバー上のデータをこのパスワードで復号できませんでした。同期コードとマスターパスワードを確認してください。',
   'sync.error.stale_envelope': '同期の準備ができていません。解錠してからもう一度お試しください。',
   'privacy.title': 'プライバシーポリシー',
-  'privacy.lead': 'Aegis 2FA が扱う情報と、その扱い方について説明します。',
+  'privacy.lead': 'Zekey 2FA が扱う情報と、その扱い方について説明します。',
   'privacy.back': 'アプリに戻る',
   'privacy.english': 'English',
   'privacy.japanese': '日本語',
@@ -405,7 +405,7 @@ const ja = {
   'print.print': '印刷する',
   'print.back': '設定へ戻る',
   'print.empty': '印刷できるアカウントがありません。',
-  'print.generatedBy': 'Aegis 2FA で作成',
+  'print.generatedBy': 'Zekey 2FA で作成',
 
   'settings.devices': '同期されたデバイス',
   'settings.devices.lead': 'このボルトを同期している端末の一覧です。名前は端末ごとに変えられます。',
@@ -428,7 +428,7 @@ const ja = {
 export type MessageKey = keyof typeof ja;
 
 const en: Record<MessageKey, string> = {
-  'app.name': 'Aegis 2FA',
+  'app.name': 'Zekey 2FA',
   'app.tagline': 'Your secrets never leave the browser.',
 
   'nav.accounts': 'Accounts',
@@ -552,7 +552,7 @@ const en: Record<MessageKey, string> = {
   'app.login.lead': 'Open the same vault in the phone app. You do not have to type the password again.',
   'app.login.button': '📱 Sign in with the app',
   'app.login.opening':
-    'Opening the Aegis Android app. If it is not installed yet, install it from GitHub Releases.',
+    'Opening the Zekey Android app. If it is not installed yet, install it from GitHub Releases.',
   'app.login.locked': 'The vault is locked. Unlock it and try again.',
   'app.login.syncFailed': 'Sync failed. Check the connection and try again.',
   'app.login.failed': 'Could not open the app. Try again.',
@@ -628,7 +628,7 @@ const en: Record<MessageKey, string> = {
   'settings.sync.lastSynced': 'Last synced: {time}',
   'settings.sync.never': 'Never',
   'settings.export': 'Export',
-  'settings.export.backup': 'Encrypted backup (.aegis)',
+  'settings.export.backup': 'Encrypted backup (.zekey)',
   'settings.export.backupHint': 'Saves the vault ciphertext as-is. A password is required to restore.',
   'settings.export.csv': 'CSV (plaintext, discouraged)',
   'settings.export.csvWarning': 'CSV stores secrets in plaintext. Handle with care.',
@@ -667,7 +667,7 @@ const en: Record<MessageKey, string> = {
   'settings.danger': 'Danger zone',
   'settings.reset': 'Delete vault',
   'settings.about': 'About',
-  'settings.about.lead': 'Aegis 2FA is a zero-knowledge authenticator. The server only holds ciphertext.',
+  'settings.about.lead': 'Zekey 2FA is a zero-knowledge authenticator. The server only holds ciphertext.',
   'settings.about.version': 'Version {version}',
   'settings.about.storage': 'Storage: IndexedDB on this device (ciphertext only)',
   'settings.about.privacy': 'Privacy policy',
@@ -687,7 +687,7 @@ const en: Record<MessageKey, string> = {
   'sync.error.decrypt_failed': 'The data on the server could not be decrypted with this password. Check the sync code and master password.',
   'sync.error.stale_envelope': 'Sync is not ready. Unlock, then try again.',
   'privacy.title': 'Privacy policy',
-  'privacy.lead': 'What Aegis 2FA handles, and how.',
+  'privacy.lead': 'What Zekey 2FA handles, and how.',
   'privacy.back': 'Back to the app',
   'privacy.english': 'English',
   'privacy.japanese': '日本語',
@@ -828,7 +828,7 @@ const en: Record<MessageKey, string> = {
   'print.print': 'Print',
   'print.back': 'Back to settings',
   'print.empty': 'There are no accounts to print.',
-  'print.generatedBy': 'Made with Aegis 2FA',
+  'print.generatedBy': 'Made with Zekey 2FA',
 
   'settings.devices': 'Synced devices',
   'settings.devices.lead': 'Devices that sync this vault. You can rename each one.',

@@ -10,7 +10,7 @@ import { App } from './App';
 const container = document.getElementById('root');
 if (container === null) throw new Error('#root が見つかりません');
 
-// 配置先がサブディレクトリ（/aegis/ など）でも動くように、基準は Vite の BASE_URL から取る。
+// 配置先がサブディレクトリ（/zekey/ など）でも動くように、基準は Vite の BASE_URL から取る。
 const baseUrl = import.meta.env.BASE_URL;
 const basename = baseUrl === '/' ? undefined : baseUrl.replace(/\/+$/, '');
 

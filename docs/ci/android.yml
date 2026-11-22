@@ -64,11 +64,11 @@ jobs:
             echo "署名鍵の Secret は未設定。リポジトリの固定鍵（android/keystore/）で署名します。"
             exit 0
           fi
-          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/aegis-release.jks"
-          { echo "AEGIS_KEYSTORE_PATH=$RUNNER_TEMP/aegis-release.jks"; } >> "$GITHUB_ENV"
-          { echo "AEGIS_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"; } >> "$GITHUB_ENV"
-          { echo "AEGIS_KEY_ALIAS=$KEY_ALIAS"; } >> "$GITHUB_ENV"
-          { echo "AEGIS_KEY_PASSWORD=$KEY_PASSWORD"; } >> "$GITHUB_ENV"
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/zekey-release.jks"
+          { echo "ZEKEY_KEYSTORE_PATH=$RUNNER_TEMP/zekey-release.jks"; } >> "$GITHUB_ENV"
+          { echo "ZEKEY_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"; } >> "$GITHUB_ENV"
+          { echo "ZEKEY_KEY_ALIAS=$KEY_ALIAS"; } >> "$GITHUB_ENV"
+          { echo "ZEKEY_KEY_PASSWORD=$KEY_PASSWORD"; } >> "$GITHUB_ENV"
 
       - name: Unit tests
         run: ./gradlew :app:testDebugUnitTest --stacktrace
@@ -98,6 +98,6 @@ jobs:
         if: ${{ inputs.upload-artifact }}
         uses: actions/upload-artifact@v7
         with:
-          name: aegis-android-apk
+          name: zekey-android-apk
           path: android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error

@@ -13,7 +13,7 @@ test.describe('自動ロック「なし」のセッション継続', () => {
     await page.reload();
     // 設定画面のまま、ロック画面に戻らない。
     await expect(page.getByRole('heading', { name: '設定' })).toBeVisible();
-    await page.getByRole('link', { name: 'Aegis' }).click();
+    await page.getByRole('link', { name: 'Zekey' }).click();
     await expect(page.getByRole('heading', { name: 'アカウント' })).toBeVisible();
     await expect(page.getByTestId('otp-code').first()).toBeVisible();
 
@@ -46,7 +46,7 @@ test.describe('自動ロック「なし」のセッション継続', () => {
     await createVault(page, { sync: false });
     await page.getByRole('link', { name: '設定', exact: true }).click();
     await page.getByTestId('auto-lock-select').selectOption('0');
-    await page.getByRole('link', { name: 'Aegis' }).click();
+    await page.getByRole('link', { name: 'Zekey' }).click();
     await page.getByRole('button', { name: 'ロック', exact: true }).click();
     await unlock(page);
 

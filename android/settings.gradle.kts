@@ -20,5 +20,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Aegis"
+rootProject.name = "Zekey"
 include(":app")

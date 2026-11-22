@@ -51,7 +51,7 @@ test.describe('QR / CSV / バックアップの取り扱い', () => {
     const backupPromise = page.waitForEvent('download');
     await page.getByRole('button', { name: /暗号化バックアップ/ }).click();
     const backup = await backupPromise;
-    const backupPath = test.info().outputPath('other-vault.aegis');
+    const backupPath = test.info().outputPath('other-vault.zekey');
     await backup.saveAs(backupPath);
 
     // 端末を消して、別パスワードの新しいボルトを作る。

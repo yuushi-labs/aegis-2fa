@@ -279,10 +279,10 @@ export function SettingsPage() {
 
   function downloadBackup(): void {
     if (envelope === null) return;
-    const blob = new Blob([JSON.stringify({ format: 'aegis-backup', version: 1, exportedAt: new Date().toISOString(), envelope }, null, 2)], {
+    const blob = new Blob([JSON.stringify({ format: 'zekey-backup', version: 1, exportedAt: new Date().toISOString(), envelope }, null, 2)], {
       type: 'application/json',
     });
-    downloadBlob(blob, `aegis-backup-${timestampForFilename()}.aegis`);
+    downloadBlob(blob, `zekey-backup-${timestampForFilename()}.zekey`);
   }
 
   function downloadCsv(): void {
@@ -305,7 +305,7 @@ export function SettingsPage() {
       ].join(','),
     );
     const blob = new Blob([[header.join(','), ...rows].join('\n')], { type: 'text/csv;charset=utf-8' });
-    downloadBlob(blob, `aegis-accounts-${timestampForFilename()}.csv`);
+    downloadBlob(blob, `zekey-accounts-${timestampForFilename()}.csv`);
   }
 
   async function handleCopyToken(): Promise<void> {
@@ -323,7 +323,7 @@ export function SettingsPage() {
     if (migrationQrText === null) return;
     try {
       const blob = await renderQrPng(migrationQrText, 640);
-      downloadBlob(blob, `aegis-migration-${timestampForFilename()}.png`);
+      downloadBlob(blob, `zekey-migration-${timestampForFilename()}.png`);
     } catch {
       toast(t('common.error'), 'error');
     }
@@ -891,7 +891,7 @@ export function SettingsPage() {
               ref={fileRef}
               id="backup-file-input"
               type="file"
-              accept=".aegis,application/json"
+              accept=".zekey,.aegis,application/json"
               className="block w-full text-[0.82rem]"
               onChange={(event) => {
                 const file = event.target.files?.[0];

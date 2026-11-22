@@ -78,7 +78,7 @@ test.describe('モバイル 375px（削除導線とセッション）', () => {
     await page.getByRole('link', { name: '設定', exact: true }).click();
     await page.getByTestId('auto-lock-select').selectOption('0');
     await page.reload();
-    await page.getByRole('link', { name: 'Aegis' }).click();
+    await page.getByRole('link', { name: 'Zekey' }).click();
     await expect(page.getByTestId('otp-code').first()).toBeVisible();
 
     // 行の「削除」は 1 タップで確認ダイアログを開く。

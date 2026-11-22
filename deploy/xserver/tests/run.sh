@@ -3,8 +3,8 @@
 # Xserver 用 PHP バックエンドのテスト（php -S 上で実行する）。
 #
 #   pnpm build:xserver          # 配信物を組み立てる（初回・変更後）
-#   pnpm test:xserver           # サブディレクトリ配信（/aegis/）として全部のテストを実行
-#   AEGIS_BASE=/ pnpm test:xserver   # ルート配信として実行
+#   pnpm test:xserver           # サブディレクトリ配信（/zekey/）として全部のテストを実行
+#   ZEKEY_BASE=/ pnpm test:xserver   # ルート配信として実行
 #
 # 前提: PHP 8.1 以上 + pdo_sqlite（PHP_BIN で実行ファイルを指定できる）。
 # Apache 固有の .htaccess の挙動は php -S では再現できないため、
@@ -14,9 +14,9 @@ set -u
 
 PHP_BIN="${PHP_BIN:-php}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SITE="${AEGIS_SITE:-$SCRIPT_DIR/../build/aegis}"
+SITE="${ZEKEY_SITE:-$SCRIPT_DIR/../build/zekey}"
 SITE="$(cd "$SITE" 2>/dev/null && pwd || true)"
-BASE="${AEGIS_BASE-/aegis}"
+BASE="${ZEKEY_BASE-/zekey}"
 
 if ! command -v "$PHP_BIN" >/dev/null 2>&1; then
   echo "php が見つかりません（PHP_BIN で指定してください）" >&2
@@ -58,7 +58,7 @@ start_server() { # name port [ENV=value ...]
   local name="$1"
   local port="$2"
   shift 2
-  env AEGIS_SITE_ROOT="$SITE" AEGIS_BASE="$BASE" "$@" \
+  env ZEKEY_SITE_ROOT="$SITE" ZEKEY_BASE="$BASE" "$@" \
     "$PHP_BIN" -S "127.0.0.1:$port" -t "$DOCROOT" "$SCRIPT_DIR/router.php" \
     >"$TMP/$name.log" 2>&1 &
   PIDS="$PIDS $!"
@@ -78,7 +78,7 @@ start_server() { # name port [ENV=value ...]
 run_php() { # script [ENV=value ...]
   local script="$1"
   shift
-  env AEGIS_TEST_BASE="$BASE" AEGIS_TEST_SITE_ROOT="$SITE" "$@" "$PHP_BIN" "$SCRIPT_DIR/$script"
+  env ZEKEY_TEST_BASE="$BASE" ZEKEY_TEST_SITE_ROOT="$SITE" "$@" "$PHP_BIN" "$SCRIPT_DIR/$script"
 }
 
 echo "site=$SITE base=${BASE:-/} ports=$PORT_BASE.."
@@ -90,70 +90,70 @@ run_php htaccess.php || FAILED=1
 
 # 1) 機能テスト（レート制限だけ無効にしたサーバー）
 P1=$PORT_BASE
-if start_server functional "$P1" AEGIS_RATE_LIMIT=false AEGIS_DB_PATH="$TMP/functional.db"; then
+if start_server functional "$P1" ZEKEY_RATE_LIMIT=false ZEKEY_DB_PATH="$TMP/functional.db"; then
   run_php api-compat.php \
-    AEGIS_TEST_BASE_URL="http://127.0.0.1:$P1" \
-    AEGIS_TEST_DB="$TMP/functional.db" || FAILED=1
+    ZEKEY_TEST_BASE_URL="http://127.0.0.1:$P1" \
+    ZEKEY_TEST_DB="$TMP/functional.db" || FAILED=1
 else
   FAILED=1
 fi
 
 # 2) レート制限: 既定（TRUST_PROXY なし）— 転送ヘッダの偽装では回避できない
 P2=$(( PORT_BASE + 1 ))
-if start_server rate-untrusted "$P2" AEGIS_DB_PATH="$TMP/rate-untrusted.db"; then
+if start_server rate-untrusted "$P2" ZEKEY_DB_PATH="$TMP/rate-untrusted.db"; then
   run_php rate-limit.php \
-    AEGIS_TEST_BASE_URL="http://127.0.0.1:$P2" \
-    AEGIS_TEST_SCENARIO=untrusted || FAILED=1
+    ZEKEY_TEST_BASE_URL="http://127.0.0.1:$P2" \
+    ZEKEY_TEST_SCENARIO=untrusted || FAILED=1
 else
   FAILED=1
 fi
 
 # 3) レート制限: TRUST_PROXY=true — 転送ヘッダの値ごとに数える
 P3=$(( PORT_BASE + 2 ))
-if start_server rate-trusted "$P3" AEGIS_DB_PATH="$TMP/rate-trusted.db" AEGIS_TRUST_PROXY=true; then
+if start_server rate-trusted "$P3" ZEKEY_DB_PATH="$TMP/rate-trusted.db" ZEKEY_TRUST_PROXY=true; then
   run_php rate-limit.php \
-    AEGIS_TEST_BASE_URL="http://127.0.0.1:$P3" \
-    AEGIS_TEST_SCENARIO=trusted || FAILED=1
+    ZEKEY_TEST_BASE_URL="http://127.0.0.1:$P3" \
+    ZEKEY_TEST_SCENARIO=trusted || FAILED=1
 else
   FAILED=1
 fi
 
 # 3b) レート制限: TRUST_PROXY=true でも接続元が信頼済みでなければ転送ヘッダを無視する
 P3B=$(( PORT_BASE + 6 ))
-if start_server rate-untrusted-peer "$P3B" AEGIS_DB_PATH="$TMP/rate-untrusted-peer.db" AEGIS_TRUST_PROXY=true AEGIS_TRUST_PROXY_IPS=10.9.9.9; then
+if start_server rate-untrusted-peer "$P3B" ZEKEY_DB_PATH="$TMP/rate-untrusted-peer.db" ZEKEY_TRUST_PROXY=true ZEKEY_TRUST_PROXY_IPS=10.9.9.9; then
   run_php rate-limit.php \
-    AEGIS_TEST_BASE_URL="http://127.0.0.1:$P3B" \
-    AEGIS_TEST_SCENARIO=untrusted-peer || FAILED=1
+    ZEKEY_TEST_BASE_URL="http://127.0.0.1:$P3B" \
+    ZEKEY_TEST_SCENARIO=untrusted-peer || FAILED=1
 else
   FAILED=1
 fi
 
 # 4) レート制限: PUT は 20 req/min
 P4=$(( PORT_BASE + 3 ))
-if start_server rate-put "$P4" AEGIS_DB_PATH="$TMP/rate-put.db"; then
+if start_server rate-put "$P4" ZEKEY_DB_PATH="$TMP/rate-put.db"; then
   run_php rate-limit.php \
-    AEGIS_TEST_BASE_URL="http://127.0.0.1:$P4" \
-    AEGIS_TEST_SCENARIO=put || FAILED=1
+    ZEKEY_TEST_BASE_URL="http://127.0.0.1:$P4" \
+    ZEKEY_TEST_SCENARIO=put || FAILED=1
 else
   FAILED=1
 fi
 
 # 5) レート制限: 新規作成は別の厳しいバケット（上限を 2 に下げて 429 を実際に踏む）
 P6=$(( PORT_BASE + 5 ))
-if start_server rate-create "$P6" AEGIS_DB_PATH="$TMP/rate-create.db" AEGIS_RATE_LIMIT_CREATE_MAX=2; then
+if start_server rate-create "$P6" ZEKEY_DB_PATH="$TMP/rate-create.db" ZEKEY_RATE_LIMIT_CREATE_MAX=2; then
   run_php rate-limit.php \
-    AEGIS_TEST_BASE_URL="http://127.0.0.1:$P6" \
-    AEGIS_TEST_SCENARIO=create || FAILED=1
+    ZEKEY_TEST_BASE_URL="http://127.0.0.1:$P6" \
+    ZEKEY_TEST_SCENARIO=create || FAILED=1
 else
   FAILED=1
 fi
 
 # 6) 保存量の上限（上限を小さくして 507 を実際に踏む）
 P5=$(( PORT_BASE + 4 ))
-if start_server storage "$P5" AEGIS_DB_PATH="$TMP/storage.db" AEGIS_MAX_VAULT_BYTES=8192; then
+if start_server storage "$P5" ZEKEY_DB_PATH="$TMP/storage.db" ZEKEY_MAX_VAULT_BYTES=8192; then
   run_php storage-limit.php \
-    AEGIS_TEST_BASE_URL="http://127.0.0.1:$P5" \
-    AEGIS_TEST_MAX_VAULT_BYTES=8192 || FAILED=1
+    ZEKEY_TEST_BASE_URL="http://127.0.0.1:$P5" \
+    ZEKEY_TEST_MAX_VAULT_BYTES=8192 || FAILED=1
 else
   FAILED=1
 fi

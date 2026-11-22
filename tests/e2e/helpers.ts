@@ -41,7 +41,7 @@ export async function unlock(page: Page, password = PASSWORD): Promise<void> {
   // 解錠後は直前の URL に戻るので、一覧へはヘッダーのリンクで SPA 遷移する
   // （goto すると DEK がメモリから消えて再ロックされる）。
   await expect(page.getByRole('button', { name: 'ロック', exact: true })).toBeVisible();
-  await page.getByRole('link', { name: 'Aegis' }).click();
+  await page.getByRole('link', { name: 'Zekey' }).click();
   await expect(page.getByRole('heading', { name: 'アカウント' })).toBeVisible();
 }
 

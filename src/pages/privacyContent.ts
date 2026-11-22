@@ -15,8 +15,8 @@ export type PrivacyLanguage = 'ja' | 'en';
 /** 最終更新日（このページと PRIVACY.md で同じ日付にする）。 */
 export const PRIVACY_UPDATED = '2026-11-21';
 
-export const PRIVACY_REPO = 'https://github.com/yuushi-labs/aegis-2fa';
-export const PRIVACY_ISSUES = 'https://github.com/yuushi-labs/aegis-2fa/issues';
+export const PRIVACY_REPO = 'https://github.com/yuushi-labs/zekey-2fa';
+export const PRIVACY_ISSUES = 'https://github.com/yuushi-labs/zekey-2fa/issues';
 
 /** 本文の見出しと日付ラベル（本文の言語に合わせる。UI の言語設定とは独立）。 */
 export const PRIVACY_TITLE: Record<PrivacyLanguage, string> = {
@@ -30,8 +30,8 @@ export const PRIVACY_UPDATED_LABEL: Record<PrivacyLanguage, string> = {
 };
 
 export const PRIVACY_INTRO: Record<PrivacyLanguage, string> = {
-  ja: 'Aegis 2FA は、2 段階認証のコードを発行するアプリです。マスターパスワードと秘密鍵がサービス側へ渡らない「ゼロ知識」の設計で作られています。このページでは、どの情報をどこに置き、何のために使うのかを説明します。',
-  en: 'Aegis 2FA generates two-factor authentication codes. It is built around a zero-knowledge design: your master password and secrets never reach the service. This page explains what is stored, where, and why.',
+  ja: 'Zekey 2FA は、2 段階認証のコードを発行するアプリです。マスターパスワードと秘密鍵がサービス側へ渡らない「ゼロ知識」の設計で作られています。このページでは、どの情報をどこに置き、何のために使うのかを説明します。',
+  en: 'Zekey 2FA generates two-factor authentication codes. It is built around a zero-knowledge design: your master password and secrets never reach the service. This page explains what is stored, where, and why.',
 };
 
 export const PRIVACY_SECTIONS: Record<PrivacyLanguage, PrivacySection[]> = {
@@ -204,7 +204,7 @@ export const PRIVACY_SECTIONS: Record<PrivacyLanguage, PrivacySection[]> = {
       blocks: [
         {
           kind: 'p',
-          text: 'Aegis 2FA handles the two-factor accounts you add and the key material that protects them.',
+          text: 'Zekey 2FA handles the two-factor accounts you add and the key material that protects them.',
         },
         {
           kind: 'ul',

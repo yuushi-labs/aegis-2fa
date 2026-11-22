@@ -24,7 +24,7 @@ describe('extractSyncCode', () => {
   });
 
   it('同期 URL の ?code= から取り出す', () => {
-    expect(extractSyncCode(`https://example.com/aegis/sync?code=${TOKEN}`)).toBe(TOKEN);
+    expect(extractSyncCode(`https://example.com/zekey/sync?code=${TOKEN}`)).toBe(TOKEN);
   });
 
   it('?sync= と #sync= のどちらでも取り出す', () => {
@@ -38,7 +38,7 @@ describe('extractSyncCode', () => {
   });
 
   it('アプリのディープリンクから取り出す', () => {
-    expect(extractSyncCode(`aegis://sync?code=${TOKEN}`)).toBe(TOKEN);
+    expect(extractSyncCode(`zekey://sync?code=${TOKEN}`)).toBe(TOKEN);
   });
 
   it('パス形式（/sync/<token>）から取り出す', () => {

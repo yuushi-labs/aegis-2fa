@@ -52,13 +52,13 @@ jobs:
           set -euo pipefail
           TAG="${{ inputs.tag || github.ref_name }}"
           cd deploy/xserver/build
-          test -f aegis/index.html
-          test -f aegis/api/index.php
-          zip -r "aegis-php-xserver-${TAG}.zip" aegis
-          unzip -l "aegis-php-xserver-${TAG}.zip" | head -20
+          test -f zekey/index.html
+          test -f zekey/api/index.php
+          zip -r "zekey-php-xserver-${TAG}.zip" zekey
+          unzip -l "zekey-php-xserver-${TAG}.zip" | head -20
       - uses: actions/upload-artifact@v7
         with:
-          name: aegis-php-zip
+          name: zekey-php-zip
           path: deploy/xserver/build/*.zip
           if-no-files-found: error
 
@@ -79,8 +79,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release-assets
-          cp dist/aegis-php-zip/*.zip release-assets/
-          cp dist/aegis-android-apk/app-release.apk "release-assets/aegis-android-${TAG}.apk"
+          cp dist/zekey-php-zip/*.zip release-assets/
+          cp dist/zekey-android-apk/app-release.apk "release-assets/zekey-android-${TAG}.apk"
           ls -la release-assets
       - name: Write release notes
         run: |
@@ -90,10 +90,10 @@ jobs:
             cp "$NOTES_FILE" release-notes.md
           else
             {
-              echo "## Aegis 2FA ${TAG}"
+              echo "## Zekey 2FA ${TAG}"
               echo
-              echo "- PHP（Xserver 用）: \`aegis-php-xserver-${TAG}.zip\` を \`public_html/aegis/\` に展開して使います。"
-              echo "- Android: \`aegis-android-${TAG}.apk\` を端末で開いてインストールします。"
+              echo "- PHP（Xserver 用）: \`zekey-php-xserver-${TAG}.zip\` を \`public_html/\` で展開して使います（ZIP の先頭が \`zekey/\`）。"
+              echo "- Android: \`zekey-android-${TAG}.apk\` を端末で開いてインストールします。"
             } > release-notes.md
           fi
           {
@@ -102,8 +102,8 @@ jobs:
             echo
             echo "| ファイル | 用途 |"
             echo "|---|---|"
-            echo "| aegis-php-xserver-${TAG}.zip | Xserver（PHP 8.1+ / SQLite）版。Web 版と同じ画面・同じ API。 |"
-            echo "| aegis-android-${TAG}.apk | Android アプリ（minSdk 26 / targetSdk 35）。サイト版から「アプリでログイン」で引き継げます。 |"
+            echo "| zekey-php-xserver-${TAG}.zip | Xserver（PHP 8.1+ / SQLite）版。Web 版と同じ画面・同じ API。 |"
+            echo "| zekey-android-${TAG}.apk | Android アプリ（minSdk 26 / targetSdk 35）。サイト版から「アプリでログイン」で引き継げます。 |"
             echo
             echo "ビルド元: \`${GITHUB_SHA}\`"
           } >> release-notes.md
@@ -115,7 +115,7 @@ jobs:
             gh release upload "$TAG" release-assets/* --clobber
           else
             gh release create "$TAG" release-assets/* \
-              --title "Aegis 2FA ${TAG}" \
+              --title "Zekey 2FA ${TAG}" \
               --notes-file release-notes.md \
               --verify-tag
           fi

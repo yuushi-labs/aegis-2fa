@@ -216,7 +216,7 @@ export function AccountDetailPage() {
     if (account === null) return;
     try {
       const blob = await renderQrPng(buildOtpauthUri(account), 640);
-      downloadBlob(blob, `aegis-${(account.issuer || account.label || 'account').replace(/[^\w-]+/g, '-')}-${timestampForFilename()}.png`);
+      downloadBlob(blob, `zekey-${(account.issuer || account.label || 'account').replace(/[^\w-]+/g, '-')}-${timestampForFilename()}.png`);
     } catch {
       toast(t('common.error'), 'error');
     }

@@ -58,7 +58,7 @@ export type SyncClientOptions = {
 };
 
 /**
- * API の基準 URL。ルート配信なら ''、サブディレクトリ配信（/aegis/）なら '/aegis'。
+ * API の基準 URL。ルート配信なら ''、サブディレクトリ配信（/zekey/）なら '/zekey'。
  * 既定値は Vite の BASE_URL から作るので、配置先が変わっても呼び出し側の変更は要らない。
  */
 function defaultBaseUrl(): string {

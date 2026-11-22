@@ -13,7 +13,7 @@ test.describe('アプリでログイン（Android アプリへの引き渡し）
 
     await page.getByTestId('app-login').click();
 
-    await expect(page.getByTestId('app-login-notice')).toContainText('Aegis Android アプリを開いています');
+    await expect(page.getByTestId('app-login-notice')).toContainText('Zekey Android アプリを開いています');
     await expect(page.getByTestId('app-login-notice')).toContainText('GitHub Releases');
     // 同期コードが発行され、サーバーへ初回同期まで終わっている。
     await expect(page.getByTestId('sync-status')).toHaveText('同期済み');
@@ -31,7 +31,7 @@ test.describe('アプリでログイン（Android アプリへの引き渡し）
     await expect(page.getByTestId('sync-status')).toHaveText('同期済み');
 
     await page.getByTestId('app-login').click();
-    await expect(page.getByTestId('app-login-notice')).toContainText('Aegis Android アプリを開いています');
+    await expect(page.getByTestId('app-login-notice')).toContainText('Zekey Android アプリを開いています');
 
     // 同期コードは作り直さない（表示して、操作前のコードと一致することを確かめる）。
     await page.getByRole('button', { name: '表示する' }).click();
@@ -46,6 +46,6 @@ test.describe('アプリでログイン（Android アプリへの引き渡し）
     await expect(page.getByTestId('app-login-card')).toBeVisible();
 
     await page.getByTestId('app-login-card').getByTestId('app-login').click();
-    await expect(page.getByTestId('app-login-notice')).toContainText('Aegis Android アプリを開いています');
+    await expect(page.getByTestId('app-login-notice')).toContainText('Zekey Android アプリを開いています');
   });
 });

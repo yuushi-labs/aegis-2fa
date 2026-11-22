@@ -5,17 +5,17 @@ import { drizzle } from 'drizzle-orm/better-sqlite3';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import * as schema from './schema';
 
-export type AegisDatabase = BetterSQLite3Database<typeof schema>;
+export type ZekeyDatabase = BetterSQLite3Database<typeof schema>;
 
 export type DatabaseHandle = {
-  db: AegisDatabase;
+  db: ZekeyDatabase;
   sqlite: Database.Database;
   path: string;
   close: () => void;
 };
 
 export function resolveDatabasePath(rawPath: string | undefined): string {
-  const value = rawPath === undefined || rawPath.trim() === '' ? './data/aegis.db' : rawPath;
+  const value = rawPath === undefined || rawPath.trim() === '' ? './data/zekey.db' : rawPath;
   if (value === ':memory:') return value;
   return resolve(value);
 }

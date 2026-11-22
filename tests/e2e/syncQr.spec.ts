@@ -48,7 +48,7 @@ test.describe('同期コードの QR 読み取り', () => {
     expect(token).not.toBeNull();
 
     // アプリが作る形式（?code=）ではなく、?sync= の URL を QR にして読ませる。
-    const png = await QRCode.toBuffer(`https://example.com/aegis/sync?sync=${token}`, { width: 320, margin: 2 });
+    const png = await QRCode.toBuffer(`https://example.com/zekey/sync?sync=${token}`, { width: 320, margin: 2 });
     const file = test.info().outputPath('sync-url-qr.png');
     await writeFile(file, png);
 
@@ -83,7 +83,7 @@ test.describe('同期コードの QR 読み取り', () => {
   test('入力欄に同期 URL を貼ると同期コードだけになる', async ({ page }) => {
     const token = 'A'.repeat(43);
     await page.goto('/sync');
-    await page.getByTestId('sync-code-input').fill(`https://example.com/aegis/sync?code=${token}`);
+    await page.getByTestId('sync-code-input').fill(`https://example.com/zekey/sync?code=${token}`);
     await expect(page.getByTestId('sync-code-input')).toHaveValue(token);
   });
 });

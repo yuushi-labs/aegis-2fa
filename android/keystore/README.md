@@ -1,6 +1,6 @@
 # 配布用の署名鍵（公開情報）
 
-`aegis-debug.keystore` は **配布用の固定署名鍵** です。`signing.properties` に書いてある
+`zekey-debug.keystore` は **配布用の固定署名鍵** です。`signing.properties` に書いてある
 パスワードも含めて公開しています。秘密情報ではありません。
 
 ## なぜコミットしているか
@@ -21,7 +21,7 @@
 ## 自分の鍵に差し替える
 
 リポジトリの Secrets に次の 4 つを置くと、ワークフローはそちらで署名します
-（`android/keystore/signing.properties` と `aegis-debug.keystore` は不要になります）。
+（`android/keystore/signing.properties` と `zekey-debug.keystore` は不要になります）。
 
 | Secret | 内容 |
 |---|---|

@@ -11,7 +11,7 @@ import { timingSafeEqualString } from '../../shared/encoding';
 import { MAX_KDF_ITERATIONS, MIN_KDF_ITERATIONS } from '../../shared/types';
 import { deriveTokenHash, deriveVaultId, isValidVaultId } from '../../shared/sync';
 import { vaults } from '../db/schema';
-import type { AegisDatabase } from '../db/client';
+import type { ZekeyDatabase } from '../db/client';
 import type { BodyLimitVariables } from '../middleware/bodyLimit';
 
 const cipherSchema = z.object({
@@ -48,7 +48,7 @@ export const putBodySchema = z
 export const DEFAULT_MAX_VAULT_BYTES = 256 * 1024 * 1024;
 
 export type VaultRoutesOptions = {
-  db: AegisDatabase;
+  db: ZekeyDatabase;
   /** 保存できる暗号文の総量（バイト）。超過する書き込みは 507 を返す。 */
   maxVaultBytes?: number;
 };

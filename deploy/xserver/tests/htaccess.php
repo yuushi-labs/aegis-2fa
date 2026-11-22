@@ -3,7 +3,7 @@
  * 配信物の静的検査（サーバー不要）。
  *
  * php -S では Apache の `.htaccess` の挙動を再現できないので、ここでは
- * ルールが実際に書かれていることと、配信物（build/aegis）がソース（site/）と
+ * ルールが実際に書かれていることと、配信物（build/zekey）がソース（site/）と
  * ずれていないことを確かめる。
  */
 
@@ -117,7 +117,7 @@ $client->check('sitemap.xml に urlset がある', str_contains($sitemapBody, '<
 $client->check('sitemap.xml がプライバシーポリシーを含む', str_contains($sitemapBody, '/privacy</loc>'));
 $client->check('og-image.png が配信物にある（1200x630 想定）', is_file($siteRoot . '/og-image.png'));
 
-$client->section('配信物とソースの一致（build/aegis = site/）');
+$client->section('配信物とソースの一致（build/zekey = site/）');
 
 if (realpath($siteRoot) === realpath($sourceRoot)) {
     $client->check('source と同一（比較を省略）', true);
