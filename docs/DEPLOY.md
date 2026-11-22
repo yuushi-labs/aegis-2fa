@@ -144,7 +144,8 @@ pnpm test:xserver                   # php -S 上で API 互換テスト
   追記する（末尾にまとめて追記すると直前のグループにしか効かない）。`Sitemap:` 行は
   グループに属しないので 1 行あればよい（サイトマップは Search Console から直接送信してもよい）。
   既存ルールに `Disallow: /` があるとホームと `/privacy` もクロールされないため、その場合は
-  `Allow: <base>` も追加し、より限定的な既存ルール（より限定的なものが優先される）も確認する
+  アプリの公開ページだけを許可する（`/aegis/` 配置は `Allow: /aegis/`、ルート配置は `Allow: /$` と
+  `Allow: /privacy$`。`Allow: /` は全体を許可してしまう）。より限定的な既存ルール（限定的なものが優先）も確認する
 - `index.html`: title / description / canonical / OGP / Twitter Card / JSON-LD（`SoftwareApplication`）
   をビルド時に絶対 URL へ解決（`%…%` ではなく `__HOME_URL__` などのプレースホルダ）
 - 公開ドメインが既定（`https://yuushi0911.xsrv.jp`）と違うときは、ビルド時に
